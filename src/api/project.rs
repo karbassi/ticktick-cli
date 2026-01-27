@@ -52,3 +52,29 @@ pub fn get_all() -> Result<Vec<Project>, String> {
     resp.into_json()
         .map_err(|e| format!("failed to parse projects: {e}"))
 }
+
+pub fn get_by_id(project_id: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+    let resp = super::get(&format!("/project/{project_id}"), &token)?;
+
+    let project: Project = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))?;
+
+    println!("\x1b[1mProject:\x1b[0m {}", project.name);
+    println!("  \x1b[90mid:\x1b[0m {}", project.id);
+    if let Some(color) = &project.color {
+        println!("  \x1b[90mcolor:\x1b[0m {}", color);
+    }
+    if let Some(view_mode) = &project.view_mode {
+        println!("  \x1b[90mview:\x1b[0m {}", view_mode);
+    }
+    if let Some(kind) = &project.kind {
+        println!("  \x1b[90mkind:\x1b[0m {}", kind);
+    }
+    if project.closed {
+        println!("  \x1b[90mstatus:\x1b[0m closed");
+    }
+
+    Ok(())
+}

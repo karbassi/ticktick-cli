@@ -13,5 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config module for .env loading and token storage
 - OAuth authentication flow (login command)
 - Logout command
-- Project listing command
-- Task listing command
+- Project listing command (`projects`)
+- Get project by ID command (`project <id>`)
+- Task listing command (`tasks [project_id]`)
+- Create task command (`add <title>`)
+- Complete task command (`complete <project_id> <task_id>`)
+- Delete task command (`delete <project_id> <task_id>`)
+- Integration tests for all API endpoints
