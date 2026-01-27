@@ -95,3 +95,52 @@ struct ProjectData {
     #[serde(default)]
     tasks: Vec<Task>,
 }
+
+pub fn create(title: &str, project_id: Option<&str>) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let mut body = serde_json::json!({
+        "title": title
+    });
+
+    if let Some(pid) = project_id {
+        body["projectId"] = serde_json::Value::String(pid.to_string());
+    }
+
+    let resp = super::post("/task", &token, &body)?;
+
+    let task: Task = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))?;
+
+    println!("\x1b[32mTask created:\x1b[0m {}", task.title);
+    println!("  \x1b[90mid:\x1b[0m {}", task.id);
+    if let Some(pid) = &task.project_id {
+        println!("  \x1b[90mproject:\x1b[0m {}", pid);
+    }
+
+    Ok(())
+}
+
+pub fn complete(project_id: &str, task_id: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let endpoint = format!("/project/{project_id}/task/{task_id}/complete");
+
+    ureq::post(&format!("https://api.ticktick.com/open/v1{endpoint}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| format!("API request failed: {e}"))?;
+
+    println!("\x1b[32mTask completed!\x1b[0m");
+    Ok(())
+}
+
+pub fn delete(project_id: &str, task_id: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    super::delete(&format!("/project/{project_id}/task/{task_id}"), &token)?;
+
+    println!("\x1b[32mTask deleted!\x1b[0m");
+    Ok(())
+}
