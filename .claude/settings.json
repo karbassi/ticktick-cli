@@ -1,5 +1,16 @@
 {
   "enabledPlugins": {
     "ralph-loop@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo build*)",
+      "Bash(cargo test*)",
+      "Bash(cargo run*)",
+      "Bash(cargo fmt*)",
+      "Bash(cargo clippy*)",
+      "Bash(cargo check*)",
+      "Bash(curl *)"
+    ]
   }
 }

@@ -1,1 +1,18 @@
+# Environment
 .env
+
+# Rust/Cargo
+/target
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Config (contains tokens)
+.config/
