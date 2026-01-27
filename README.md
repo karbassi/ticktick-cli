@@ -63,15 +63,17 @@ ticktick <COMMAND> [OPTIONS]
 | `login` | Authenticate with TickTick |
 | `logout` | Remove stored credentials |
 | `projects` | List all projects |
-| `project <id>` | Get project details by ID |
+| `project <name>` | Get project details by name or ID |
 | `tasks` | List all tasks |
-| `tasks <project_id>` | List tasks for a specific project |
+| `tasks <project>` | List tasks for a specific project |
 | `add <title>` | Create a new task |
-| `add <title> -p <project_id>` | Create a task in a specific project |
-| `complete <project_id> <task_id>` | Mark a task as complete |
-| `delete <project_id> <task_id>` | Delete a task |
+| `add <title> -p <project>` | Create a task in a specific project |
+| `complete <project> <task_id>` | Mark a task as complete |
+| `delete <project> <task_id>` | Delete a task |
 | `help` | Show help message |
 | `version` | Show version |
+
+**Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
 ### Examples
 
@@ -79,20 +81,22 @@ ticktick <COMMAND> [OPTIONS]
 # List all projects
 ticktick projects
 
-# List tasks in a project
-ticktick tasks 5a4f19f4e4b0720eb733d710
+# List tasks in a project (by name)
+ticktick tasks Work
+ticktick tasks 'My Project'
+ticktick tasks Personal
 
 # Create a task (goes to inbox)
 ticktick add "Buy groceries"
 
 # Create a task in a specific project
-ticktick add "Review PR" --project xyz789abc123
+ticktick add "Review PR" -p Work
 
 # Complete a task
-ticktick complete xyz789abc123 abc123def456
+ticktick complete Work abc123def456
 
 # Delete a task
-ticktick delete xyz789abc123 abc123def456
+ticktick delete Personal abc123def456
 ```
 
 ## Configuration

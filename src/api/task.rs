@@ -27,9 +27,7 @@ pub struct Task {
     pub tags: Vec<String>,
 }
 
-pub fn list(args: &[String]) -> Result<(), String> {
-    let project_id = args.first();
-
+pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
     let token = config::get_access_token()?;
 
     if let Some(pid) = project_id {
