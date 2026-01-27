@@ -125,12 +125,7 @@ pub fn create(title: &str, project_id: Option<&str>) -> Result<(), String> {
 pub fn complete(project_id: &str, task_id: &str) -> Result<(), String> {
     let token = config::get_access_token()?;
 
-    let endpoint = format!("/project/{project_id}/task/{task_id}/complete");
-
-    ureq::post(&format!("https://api.ticktick.com/open/v1{endpoint}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()
-        .map_err(|e| format!("API request failed: {e}"))?;
+    super::post_empty(&format!("/project/{project_id}/task/{task_id}/complete"), &token)?;
 
     println!("\x1b[32mTask completed!\x1b[0m");
     Ok(())
