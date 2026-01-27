@@ -115,6 +115,29 @@ fn exchange_code(code: &str, client_id: &str, client_secret: &str) -> Result<Tok
         .map_err(|e| format!("failed to parse token response: {e}"))
 }
 
+pub fn refresh_token(refresh_token: &str) -> Result<(String, Option<String>), String> {
+    let env = config::load_env()?;
+
+    let body = format!(
+        "grant_type=refresh_token&refresh_token={}",
+        urlencoding(refresh_token),
+    );
+
+    let auth = base64_encode(&format!("{}:{}", env.client_id, env.client_secret));
+
+    let resp = ureq::post(TOKEN_URL)
+        .set("Authorization", &format!("Basic {auth}"))
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send_string(&body)
+        .map_err(|e| format!("token refresh failed: {e}"))?;
+
+    let token: TokenResponse = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse token response: {e}"))?;
+
+    Ok((token.access_token, token.refresh_token))
+}
+
 fn base64_encode(s: &str) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = s.as_bytes();

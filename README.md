@@ -4,7 +4,7 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 
 ## Features
 
-- OAuth authentication flow
+- OAuth authentication flow with automatic token refresh
 - List all projects
 - Get project details
 - List tasks (all or by project)

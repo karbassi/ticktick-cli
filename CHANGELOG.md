@@ -20,3 +20,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete task command (`complete <project_id> <task_id>`)
 - Delete task command (`delete <project_id> <task_id>`)
 - Integration tests for all API endpoints
+- Automatic OAuth token refresh on 401 errors
