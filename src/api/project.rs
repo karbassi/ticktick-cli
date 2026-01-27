@@ -53,6 +53,43 @@ pub fn get_all() -> Result<Vec<Project>, String> {
         .map_err(|e| format!("failed to parse projects: {e}"))
 }
 
+/// Resolve a project name or ID to an actual project ID.
+/// If the input looks like a hex ID (24+ chars), use it directly.
+/// Otherwise, search by name (case-insensitive).
+pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
+    // If it looks like an ID (long hex string), use it directly
+    if name_or_id.len() >= 20 && name_or_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(name_or_id.to_string());
+    }
+
+    // Otherwise, search by name
+    let projects = get_all()?;
+    let search = name_or_id.to_lowercase();
+
+    // Try exact match first (case-insensitive)
+    if let Some(p) = projects.iter().find(|p| p.name.to_lowercase() == search) {
+        return Ok(p.id.clone());
+    }
+
+    // Try contains match
+    let matches: Vec<_> = projects
+        .iter()
+        .filter(|p| p.name.to_lowercase().contains(&search))
+        .collect();
+
+    match matches.len() {
+        0 => Err(format!("no project found matching '{name_or_id}'")),
+        1 => Ok(matches[0].id.clone()),
+        _ => {
+            let names: Vec<_> = matches.iter().map(|p| p.name.as_str()).collect();
+            Err(format!(
+                "multiple projects match '{name_or_id}': {}",
+                names.join(", ")
+            ))
+        }
+    }
+}
+
 pub fn get_by_id(project_id: &str) -> Result<(), String> {
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}"), &token)?;
