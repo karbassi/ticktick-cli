@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactored CLI to use clap for argument parsing
+- Added command aliases: `new` (add), `done` (complete), `rm` (delete)
+- Each command now has detailed `--help` with examples
+
 ### Added
 - Initial project scaffolding with Cargo
 - Basic CLI structure with help command
