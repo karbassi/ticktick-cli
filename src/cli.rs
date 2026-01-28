@@ -42,7 +42,7 @@ enum Commands {
     ///
     /// Prerequisites:
     ///   1. Go to https://developer.ticktick.com/manage
-    ///   2. Create a new app with redirect URI: http://127.0.0.1:8080/callback
+    ///   2. Create a new app with redirect URI: http://127.0.0.1:8585/callback
     ///   3. Set TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET env vars
     #[command(after_long_help = "\
 Examples:
