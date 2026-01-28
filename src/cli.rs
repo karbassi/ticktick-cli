@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::CompleteEnv;
 
 /// TickTick CLI - A command-line interface for managing tasks and projects
 ///
@@ -176,6 +177,8 @@ Examples:
 }
 
 pub fn run() -> Result<(), String> {
+    CompleteEnv::with_factory(Cli::command).complete();
+
     let cli = Cli::parse();
 
     match cli.command {

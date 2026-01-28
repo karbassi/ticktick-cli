@@ -28,6 +28,7 @@ class Ticktick < Formula
 
   def install
     bin.install "ticktick"
+    generate_completions_from_executable(bin/"ticktick", shell_parameter_format: :clap)
   end
 
   test do
