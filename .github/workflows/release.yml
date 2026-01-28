@@ -85,4 +85,4 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           repository: karbassi/homebrew-tap
           event-type: release
-          client-payload: '{"formula": "ticktick"}'
+          client-payload: '{"formula": "ticktick-cli"}'
