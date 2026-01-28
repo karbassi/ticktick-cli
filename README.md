@@ -68,11 +68,10 @@ ticktick <COMMAND> [OPTIONS]
 | `add <title> [-p project]` | `new` | Create a new task |
 | `complete <project> <task_id>` | `done` | Mark a task as complete |
 | `delete <project> <task_id>` | `rm` | Delete a task |
-| `help [command]` | | Show help message or help for a command |
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
-Run `ticktick <command> --help` for detailed usage and examples.
+Run `ticktick --help` for a list of commands, or `ticktick <command> --help` for detailed usage and examples.
 
 ### Examples
 
@@ -102,7 +101,7 @@ ticktick rm Personal abc123def456    # alias
 
 # Get help for a specific command
 ticktick add --help
-ticktick help complete
+ticktick complete --help
 ```
 
 ## Configuration
