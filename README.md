@@ -14,6 +14,12 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install karbassi/tap/ticktick
+```
+
 ### From source
 
 ```bash

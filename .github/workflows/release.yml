@@ -79,7 +79,7 @@ jobs:
           files: ticktick-cli-*.tar.gz
           generate_release_notes: true
 
-      - name: Trigger Homebrew tap update
+      - name: Trigger homebrew-tap update
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
