@@ -28,7 +28,7 @@ cd ticktick-cli
 cargo build --release
 ```
 
-The binary will be at `target/release/ticktick`.
+The binary will be at `target/release/ticktick-cli`.
 
 ## Setup
 
@@ -51,7 +51,7 @@ TICKTICK_CLIENT_SECRET=your_client_secret
 ### 3. Authenticate
 
 ```bash
-ticktick login
+ticktick-cli login
 ```
 
 This will open a URL in your terminal. Copy it to your browser, authorize the app, and the CLI will capture the callback automatically.
@@ -59,50 +59,55 @@ This will open a URL in your terminal. Copy it to your browser, authorize the ap
 ## Usage
 
 ```
-ticktick <COMMAND> [OPTIONS]
+ticktick-cli <COMMAND> [OPTIONS]
 ```
 
 ### Commands
 
-| Command | Description |
-|---------|-------------|
-| `login` | Authenticate with TickTick |
-| `logout` | Remove stored credentials |
-| `projects` | List all projects |
-| `project <name>` | Get project details by name or ID |
-| `tasks` | List all tasks |
-| `tasks <project>` | List tasks for a specific project |
-| `add <title>` | Create a new task |
-| `add <title> -p <project>` | Create a task in a specific project |
-| `complete <project> <task_id>` | Mark a task as complete |
-| `delete <project> <task_id>` | Delete a task |
-| `help` | Show help message |
-| `version` | Show version |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `login` | | Authenticate with TickTick |
+| `logout` | | Remove stored credentials |
+| `projects` | | List all projects |
+| `project <name>` | | Get project details by name or ID |
+| `tasks [project]` | | List all tasks, optionally filtered by project |
+| `add <title> [-p project]` | `new` | Create a new task |
+| `complete <project> <task_id>` | `done` | Mark a task as complete |
+| `delete <project> <task_id>` | `rm` | Delete a task |
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
+
+Run `ticktick-cli --help` for a list of commands, or `ticktick-cli <command> --help` for detailed usage and examples.
 
 ### Examples
 
 ```bash
 # List all projects
-ticktick projects
+ticktick-cli projects
 
 # List tasks in a project (by name)
-ticktick tasks Work
-ticktick tasks 'My Project'
-ticktick tasks Personal
+ticktick-cli tasks Work
+ticktick-cli tasks 'My Project'
+ticktick-cli tasks Personal
 
 # Create a task (goes to inbox)
-ticktick add "Buy groceries"
+ticktick-cli add "Buy groceries"
+ticktick-cli new "Buy groceries"           # alias
 
 # Create a task in a specific project
-ticktick add "Review PR" -p Work
+ticktick-cli add "Review PR" -p Work
 
 # Complete a task
-ticktick complete Work abc123def456
+ticktick-cli complete Work abc123def456
+ticktick-cli done Work abc123def456    # alias
 
 # Delete a task
-ticktick delete Personal abc123def456
+ticktick-cli delete Personal abc123def456
+ticktick-cli rm Personal abc123def456    # alias
+
+# Get help for a specific command
+ticktick-cli add --help
+ticktick-cli complete --help
 ```
 
 ## Configuration

@@ -23,12 +23,11 @@ Build a complete TickTick CLI in Rust that implements the ENTIRE API.
 
 ## Technical Requirements
 - **Minimal deps**: Prefer native Rust where reasonable. Allowed exceptions:
+  - `clap` for CLI argument parsing (derive macros)
   - `ureq` for HTTP (no async complexity)
   - `serde` + `serde_json` for JSON
   - `serde_yaml` for parsing the OpenAPI spec
 - Config storage: `~/.config/ticktick-cli/`
-- Colors: Raw ANSI escape codes
-- CLI parsing: Native `std::env::args`
 
 ## Auth from .env
 The `.env` file contains:

@@ -1,7 +1,4 @@
 {
-  "enabledPlugins": {
-    "ralph-loop@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Bash(cargo build*)",
@@ -12,5 +9,9 @@
       "Bash(cargo check*)",
       "Bash(curl *)"
     ]
+  },
+  "enabledPlugins": {
+    "ralph-loop@claude-plugins-official": true,
+    "github@karbassi-claude-plugins": true
   }
 }

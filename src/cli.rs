@@ -1,85 +1,213 @@
-use std::env;
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::CompleteEnv;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// TickTick CLI - A command-line interface for managing tasks and projects
+///
+/// Manage your TickTick tasks and projects from the terminal. Supports
+/// authentication, listing projects/tasks, creating tasks, and more.
+///
+/// Configuration is stored in ~/.config/ticktick-cli/config.json
+///
+/// Environment variables:
+///   TICKTICK_CLIENT_ID      OAuth client ID
+///   TICKTICK_CLIENT_SECRET  OAuth client secret
+///   TICKTICK_ACCESS_TOKEN   Access token (optional, for direct auth)
+#[derive(Parser)]
+#[command(name = "ticktick-cli", version, about, long_about)]
+#[command(after_long_help = "\
+Examples:
+  ticktick-cli login                          # Authenticate with TickTick
+  ticktick-cli projects                       # List all projects
+  ticktick-cli tasks                          # List all tasks
+  ticktick-cli tasks Personal                 # List tasks in Personal project
+  ticktick-cli add 'Buy milk'                 # Add task to inbox
+  ticktick-cli add 'Review PR' -p Work        # Add task to Work project
+  ticktick-cli complete Personal abc123       # Complete a task
+  ticktick-cli delete Personal abc123         # Delete a task
+")]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-const HELP: &str = "\
-ticktick - TickTick CLI
+#[derive(Subcommand)]
+enum Commands {
+    /// Authenticate with TickTick via OAuth
+    ///
+    /// Initiates the OAuth authentication flow with TickTick:
+    ///
+    /// 1. Starts a local web server to receive the OAuth callback
+    /// 2. Opens your browser to the TickTick authorization page
+    /// 3. Waits for you to authorize the application
+    /// 4. Stores the access token in ~/.config/ticktick-cli/config.json
+    ///
+    /// Prerequisites:
+    ///   1. Go to https://developer.ticktick.com/manage
+    ///   2. Create a new app with redirect URI: http://127.0.0.1:8585/callback
+    ///   3. Set TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET env vars
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli login
+")]
+    Login,
 
-\x1b[33mUSAGE:\x1b[0m
-    ticktick <COMMAND> [OPTIONS]
+    /// Remove stored credentials from local config
+    ///
+    /// Removes the stored authentication credentials from the local
+    /// configuration file. After logging out, you will need to run
+    /// 'ticktick-cli login' again to use commands that require authentication.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli logout
+")]
+    Logout,
 
-\x1b[33mCOMMANDS:\x1b[0m
-    login                    Authenticate with TickTick
-    logout                   Remove stored credentials
-    projects                 List all projects
-    project <name>           Get project by name or ID
-    tasks [project]          List tasks (optionally for a project)
-    add <title> [-p project] Create a new task
-    complete <project> <tid> Complete a task
-    delete <project> <tid>   Delete a task
-    help                     Show this help message
-    version                  Show version
+    /// List all projects in your TickTick account
+    ///
+    /// Displays all projects with their names and IDs. The project ID
+    /// can be used with other commands like 'tasks', 'complete', and 'delete'.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli projects
+")]
+    Projects,
 
-\x1b[33mEXAMPLES:\x1b[0m
-    ticktick tasks Work
-    ticktick tasks 'My Project'
-    ticktick add 'New task' -p Personal
+    /// Get details for a specific project by name or ID
+    ///
+    /// Project name matching:
+    ///   - Case-insensitive: 'personal' matches 'Personal'
+    ///   - Supports partial match if unambiguous
+    ///   - Use quotes for names with spaces: 'Work Projects'
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli project Personal
+  ticktick-cli project 'Work Projects'
+  ticktick-cli project 6789abcd1234ef56
+")]
+    Project {
+        /// Project name (case-insensitive) or ID
+        name: String,
+    },
 
-\x1b[33mOPTIONS:\x1b[0m
-    -h, --help      Show help
-    -v, --version   Show version
-";
+    /// List tasks, optionally filtered by project
+    ///
+    /// Lists tasks from your TickTick account. When a project is specified,
+    /// only tasks from that project are shown. Otherwise, all tasks are listed.
+    ///
+    /// Each task displays:
+    ///   - Task title and ID (used for complete/delete commands)
+    ///   - Project name, due date, and priority level
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tasks                    # List all tasks
+  ticktick-cli tasks Personal           # List tasks in Personal project
+  ticktick-cli tasks 'Work Projects'    # List tasks in project with spaces
+")]
+    Tasks {
+        /// Filter by project name or ID
+        project: Option<String>,
+    },
+
+    /// Create a new task with the given title
+    ///
+    /// Creates a new task in TickTick. Optionally assign it to a specific
+    /// project using the -p/--project flag. If no project is specified,
+    /// the task is added to the inbox/default project.
+    #[command(visible_alias = "new")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli add 'Buy groceries'
+  ticktick-cli add 'Review pull request' -p Work
+  ticktick-cli add 'Call mom' --project Personal
+  ticktick-cli add 'Team meeting' -p 'Work Projects'
+")]
+    Add {
+        /// Task title (use quotes for titles with spaces)
+        title: String,
+
+        /// Project name or ID to add the task to
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+
+    /// Mark a task as complete
+    ///
+    /// Marks a task as complete in TickTick. The task will be moved to
+    /// the completed tasks section. This action can be undone in the
+    /// TickTick app or web interface.
+    ///
+    /// To find the task ID, run 'ticktick-cli tasks <project>' first.
+    #[command(visible_alias = "done")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli complete Personal abc123def456
+  ticktick-cli complete 'Work Projects' 789xyz123
+  ticktick-cli done Personal abc123def456        # Using alias
+")]
+    Complete {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID (find via 'ticktick-cli tasks')
+        task_id: String,
+    },
+
+    /// Permanently delete a task
+    ///
+    /// WARNING: This action cannot be undone!
+    ///
+    /// Permanently deletes a task from TickTick. Use 'ticktick-cli complete'
+    /// if you want to mark a task as done without removing it.
+    ///
+    /// To find the task ID, run 'ticktick-cli tasks <project>' first.
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli delete Personal abc123def456
+  ticktick-cli delete 'Work Projects' 789xyz123
+  ticktick-cli rm Personal abc123def456          # Using alias
+")]
+    Delete {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID (find via 'ticktick-cli tasks')
+        task_id: String,
+    },
+}
 
 pub fn run() -> Result<(), String> {
-    let args: Vec<String> = env::args().collect();
+    CompleteEnv::with_factory(Cli::command).complete();
 
-    if args.len() < 2 {
-        print!("{HELP}");
-        return Ok(());
-    }
+    let cli = Cli::parse();
 
-    match args[1].as_str() {
-        "help" | "-h" | "--help" => {
-            print!("{HELP}");
-            Ok(())
-        }
-        "version" | "-v" | "--version" => {
-            println!("ticktick {VERSION}");
-            Ok(())
-        }
-        "login" => crate::api::auth::login(),
-        "logout" => crate::config::logout(),
-        "projects" => crate::api::project::list(),
-        "project" => {
-            let name = args.get(2).ok_or("usage: ticktick project <name>")?;
-            let id = crate::api::project::resolve_id(name)?;
+    match cli.command {
+        Commands::Login => crate::api::auth::login(),
+        Commands::Logout => crate::config::logout(),
+        Commands::Projects => crate::api::project::list(),
+        Commands::Project { name } => {
+            let id = crate::api::project::resolve_id(&name)?;
             crate::api::project::get_by_id(&id)
         }
-        "tasks" => {
-            let project = args.get(2).map(|s| crate::api::project::resolve_id(s)).transpose()?;
-            crate::api::task::list_by_project(project.as_deref())
-        }
-        "add" => {
-            let title = args.get(2).ok_or("usage: ticktick add <title> [-p <project>]")?;
-            let project_name = args.iter().position(|a| a == "--project" || a == "-p")
-                .and_then(|i| args.get(i + 1));
-            let project_id = project_name
-                .map(|n| crate::api::project::resolve_id(n))
+        Commands::Tasks { project } => {
+            let project_id = project
+                .map(|s| crate::api::project::resolve_id(&s))
                 .transpose()?;
-            crate::api::task::create(title, project_id.as_deref())
+            crate::api::task::list_by_project(project_id.as_deref())
         }
-        "complete" => {
-            let project = args.get(2).ok_or("usage: ticktick complete <project> <task_id>")?;
-            let task_id = args.get(3).ok_or("usage: ticktick complete <project> <task_id>")?;
-            let project_id = crate::api::project::resolve_id(project)?;
-            crate::api::task::complete(&project_id, task_id)
+        Commands::Add { title, project } => {
+            let project_id = project
+                .map(|n| crate::api::project::resolve_id(&n))
+                .transpose()?;
+            crate::api::task::create(&title, project_id.as_deref())
         }
-        "delete" => {
-            let project = args.get(2).ok_or("usage: ticktick delete <project> <task_id>")?;
-            let task_id = args.get(3).ok_or("usage: ticktick delete <project> <task_id>")?;
-            let project_id = crate::api::project::resolve_id(project)?;
-            crate::api::task::delete(&project_id, task_id)
+        Commands::Complete { project, task_id } => {
+            let project_id = crate::api::project::resolve_id(&project)?;
+            crate::api::task::complete(&project_id, &task_id)
         }
-        cmd => Err(format!("unknown command: {cmd}\nRun 'ticktick help' for usage")),
+        Commands::Delete { project, task_id } => {
+            let project_id = crate::api::project::resolve_id(&project)?;
+            crate::api::task::delete(&project_id, &task_id)
+        }
     }
 }
