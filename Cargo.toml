@@ -1,5 +1,5 @@
 [package]
-name = "ticktick"
+name = "ticktick-cli"
 version = "0.1.0"
 edition = "2024"
 description = "A CLI for TickTick task management"

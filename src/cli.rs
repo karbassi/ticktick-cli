@@ -13,17 +13,17 @@ use clap_complete::CompleteEnv;
 ///   TICKTICK_CLIENT_SECRET  OAuth client secret
 ///   TICKTICK_ACCESS_TOKEN   Access token (optional, for direct auth)
 #[derive(Parser)]
-#[command(name = "ticktick", version, about, long_about)]
+#[command(name = "ticktick-cli", version, about, long_about)]
 #[command(after_long_help = "\
 Examples:
-  ticktick login                          # Authenticate with TickTick
-  ticktick projects                       # List all projects
-  ticktick tasks                          # List all tasks
-  ticktick tasks Personal                 # List tasks in Personal project
-  ticktick add 'Buy milk'                 # Add task to inbox
-  ticktick add 'Review PR' -p Work        # Add task to Work project
-  ticktick complete Personal abc123       # Complete a task
-  ticktick delete Personal abc123         # Delete a task
+  ticktick-cli login                          # Authenticate with TickTick
+  ticktick-cli projects                       # List all projects
+  ticktick-cli tasks                          # List all tasks
+  ticktick-cli tasks Personal                 # List tasks in Personal project
+  ticktick-cli add 'Buy milk'                 # Add task to inbox
+  ticktick-cli add 'Review PR' -p Work        # Add task to Work project
+  ticktick-cli complete Personal abc123       # Complete a task
+  ticktick-cli delete Personal abc123         # Delete a task
 ")]
 pub struct Cli {
     #[command(subcommand)]
@@ -47,7 +47,7 @@ enum Commands {
     ///   3. Set TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET env vars
     #[command(after_long_help = "\
 Examples:
-  ticktick login
+  ticktick-cli login
 ")]
     Login,
 
@@ -55,10 +55,10 @@ Examples:
     ///
     /// Removes the stored authentication credentials from the local
     /// configuration file. After logging out, you will need to run
-    /// 'ticktick login' again to use commands that require authentication.
+    /// 'ticktick-cli login' again to use commands that require authentication.
     #[command(after_long_help = "\
 Examples:
-  ticktick logout
+  ticktick-cli logout
 ")]
     Logout,
 
@@ -68,7 +68,7 @@ Examples:
     /// can be used with other commands like 'tasks', 'complete', and 'delete'.
     #[command(after_long_help = "\
 Examples:
-  ticktick projects
+  ticktick-cli projects
 ")]
     Projects,
 
@@ -80,9 +80,9 @@ Examples:
     ///   - Use quotes for names with spaces: 'Work Projects'
     #[command(after_long_help = "\
 Examples:
-  ticktick project Personal
-  ticktick project 'Work Projects'
-  ticktick project 6789abcd1234ef56
+  ticktick-cli project Personal
+  ticktick-cli project 'Work Projects'
+  ticktick-cli project 6789abcd1234ef56
 ")]
     Project {
         /// Project name (case-insensitive) or ID
@@ -99,9 +99,9 @@ Examples:
     ///   - Project name, due date, and priority level
     #[command(after_long_help = "\
 Examples:
-  ticktick tasks                    # List all tasks
-  ticktick tasks Personal           # List tasks in Personal project
-  ticktick tasks 'Work Projects'    # List tasks in project with spaces
+  ticktick-cli tasks                    # List all tasks
+  ticktick-cli tasks Personal           # List tasks in Personal project
+  ticktick-cli tasks 'Work Projects'    # List tasks in project with spaces
 ")]
     Tasks {
         /// Filter by project name or ID
@@ -116,10 +116,10 @@ Examples:
     #[command(visible_alias = "new")]
     #[command(after_long_help = "\
 Examples:
-  ticktick add 'Buy groceries'
-  ticktick add 'Review pull request' -p Work
-  ticktick add 'Call mom' --project Personal
-  ticktick add 'Team meeting' -p 'Work Projects'
+  ticktick-cli add 'Buy groceries'
+  ticktick-cli add 'Review pull request' -p Work
+  ticktick-cli add 'Call mom' --project Personal
+  ticktick-cli add 'Team meeting' -p 'Work Projects'
 ")]
     Add {
         /// Task title (use quotes for titles with spaces)
@@ -136,19 +136,19 @@ Examples:
     /// the completed tasks section. This action can be undone in the
     /// TickTick app or web interface.
     ///
-    /// To find the task ID, run 'ticktick tasks <project>' first.
+    /// To find the task ID, run 'ticktick-cli tasks <project>' first.
     #[command(visible_alias = "done")]
     #[command(after_long_help = "\
 Examples:
-  ticktick complete Personal abc123def456
-  ticktick complete 'Work Projects' 789xyz123
-  ticktick done Personal abc123def456        # Using alias
+  ticktick-cli complete Personal abc123def456
+  ticktick-cli complete 'Work Projects' 789xyz123
+  ticktick-cli done Personal abc123def456        # Using alias
 ")]
     Complete {
         /// Project name or ID containing the task
         project: String,
 
-        /// Task ID (find via 'ticktick tasks')
+        /// Task ID (find via 'ticktick-cli tasks')
         task_id: String,
     },
 
@@ -156,22 +156,22 @@ Examples:
     ///
     /// WARNING: This action cannot be undone!
     ///
-    /// Permanently deletes a task from TickTick. Use 'ticktick complete'
+    /// Permanently deletes a task from TickTick. Use 'ticktick-cli complete'
     /// if you want to mark a task as done without removing it.
     ///
-    /// To find the task ID, run 'ticktick tasks <project>' first.
+    /// To find the task ID, run 'ticktick-cli tasks <project>' first.
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
-  ticktick delete Personal abc123def456
-  ticktick delete 'Work Projects' 789xyz123
-  ticktick rm Personal abc123def456          # Using alias
+  ticktick-cli delete Personal abc123def456
+  ticktick-cli delete 'Work Projects' 789xyz123
+  ticktick-cli rm Personal abc123def456          # Using alias
 ")]
     Delete {
         /// Project name or ID containing the task
         project: String,
 
-        /// Task ID (find via 'ticktick tasks')
+        /// Task ID (find via 'ticktick-cli tasks')
         task_id: String,
     },
 }

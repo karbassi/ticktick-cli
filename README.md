@@ -22,7 +22,7 @@ cd ticktick-cli
 cargo build --release
 ```
 
-The binary will be at `target/release/ticktick`.
+The binary will be at `target/release/ticktick-cli`.
 
 ## Setup
 
@@ -45,7 +45,7 @@ TICKTICK_CLIENT_SECRET=your_client_secret
 ### 3. Authenticate
 
 ```bash
-ticktick login
+ticktick-cli login
 ```
 
 This will open a URL in your terminal. Copy it to your browser, authorize the app, and the CLI will capture the callback automatically.
@@ -53,7 +53,7 @@ This will open a URL in your terminal. Copy it to your browser, authorize the ap
 ## Usage
 
 ```
-ticktick <COMMAND> [OPTIONS]
+ticktick-cli <COMMAND> [OPTIONS]
 ```
 
 ### Commands
@@ -71,37 +71,37 @@ ticktick <COMMAND> [OPTIONS]
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
-Run `ticktick --help` for a list of commands, or `ticktick <command> --help` for detailed usage and examples.
+Run `ticktick-cli --help` for a list of commands, or `ticktick-cli <command> --help` for detailed usage and examples.
 
 ### Examples
 
 ```bash
 # List all projects
-ticktick projects
+ticktick-cli projects
 
 # List tasks in a project (by name)
-ticktick tasks Work
-ticktick tasks 'My Project'
-ticktick tasks Personal
+ticktick-cli tasks Work
+ticktick-cli tasks 'My Project'
+ticktick-cli tasks Personal
 
 # Create a task (goes to inbox)
-ticktick add "Buy groceries"
-ticktick new "Buy groceries"           # alias
+ticktick-cli add "Buy groceries"
+ticktick-cli new "Buy groceries"           # alias
 
 # Create a task in a specific project
-ticktick add "Review PR" -p Work
+ticktick-cli add "Review PR" -p Work
 
 # Complete a task
-ticktick complete Work abc123def456
-ticktick done Work abc123def456    # alias
+ticktick-cli complete Work abc123def456
+ticktick-cli done Work abc123def456    # alias
 
 # Delete a task
-ticktick delete Personal abc123def456
-ticktick rm Personal abc123def456    # alias
+ticktick-cli delete Personal abc123def456
+ticktick-cli rm Personal abc123def456    # alias
 
 # Get help for a specific command
-ticktick add --help
-ticktick complete --help
+ticktick-cli add --help
+ticktick-cli complete --help
 ```
 
 ## Configuration
