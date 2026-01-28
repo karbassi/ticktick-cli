@@ -78,3 +78,11 @@ jobs:
         with:
           files: ticktick-cli-*.tar.gz
           generate_release_notes: true
+
+      - name: Trigger Homebrew tap update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: karbassi/homebrew-tap
+          event-type: release
+          client-payload: '{"formula": "ticktick"}'
