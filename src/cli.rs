@@ -13,6 +13,17 @@ use clap::{Parser, Subcommand};
 ///   TICKTICK_ACCESS_TOKEN   Access token (optional, for direct auth)
 #[derive(Parser)]
 #[command(name = "ticktick", version, about, long_about)]
+#[command(after_long_help = "\
+Examples:
+  ticktick login                          # Authenticate with TickTick
+  ticktick projects                       # List all projects
+  ticktick tasks                          # List all tasks
+  ticktick tasks Personal                 # List tasks in Personal project
+  ticktick add 'Buy milk'                 # Add task to inbox
+  ticktick add 'Review PR' -p Work        # Add task to Work project
+  ticktick complete Personal abc123       # Complete a task
+  ticktick delete Personal abc123         # Delete a task
+")]
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -33,6 +44,10 @@ enum Commands {
     ///   1. Go to https://developer.ticktick.com/manage
     ///   2. Create a new app with redirect URI: http://127.0.0.1:8080/callback
     ///   3. Set TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET env vars
+    #[command(after_long_help = "\
+Examples:
+  ticktick login
+")]
     Login,
 
     /// Remove stored credentials from local config
@@ -40,12 +55,20 @@ enum Commands {
     /// Removes the stored authentication credentials from the local
     /// configuration file. After logging out, you will need to run
     /// 'ticktick login' again to use commands that require authentication.
+    #[command(after_long_help = "\
+Examples:
+  ticktick logout
+")]
     Logout,
 
     /// List all projects in your TickTick account
     ///
     /// Displays all projects with their names and IDs. The project ID
     /// can be used with other commands like 'tasks', 'complete', and 'delete'.
+    #[command(after_long_help = "\
+Examples:
+  ticktick projects
+")]
     Projects,
 
     /// Get details for a specific project by name or ID
@@ -54,6 +77,12 @@ enum Commands {
     ///   - Case-insensitive: 'personal' matches 'Personal'
     ///   - Supports partial match if unambiguous
     ///   - Use quotes for names with spaces: 'Work Projects'
+    #[command(after_long_help = "\
+Examples:
+  ticktick project Personal
+  ticktick project 'Work Projects'
+  ticktick project 6789abcd1234ef56
+")]
     Project {
         /// Project name (case-insensitive) or ID
         name: String,
@@ -67,6 +96,12 @@ enum Commands {
     /// Each task displays:
     ///   - Task title and ID (used for complete/delete commands)
     ///   - Project name, due date, and priority level
+    #[command(after_long_help = "\
+Examples:
+  ticktick tasks                    # List all tasks
+  ticktick tasks Personal           # List tasks in Personal project
+  ticktick tasks 'Work Projects'    # List tasks in project with spaces
+")]
     Tasks {
         /// Filter by project name or ID
         project: Option<String>,
@@ -78,6 +113,13 @@ enum Commands {
     /// project using the -p/--project flag. If no project is specified,
     /// the task is added to the inbox/default project.
     #[command(visible_alias = "new")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick add 'Buy groceries'
+  ticktick add 'Review pull request' -p Work
+  ticktick add 'Call mom' --project Personal
+  ticktick add 'Team meeting' -p 'Work Projects'
+")]
     Add {
         /// Task title (use quotes for titles with spaces)
         title: String,
@@ -95,6 +137,12 @@ enum Commands {
     ///
     /// To find the task ID, run 'ticktick tasks <project>' first.
     #[command(visible_alias = "done")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick complete Personal abc123def456
+  ticktick complete 'Work Projects' 789xyz123
+  ticktick done Personal abc123def456        # Using alias
+")]
     Complete {
         /// Project name or ID containing the task
         project: String,
@@ -112,6 +160,12 @@ enum Commands {
     ///
     /// To find the task ID, run 'ticktick tasks <project>' first.
     #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick delete Personal abc123def456
+  ticktick delete 'Work Projects' 789xyz123
+  ticktick rm Personal abc123def456          # Using alias
+")]
     Delete {
         /// Project name or ID containing the task
         project: String,
