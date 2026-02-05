@@ -7,12 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Refactored CLI to use clap for argument parsing
-- Added command aliases: `new` (add), `done` (complete), `rm` (delete)
-- Each command now has detailed `--help` with examples
-
 ### Added
+- Pre-commit hook running `cargo fmt`, `cargo clippy`, `cargo test`, and auto-updating CHANGELOG.md
+- Configurable OAuth callback port via `TICKTICK_OAUTH_PORT` environment variable (default: 8080)
+- Support for reading credentials from environment variables (with precedence over `.env` file)
+- XDG Base Directory support for config directory (`$XDG_CONFIG_HOME/ticktick-cli/`)
+- `.env` file lookup in XDG config directory as fallback (`$XDG_CONFIG_HOME/ticktick-cli/.env`)
 - Initial project scaffolding with Cargo
 - Basic CLI structure with help command
 - Config module for .env loading and token storage
@@ -27,3 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration tests for all API endpoints
 - Automatic OAuth token refresh on 401 errors
 - Project name lookup (use names instead of IDs in all commands)
+
+### Changed
+- Refactored CLI to use clap for argument parsing
+- Added command aliases: `new` (add), `done` (complete), `rm` (delete)
+- Each command now has detailed `--help` with examples
+- OAuth redirect URI port changed from 8585 to 8080 (configurable)
+- Improved error messages to reference environment variables and XDG config paths

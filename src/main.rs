@@ -1,6 +1,6 @@
+mod api;
 mod cli;
 mod config;
-mod api;
 
 use std::process::ExitCode;
 

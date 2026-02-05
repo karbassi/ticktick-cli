@@ -5,6 +5,9 @@
 /target
 Cargo.lock
 
+# Claude
+CLAUDE.md
+
 # IDE
 .idea/
 .vscode/

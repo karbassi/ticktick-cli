@@ -4,8 +4,11 @@ use std::net::TcpListener;
 
 const AUTH_URL: &str = "https://ticktick.com/oauth/authorize";
 const TOKEN_URL: &str = "https://ticktick.com/oauth/token";
-const REDIRECT_URI: &str = "http://127.0.0.1:8585/callback";
 const SCOPE: &str = "tasks:read tasks:write";
+
+fn redirect_uri() -> String {
+    format!("http://127.0.0.1:{}/callback", config::oauth_port())
+}
 
 pub fn login() -> Result<(), String> {
     let env = config::load_env()?;
@@ -15,7 +18,7 @@ pub fn login() -> Result<(), String> {
         AUTH_URL,
         urlencoding(&env.client_id),
         urlencoding(SCOPE),
-        urlencoding(REDIRECT_URI),
+        urlencoding(&redirect_uri()),
     );
 
     println!("\x1b[33mOpen this URL in your browser:\x1b[0m\n");
@@ -57,8 +60,9 @@ fn urlencoding(s: &str) -> String {
 }
 
 fn wait_for_callback() -> Result<String, String> {
-    let listener = TcpListener::bind("127.0.0.1:8585")
-        .map_err(|e| format!("failed to bind to port 8585: {e}"))?;
+    let port = config::oauth_port();
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}"))
+        .map_err(|e| format!("failed to bind to port {port}: {e}"))?;
 
     let (mut stream, _) = listener
         .accept()
@@ -95,11 +99,15 @@ struct TokenResponse {
     refresh_token: Option<String>,
 }
 
-fn exchange_code(code: &str, client_id: &str, client_secret: &str) -> Result<TokenResponse, String> {
+fn exchange_code(
+    code: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<TokenResponse, String> {
     let body = format!(
         "grant_type=authorization_code&code={}&redirect_uri={}&scope={}",
         urlencoding(code),
-        urlencoding(REDIRECT_URI),
+        urlencoding(&redirect_uri()),
         urlencoding(SCOPE),
     );
 

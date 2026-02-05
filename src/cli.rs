@@ -6,12 +6,13 @@ use clap_complete::CompleteEnv;
 /// Manage your TickTick tasks and projects from the terminal. Supports
 /// authentication, listing projects/tasks, creating tasks, and more.
 ///
-/// Configuration is stored in ~/.config/ticktick-cli/config.json
+/// Configuration is stored in $XDG_CONFIG_HOME/ticktick-cli/config.json
 ///
 /// Environment variables:
-///   TICKTICK_CLIENT_ID      OAuth client ID
-///   TICKTICK_CLIENT_SECRET  OAuth client secret
+///   TICKTICK_CLIENT_ID      OAuth client ID (required)
+///   TICKTICK_CLIENT_SECRET  OAuth client secret (required)
 ///   TICKTICK_ACCESS_TOKEN   Access token (optional, for direct auth)
+///   TICKTICK_OAUTH_PORT     OAuth callback port (default: 8080)
 #[derive(Parser)]
 #[command(name = "ticktick-cli", version, about, long_about)]
 #[command(after_long_help = "\
@@ -39,12 +40,13 @@ enum Commands {
     /// 1. Starts a local web server to receive the OAuth callback
     /// 2. Opens your browser to the TickTick authorization page
     /// 3. Waits for you to authorize the application
-    /// 4. Stores the access token in ~/.config/ticktick-cli/config.json
+    /// 4. Stores the access token in $XDG_CONFIG_HOME/ticktick-cli/config.json
     ///
     /// Prerequisites:
     ///   1. Go to https://developer.ticktick.com/manage
-    ///   2. Create a new app with redirect URI: http://127.0.0.1:8585/callback
-    ///   3. Set TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET env vars
+    ///   2. Create a new app with redirect URI: http://127.0.0.1:<port>/callback
+    ///   3. Set TICKTICK_CLIENT_ID, TICKTICK_CLIENT_SECRET, and TICKTICK_OAUTH_PORT env vars
+    ///      (TICKTICK_OAUTH_PORT defaults to 8080)
     #[command(after_long_help = "\
 Examples:
   ticktick-cli login

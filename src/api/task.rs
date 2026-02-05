@@ -43,10 +43,10 @@ pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
         let mut all_tasks = Vec::new();
 
         for project in &projects {
-            if let Ok(resp) = super::get(&format!("/project/{}/data", project.id), &token) {
-                if let Ok(data) = resp.into_json::<ProjectData>() {
-                    all_tasks.extend(data.tasks);
-                }
+            if let Ok(resp) = super::get(&format!("/project/{}/data", project.id), &token)
+                && let Ok(data) = resp.into_json::<ProjectData>()
+            {
+                all_tasks.extend(data.tasks);
             }
         }
 
@@ -123,7 +123,10 @@ pub fn create(title: &str, project_id: Option<&str>) -> Result<(), String> {
 pub fn complete(project_id: &str, task_id: &str) -> Result<(), String> {
     let token = config::get_access_token()?;
 
-    super::post_empty(&format!("/project/{project_id}/task/{task_id}/complete"), &token)?;
+    super::post_empty(
+        &format!("/project/{project_id}/task/{task_id}/complete"),
+        &token,
+    )?;
 
     println!("\x1b[32mTask completed!\x1b[0m");
     Ok(())
