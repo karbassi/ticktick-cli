@@ -7,17 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
-- Pre-commit hook running `cargo fmt`, `cargo clippy`, `cargo test`, and auto-updating CHANGELOG.md
+- Pre-commit hook for `cargo fmt`, `cargo clippy`, and `cargo test`
 - Configurable OAuth callback port via `TICKTICK_OAUTH_PORT` environment variable (default: 8080)
 - Support for reading credentials from environment variables (with precedence over `.env` file)
 - XDG Base Directory support for config directory (`$XDG_CONFIG_HOME/ticktick-cli/`)
-- `.env` file lookup in XDG config directory as fallback (`$XDG_CONFIG_HOME/ticktick-cli/.env`)
+- `.env` file lookup in XDG config directory as fallback
+
+### Changed
+- OAuth redirect URI port changed from 8585 to 8080 (configurable)
+- Improved error messages to reference environment variables and XDG config paths
+
+### Fixed
+- Homebrew tap dispatch payload now uses correct `ticktick-cli` formula name
+
+## [0.2.0]
+
+### Added
+- Comprehensive `--help` with examples for all CLI commands
+- Command aliases: `new` (add), `done` (complete), `rm` (delete)
+- Homebrew tap installation support
+- GitHub Actions release workflow with automatic homebrew-tap update
+
+### Changed
+- Refactored CLI to use clap for argument parsing
+
+## [0.1.0]
+
+### Added
 - Initial project scaffolding with Cargo
-- Basic CLI structure with help command
-- Config module for .env loading and token storage
-- OAuth authentication flow (login command)
-- Logout command
+- OAuth authentication flow (login/logout commands)
 - Project listing command (`projects`)
 - Get project by ID command (`project <id>`)
 - Task listing command (`tasks [project_id]`)
@@ -27,10 +48,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration tests for all API endpoints
 - Automatic OAuth token refresh on 401 errors
 - Project name lookup (use names instead of IDs in all commands)
-
-### Changed
-- Refactored CLI to use clap for argument parsing
-- Added command aliases: `new` (add), `done` (complete), `rm` (delete)
-- Each command now has detailed `--help` with examples
-- OAuth redirect URI port changed from 8585 to 8080 (configurable)
-- Improved error messages to reference environment variables and XDG config paths
