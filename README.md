@@ -36,12 +36,23 @@ The binary will be at `target/release/ticktick-cli`.
 
 1. Go to [TickTick Developer Center](https://developer.ticktick.com/manage)
 2. Create a new app
-3. Set the redirect URI to `http://127.0.0.1:8585/callback`
+3. Set the redirect URI to `http://127.0.0.1:8080/callback` (or your preferred port)
 4. Note your Client ID and Client Secret
 
 ### 2. Configure credentials
 
-Create a `.env` file in the project directory:
+Set environment variables directly:
+
+```bash
+export TICKTICK_CLIENT_ID=your_client_id
+export TICKTICK_CLIENT_SECRET=your_client_secret
+export TICKTICK_OAUTH_PORT=8080  # optional, defaults to 8080
+```
+
+Or create a `.env` file (environment variables take precedence). The CLI checks these locations in order:
+
+1. `./.env` (current directory)
+2. `$XDG_CONFIG_HOME/ticktick-cli/.env` (or `~/.config/ticktick-cli/.env`)
 
 ```bash
 TICKTICK_CLIENT_ID=your_client_id
@@ -112,9 +123,9 @@ ticktick-cli complete --help
 
 ## Configuration
 
-Credentials are stored in `~/.config/ticktick-cli/config.json` after authentication.
+Credentials are stored in `$XDG_CONFIG_HOME/ticktick-cli/config.json` (defaults to `~/.config/ticktick-cli/config.json`) after authentication.
 
-For development/testing, you can also set `TICKTICK_ACCESS_TOKEN` in your `.env` file to skip the OAuth flow.
+You can also set `TICKTICK_ACCESS_TOKEN` as an environment variable or in your `.env` file to skip the OAuth flow.
 
 ## Development
 

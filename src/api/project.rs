@@ -36,8 +36,12 @@ pub fn list() -> Result<(), String> {
 
     println!("\x1b[1mProjects:\x1b[0m\n");
     for p in &projects {
-        let status = if p.closed { "\x1b[90m(closed)\x1b[0m " } else { "" };
-        println!("  {} {}{}", "\x1b[36m*\x1b[0m", status, p.name);
+        let status = if p.closed {
+            "\x1b[90m(closed)\x1b[0m "
+        } else {
+            ""
+        };
+        println!("  \x1b[36m*\x1b[0m {}{}", status, p.name);
         println!("    \x1b[90mid: {}\x1b[0m", p.id);
     }
 

@@ -16,7 +16,26 @@ pub struct Env {
 }
 
 fn config_dir() -> PathBuf {
-    dirs_home().join(".config").join("ticktick-cli")
+    std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| dirs_home().join(".config"))
+        .join("ticktick-cli")
+}
+
+fn find_env_file() -> Option<String> {
+    let candidates = [
+        // Current directory
+        std::env::current_dir().ok().map(|d| d.join(".env")),
+        // XDG config directory
+        Some(config_dir().join(".env")),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        if let Ok(content) = fs::read_to_string(&candidate) {
+            return Some(content);
+        }
+    }
+    None
 }
 
 fn config_path() -> PathBuf {
@@ -30,38 +49,54 @@ fn dirs_home() -> PathBuf {
 }
 
 pub fn load_env() -> Result<Env, String> {
-    let env_path = std::env::current_dir()
-        .map_err(|e| e.to_string())?
-        .join(".env");
+    // First try environment variables
+    let mut client_id = std::env::var("TICKTICK_CLIENT_ID").ok();
+    let mut client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok();
+    let mut access_token = std::env::var("TICKTICK_ACCESS_TOKEN").ok();
 
-    let content = fs::read_to_string(&env_path)
-        .map_err(|_| "failed to read .env file")?;
-
-    let mut client_id = None;
-    let mut client_secret = None;
-    let mut access_token = None;
-
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            match key.trim() {
-                "TICKTICK_CLIENT_ID" => client_id = Some(value.to_string()),
-                "TICKTICK_CLIENT_SECRET" => client_secret = Some(value.to_string()),
-                "TICKTICK_ACCESS_TOKEN" => access_token = Some(value.to_string()),
-                _ => {}
+    // Fall back to .env file for any missing values
+    if (client_id.is_none() || client_secret.is_none())
+        && let Some(content) = find_env_file()
+    {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                match key.trim() {
+                    "TICKTICK_CLIENT_ID" if client_id.is_none() => {
+                        client_id = Some(value.to_string())
+                    }
+                    "TICKTICK_CLIENT_SECRET" if client_secret.is_none() => {
+                        client_secret = Some(value.to_string())
+                    }
+                    "TICKTICK_ACCESS_TOKEN" if access_token.is_none() => {
+                        access_token = Some(value.to_string())
+                    }
+                    _ => {}
+                }
             }
         }
     }
 
     Ok(Env {
-        client_id: client_id.ok_or("TICKTICK_CLIENT_ID not found in .env")?,
-        client_secret: client_secret.ok_or("TICKTICK_CLIENT_SECRET not found in .env")?,
+        client_id: client_id.ok_or(
+            "TICKTICK_CLIENT_ID not set. Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
+        )?,
+        client_secret: client_secret.ok_or(
+            "TICKTICK_CLIENT_SECRET not set. Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
+        )?,
         access_token,
     })
+}
+
+pub fn oauth_port() -> u16 {
+    std::env::var("TICKTICK_OAUTH_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8080)
 }
 
 pub fn load() -> Config {
@@ -85,18 +120,18 @@ pub fn save(config: &Config) -> Result<(), String> {
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    // First check .env for testing
-    if let Ok(env) = load_env() {
-        if let Some(token) = env.access_token {
-            return Ok(token);
-        }
+    // Check for access token in env vars / .env file
+    if let Ok(env) = load_env()
+        && let Some(token) = env.access_token
+    {
+        return Ok(token);
     }
 
     // Then check stored config
     let config = load();
-    config.access_token.ok_or_else(|| {
-        "not authenticated. Run 'ticktick login' first".to_string()
-    })
+    config
+        .access_token
+        .ok_or_else(|| "not authenticated. Run 'ticktick login' first".to_string())
 }
 
 pub fn logout() -> Result<(), String> {

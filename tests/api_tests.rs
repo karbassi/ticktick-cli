@@ -167,15 +167,16 @@ fn test_create_and_delete_task() {
     assert!(created_task["id"].is_string(), "Task should have id");
 
     let task_id = created_task["id"].as_str().unwrap();
-    println!("Created task: {}", serde_json::to_string_pretty(&created_task).unwrap());
+    println!(
+        "Created task: {}",
+        serde_json::to_string_pretty(&created_task).unwrap()
+    );
 
     // Delete the task
-    let resp = ureq::delete(&format!(
-        "{BASE_URL}/project/{project_id}/task/{task_id}"
-    ))
-    .set("Authorization", &format!("Bearer {token}"))
-    .call()
-    .expect("Delete task failed");
+    let resp = ureq::delete(&format!("{BASE_URL}/project/{project_id}/task/{task_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("Delete task failed");
 
     assert_eq!(resp.status(), 200);
     println!("Task deleted successfully");
@@ -230,11 +231,9 @@ fn test_complete_task() {
     println!("Task completed successfully");
 
     // Clean up - delete the task
-    let _ = ureq::delete(&format!(
-        "{BASE_URL}/project/{project_id}/task/{task_id}"
-    ))
-    .set("Authorization", &format!("Bearer {token}"))
-    .call();
+    let _ = ureq::delete(&format!("{BASE_URL}/project/{project_id}/task/{task_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call();
 
     println!("Task deleted (cleanup)");
 }
