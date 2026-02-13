@@ -1,7 +1,7 @@
 use crate::config;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Project {
@@ -29,23 +29,7 @@ pub fn list() -> Result<(), String> {
         .into_json()
         .map_err(|e| format!("failed to parse projects: {e}"))?;
 
-    if projects.is_empty() {
-        println!("\x1b[90mNo projects found\x1b[0m");
-        return Ok(());
-    }
-
-    println!("\x1b[1mProjects:\x1b[0m\n");
-    for p in &projects {
-        let status = if p.closed {
-            "\x1b[90m(closed)\x1b[0m "
-        } else {
-            ""
-        };
-        println!("  \x1b[36m*\x1b[0m {}{}", status, p.name);
-        println!("    \x1b[90mid: {}\x1b[0m", p.id);
-    }
-
-    println!("\n\x1b[90mTotal: {} projects\x1b[0m", projects.len());
+    crate::output::success(&projects);
     Ok(())
 }
 
@@ -82,12 +66,28 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
         .collect();
 
     match matches.len() {
-        0 => Err(format!("no project found matching '{name_or_id}'")),
+        0 => {
+            let mut msg = format!("no project found matching '{name_or_id}'");
+
+            let closest = projects
+                .iter()
+                .map(|p| (p.name.as_str(), strsim::levenshtein(&search, &p.name.to_lowercase())))
+                .min_by_key(|(_, d)| *d);
+
+            if let Some((name, dist)) = closest {
+                if dist <= 3 {
+                    msg.push_str(&format!("\n\n  Did you mean '{name}'?"));
+                }
+            }
+
+            msg.push_str("\n\n  hint: Run 'ticktick-cli projects' to see available projects");
+            Err(msg)
+        }
         1 => Ok(matches[0].id.clone()),
         _ => {
             let names: Vec<_> = matches.iter().map(|p| p.name.as_str()).collect();
             Err(format!(
-                "multiple projects match '{name_or_id}': {}",
+                "multiple projects match '{name_or_id}': {}\n\n  hint: Use a more specific name or the full project ID",
                 names.join(", ")
             ))
         }
@@ -102,20 +102,6 @@ pub fn get_by_id(project_id: &str) -> Result<(), String> {
         .into_json()
         .map_err(|e| format!("failed to parse project: {e}"))?;
 
-    println!("\x1b[1mProject:\x1b[0m {}", project.name);
-    println!("  \x1b[90mid:\x1b[0m {}", project.id);
-    if let Some(color) = &project.color {
-        println!("  \x1b[90mcolor:\x1b[0m {}", color);
-    }
-    if let Some(view_mode) = &project.view_mode {
-        println!("  \x1b[90mview:\x1b[0m {}", view_mode);
-    }
-    if let Some(kind) = &project.kind {
-        println!("  \x1b[90mkind:\x1b[0m {}", kind);
-    }
-    if project.closed {
-        println!("  \x1b[90mstatus:\x1b[0m closed");
-    }
-
+    crate::output::success(&project);
     Ok(())
 }

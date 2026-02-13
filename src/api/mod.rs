@@ -22,7 +22,7 @@ fn try_refresh_token() -> Option<String> {
                 cfg.refresh_token = Some(r);
             }
             let _ = config::save(&cfg);
-            eprintln!("\x1b[90mToken refreshed automatically\x1b[0m");
+            eprintln!("Token refreshed automatically");
             Some(new_access)
         }
         Err(_) => None,
@@ -30,6 +30,9 @@ fn try_refresh_token() -> Option<String> {
 }
 
 pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    if crate::output::verbose() >= 1 {
+        eprintln!("> GET {BASE_URL}{endpoint}");
+    }
     let result = ureq::get(&format!("{BASE_URL}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
@@ -43,7 +46,7 @@ pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired. Run 'ticktick login' to re-authenticate".to_string())
+                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -55,6 +58,9 @@ pub fn post(
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
+    if crate::output::verbose() >= 1 {
+        eprintln!("> POST {BASE_URL}{endpoint}");
+    }
     let result = ureq::post(&format!("{BASE_URL}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .set("Content-Type", "application/json")
@@ -70,7 +76,7 @@ pub fn post(
                     .send_json(body.clone())
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired. Run 'ticktick login' to re-authenticate".to_string())
+                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -78,6 +84,9 @@ pub fn post(
 }
 
 pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    if crate::output::verbose() >= 1 {
+        eprintln!("> POST {BASE_URL}{endpoint}");
+    }
     let result = ureq::post(&format!("{BASE_URL}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
@@ -91,7 +100,7 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired. Run 'ticktick login' to re-authenticate".to_string())
+                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -99,6 +108,9 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
 }
 
 pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    if crate::output::verbose() >= 1 {
+        eprintln!("> DELETE {BASE_URL}{endpoint}");
+    }
     let result = ureq::delete(&format!("{BASE_URL}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
@@ -112,7 +124,7 @@ pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired. Run 'ticktick login' to re-authenticate".to_string())
+                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),

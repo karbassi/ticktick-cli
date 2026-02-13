@@ -21,14 +21,14 @@ pub fn login() -> Result<(), String> {
         urlencoding(&redirect_uri()),
     );
 
-    println!("\x1b[33mOpen this URL in your browser:\x1b[0m\n");
-    println!("{auth_url}\n");
+    eprintln!("Open this URL in your browser:\n");
+    eprintln!("{auth_url}\n");
 
-    println!("\x1b[90mWaiting for authorization...\x1b[0m");
+    eprintln!("Waiting for authorization...");
 
     let code = wait_for_callback()?;
 
-    println!("\x1b[90mExchanging code for token...\x1b[0m");
+    eprintln!("Exchanging code for token...");
 
     let token = exchange_code(&code, &env.client_id, &env.client_secret)?;
 
@@ -37,7 +37,7 @@ pub fn login() -> Result<(), String> {
     cfg.refresh_token = token.refresh_token;
     config::save(&cfg)?;
 
-    println!("\x1b[32mSuccessfully authenticated!\x1b[0m");
+    eprintln!("Successfully authenticated!");
     Ok(())
 }
 
