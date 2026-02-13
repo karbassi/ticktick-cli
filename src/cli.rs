@@ -14,7 +14,12 @@ use clap_complete::CompleteEnv;
 ///   TICKTICK_ACCESS_TOKEN   Access token (optional, for direct auth)
 ///   TICKTICK_OAUTH_PORT     OAuth callback port (default: 8080)
 #[derive(Parser)]
-#[command(name = "ticktick-cli", version, about, long_about)]
+#[command(
+    name = "ticktick-cli",
+    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_SHA"), " ", env!("BUILD_DATE"), ")"),
+    about,
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   ticktick-cli login                          # Authenticate with TickTick
@@ -29,6 +34,10 @@ Examples:
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Increase verbosity (-v, -vv, -vvv)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    verbose: u8,
 }
 
 #[derive(Subcommand)]
@@ -130,6 +139,10 @@ Examples:
         /// Project name or ID to add the task to
         #[arg(short, long)]
         project: Option<String>,
+
+        /// Preview without creating the task
+        #[arg(short = 'n', long)]
+        dry_run: bool,
     },
 
     /// Mark a task as complete
@@ -167,6 +180,7 @@ Examples:
 Examples:
   ticktick-cli delete Personal abc123def456
   ticktick-cli delete 'Work Projects' 789xyz123
+  ticktick-cli delete --force Personal abc123def456
   ticktick-cli rm Personal abc123def456          # Using alias
 ")]
     Delete {
@@ -175,13 +189,55 @@ Examples:
 
         /// Task ID (find via 'ticktick-cli tasks')
         task_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
     },
+
+    /// Initialize a .env configuration file with required variables
+    ///
+    /// Creates a .env template with the TickTick API credentials fields.
+    /// By default, writes to $XDG_CONFIG_HOME/ticktick-cli/.env.
+    /// Use --local to write to the current directory instead.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli init                 # Create .env in config directory
+  ticktick-cli init --local         # Create .env in current directory
+  ticktick-cli init --local --force # Overwrite existing .env
+")]
+    Init {
+        /// Create .env in the current directory instead of the config directory
+        #[arg(short, long)]
+        local: bool,
+
+        /// Overwrite existing .env file
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Generate shell completions
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli completions bash >> ~/.bashrc
+  ticktick-cli completions zsh > ~/.zfunc/_ticktick-cli
+  ticktick-cli completions fish > ~/.config/fish/completions/ticktick-cli.fish
+")]
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
+
+    /// Print concise help for all commands
+    Usage,
 }
 
 pub fn run() -> Result<(), String> {
     CompleteEnv::with_factory(Cli::command).complete();
 
     let cli = Cli::parse();
+
+    crate::output::init(cli.verbose);
 
     match cli.command {
         Commands::Login => crate::api::auth::login(),
@@ -197,19 +253,79 @@ pub fn run() -> Result<(), String> {
                 .transpose()?;
             crate::api::task::list_by_project(project_id.as_deref())
         }
-        Commands::Add { title, project } => {
+        Commands::Add { title, project, dry_run } => {
             let project_id = project
                 .map(|n| crate::api::project::resolve_id(&n))
                 .transpose()?;
-            crate::api::task::create(&title, project_id.as_deref())
+            crate::api::task::create(&title, project_id.as_deref(), dry_run)
         }
         Commands::Complete { project, task_id } => {
             let project_id = crate::api::project::resolve_id(&project)?;
             crate::api::task::complete(&project_id, &task_id)
         }
-        Commands::Delete { project, task_id } => {
+        Commands::Delete {
+            project,
+            task_id,
+            force,
+        } => {
             let project_id = crate::api::project::resolve_id(&project)?;
-            crate::api::task::delete(&project_id, &task_id)
+            crate::api::task::delete(&project_id, &task_id, force)
         }
+        Commands::Init { local, force } => crate::config::init(local, force),
+        Commands::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "ticktick-cli", &mut std::io::stdout());
+            Ok(())
+        }
+        Commands::Usage => {
+            print_usage();
+            Ok(())
+        }
+    }
+}
+
+fn print_usage() {
+    let cmd = Cli::command();
+    for sub in cmd.get_subcommands() {
+        let name = sub.get_name();
+        if name == "usage" || name == "help" {
+            continue;
+        }
+        println!("{name}");
+        if let Some(about) = sub.get_about() {
+            println!("  {about}");
+        }
+        for arg in sub.get_arguments() {
+            if arg.is_hide_set() || arg.get_id() == "help" || arg.get_id() == "version" {
+                continue;
+            }
+            let long = arg
+                .get_long()
+                .map(|l| format!("--{l}"))
+                .unwrap_or_default();
+            let short = arg
+                .get_short()
+                .map(|s| format!("-{s}"))
+                .unwrap_or_default();
+            let flag = match (short.is_empty(), long.is_empty()) {
+                (false, false) => format!("{short}, {long}"),
+                (false, true) => short,
+                (true, false) => long,
+                _ => String::new(),
+            };
+            let help = arg
+                .get_help()
+                .map(|h| h.to_string())
+                .unwrap_or_default();
+            if flag.is_empty() {
+                let id = arg.get_id().to_string();
+                if id == "verbose" {
+                    continue;
+                }
+                println!("  <{id}>  {help}");
+            } else {
+                println!("  {flag}  {help}");
+            }
+        }
+        println!("---");
     }
 }

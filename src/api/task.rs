@@ -1,7 +1,7 @@
 use crate::config;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Task {
@@ -30,18 +30,15 @@ pub struct Task {
 pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
     let token = config::get_access_token()?;
 
-    if let Some(pid) = project_id {
+    let tasks = if let Some(pid) = project_id {
         let resp = super::get(&format!("/project/{pid}/data"), &token)?;
         let data: ProjectData = resp
             .into_json()
             .map_err(|e| format!("failed to parse project data: {e}"))?;
-
-        print_tasks(&data.tasks);
+        data.tasks
     } else {
-        // List all tasks from all projects
         let projects = super::project::get_all()?;
         let mut all_tasks = Vec::new();
-
         for project in &projects {
             if let Ok(resp) = super::get(&format!("/project/{}/data", project.id), &token)
                 && let Ok(data) = resp.into_json::<ProjectData>()
@@ -49,42 +46,11 @@ pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
                 all_tasks.extend(data.tasks);
             }
         }
+        all_tasks
+    };
 
-        print_tasks(&all_tasks);
-    }
-
+    crate::output::success(&tasks);
     Ok(())
-}
-
-fn print_tasks(tasks: &[Task]) {
-    if tasks.is_empty() {
-        println!("\x1b[90mNo tasks found\x1b[0m");
-        return;
-    }
-
-    println!("\x1b[1mTasks:\x1b[0m\n");
-    for t in tasks {
-        let priority_color = match t.priority {
-            5 => "\x1b[31m", // high - red
-            3 => "\x1b[33m", // medium - yellow
-            1 => "\x1b[34m", // low - blue
-            _ => "\x1b[90m", // none - gray
-        };
-
-        let checkbox = if t.status == 2 {
-            "\x1b[32m[x]\x1b[0m"
-        } else {
-            "[ ]"
-        };
-
-        println!("  {} {}{}\x1b[0m", checkbox, priority_color, t.title);
-
-        if let Some(due) = &t.due_date {
-            println!("    \x1b[90mdue: {}\x1b[0m", due);
-        }
-    }
-
-    println!("\n\x1b[90mTotal: {} tasks\x1b[0m", tasks.len());
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,9 +60,7 @@ struct ProjectData {
     tasks: Vec<Task>,
 }
 
-pub fn create(title: &str, project_id: Option<&str>) -> Result<(), String> {
-    let token = config::get_access_token()?;
-
+pub fn create(title: &str, project_id: Option<&str>, dry_run: bool) -> Result<(), String> {
     let mut body = serde_json::json!({
         "title": title
     });
@@ -105,18 +69,21 @@ pub fn create(title: &str, project_id: Option<&str>) -> Result<(), String> {
         body["projectId"] = serde_json::Value::String(pid.to_string());
     }
 
+    if dry_run {
+        body["dryRun"] = serde_json::Value::Bool(true);
+        crate::output::success(&body);
+        return Ok(());
+    }
+
+    let token = config::get_access_token()?;
+
     let resp = super::post("/task", &token, &body)?;
 
     let task: Task = resp
         .into_json()
         .map_err(|e| format!("failed to parse task: {e}"))?;
 
-    println!("\x1b[32mTask created:\x1b[0m {}", task.title);
-    println!("  \x1b[90mid:\x1b[0m {}", task.id);
-    if let Some(pid) = &task.project_id {
-        println!("  \x1b[90mproject:\x1b[0m {}", pid);
-    }
-
+    crate::output::success(&task);
     Ok(())
 }
 
@@ -128,15 +95,38 @@ pub fn complete(project_id: &str, task_id: &str) -> Result<(), String> {
         &token,
     )?;
 
-    println!("\x1b[32mTask completed!\x1b[0m");
+    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
 
-pub fn delete(project_id: &str, task_id: &str) -> Result<(), String> {
+pub fn delete(project_id: &str, task_id: &str, force: bool) -> Result<(), String> {
+    use std::io::IsTerminal;
+
     let token = config::get_access_token()?;
+
+    if !force {
+        let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
+
+        if is_ci || !std::io::stdin().is_terminal() {
+            return Err(
+                "refusing to delete without confirmation in non-interactive mode\n\n  hint: Use --force to skip confirmation"
+                    .to_string(),
+            );
+        }
+
+        eprint!("Are you sure you want to delete this task? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("failed to read input: {e}"))?;
+        if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            eprintln!("Cancelled.");
+            return Ok(());
+        }
+    }
 
     super::delete(&format!("/project/{project_id}/task/{task_id}"), &token)?;
 
-    println!("\x1b[32mTask deleted!\x1b[0m");
+    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }

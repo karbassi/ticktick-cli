@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+- `usage` subcommand — prints concise help for all commands
+- JSON output on stdout for `init` and `logout` commands
+
+### Changed
+- **Breaking:** All command output is now JSON on stdout (no more tab-separated text)
+- **Breaking:** Errors are now JSON on stderr (`{"error": "..."}`)
+- **Breaking:** Removed `--json`, `--color`, and `--quiet` flags
+- Removed `indicatif` dependency (no more spinners)
+- Removed pager support (`$PAGER` no longer used)
+- Removed ANSI color output from all commands
+- Login flow messages remain as plain text on stderr
+
 ## [0.3.1]
 
 ### Fixed

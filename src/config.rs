@@ -83,10 +83,10 @@ pub fn load_env() -> Result<Env, String> {
 
     Ok(Env {
         client_id: client_id.ok_or(
-            "TICKTICK_CLIENT_ID not set. Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
+            "TICKTICK_CLIENT_ID not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
         client_secret: client_secret.ok_or(
-            "TICKTICK_CLIENT_SECRET not set. Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
+            "TICKTICK_CLIENT_SECRET not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
         access_token,
     })
@@ -115,7 +115,20 @@ pub fn save(config: &Config) -> Result<(), String> {
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("failed to serialize config: {e}"))?;
 
-    fs::write(&path, json).map_err(|e| format!("failed to write config: {e}"))?;
+    let tmp = path.with_extension("tmp");
+    if tmp.exists() {
+        let _ = fs::remove_file(&tmp);
+    }
+    fs::write(&tmp, &json).map_err(|e| format!("failed to write config: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("failed to set config permissions: {e}"))?;
+    }
+
+    fs::rename(&tmp, &path).map_err(|e| format!("failed to rename config: {e}"))?;
     Ok(())
 }
 
@@ -131,7 +144,52 @@ pub fn get_access_token() -> Result<String, String> {
     let config = load();
     config
         .access_token
-        .ok_or_else(|| "not authenticated. Run 'ticktick login' first".to_string())
+        .ok_or_else(|| "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string())
+}
+
+const ENV_TEMPLATE: &str = "\
+# TickTick API credentials
+# Get these from https://developer.ticktick.com/manage
+TICKTICK_CLIENT_ID=
+TICKTICK_CLIENT_SECRET=
+
+# Optional: set an access token directly (skips OAuth flow)
+# TICKTICK_ACCESS_TOKEN=
+
+# Optional: OAuth callback port (default: 8080)
+# TICKTICK_OAUTH_PORT=8080
+";
+
+pub fn init(local: bool, force: bool) -> Result<(), String> {
+    let path = if local {
+        std::env::current_dir()
+            .map_err(|e| format!("failed to get current directory: {e}"))?
+            .join(".env")
+    } else {
+        let dir = config_dir();
+        fs::create_dir_all(&dir).map_err(|e| format!("failed to create config dir: {e}"))?;
+        dir.join(".env")
+    };
+
+    if path.exists() && !force {
+        return Err(format!(
+            "{} already exists\n\n  hint: Use --force to overwrite",
+            path.display()
+        ));
+    }
+
+    fs::write(&path, ENV_TEMPLATE).map_err(|e| format!("failed to write .env: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("failed to set .env permissions: {e}"))?;
+    }
+
+    eprintln!("Created {}", path.display());
+    crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
+    Ok(())
 }
 
 pub fn logout() -> Result<(), String> {
@@ -139,6 +197,7 @@ pub fn logout() -> Result<(), String> {
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("failed to remove config: {e}"))?;
     }
-    println!("\x1b[32mLogged out successfully\x1b[0m");
+    eprintln!("Logged out");
+    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }

@@ -1,16 +1,15 @@
 # TickTick CLI
 
-A command-line interface for [TickTick](https://ticktick.com) task management, built in Rust.
+A command-line interface for [TickTick](https://ticktick.com) task management, built in Rust. Designed as a JSON-first data API for scripts and LLM agents — all output is structured JSON on stdout, errors are JSON on stderr.
 
 ## Features
 
+- **JSON-first** — every command outputs structured JSON, no flags needed
 - OAuth authentication flow with automatic token refresh
-- List all projects
-- Get project details
-- List tasks (all or by project)
-- Create new tasks
-- Complete tasks
-- Delete tasks
+- Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
+- List all projects and tasks
+- Create, complete, and delete tasks
+- Shell completions (bash, zsh, fish)
 
 ## Installation
 
@@ -85,28 +84,41 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `add <title> [-p project]` | `new` | Create a new task |
 | `complete <project> <task_id>` | `done` | Mark a task as complete |
 | `delete <project> <task_id>` | `rm` | Delete a task |
+| `init [--local]` | | Generate `.env` template |
+| `usage` | | Print concise help for all commands |
+| `completions <shell>` | | Generate shell completions |
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
 Run `ticktick-cli --help` for a list of commands, or `ticktick-cli <command> --help` for detailed usage and examples.
 
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `-v`, `--verbose` | Increase verbosity (debug logging to stderr) |
+
 ### Examples
 
 ```bash
-# List all projects
+# List all projects (JSON array to stdout)
 ticktick-cli projects
+
+# Pipe through jq
+ticktick-cli projects | jq '.[].name'
 
 # List tasks in a project (by name)
 ticktick-cli tasks Work
-ticktick-cli tasks 'My Project'
 ticktick-cli tasks Personal
 
 # Create a task (goes to inbox)
 ticktick-cli add "Buy groceries"
-ticktick-cli new "Buy groceries"           # alias
 
 # Create a task in a specific project
 ticktick-cli add "Review PR" -p Work
+
+# Preview a task without creating it
+ticktick-cli add --dry-run "Test task"
 
 # Complete a task
 ticktick-cli complete Work abc123def456
@@ -116,10 +128,25 @@ ticktick-cli done Work abc123def456    # alias
 ticktick-cli delete Personal abc123def456
 ticktick-cli rm Personal abc123def456    # alias
 
-# Get help for a specific command
-ticktick-cli add --help
-ticktick-cli complete --help
+# Concise help for all commands
+ticktick-cli usage
 ```
+
+### Output format
+
+All data commands emit JSON on stdout. Errors emit JSON on stderr:
+
+```bash
+# Success: JSON on stdout
+ticktick-cli projects
+# [{"id": "...", "name": "Personal", ...}, ...]
+
+# Error: JSON on stderr, non-zero exit
+ticktick-cli projects
+# {"error":"not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate"}
+```
+
+Interactive messages (login prompts, delete confirmations) go to stderr as plain text and won't interfere with piped JSON.
 
 ## Configuration
 
