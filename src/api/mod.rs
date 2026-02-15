@@ -46,7 +46,10 @@ pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
+                Err(
+                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
+                        .to_string(),
+                )
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -76,7 +79,10 @@ pub fn post(
                     .send_json(body.clone())
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
+                Err(
+                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
+                        .to_string(),
+                )
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -100,7 +106,10 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
+                Err(
+                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
+                        .to_string(),
+                )
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),
@@ -124,7 +133,10 @@ pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
             } else {
-                Err("token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string())
+                Err(
+                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
+                        .to_string(),
+                )
             }
         }
         Err(e) => Err(format!("API request failed: {e}")),

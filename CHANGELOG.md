@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0]
+
 ### Changed
 - **Breaking:** Restructured CLI from flat commands to nested `task`/`project` subcommand groups
   - Task commands: `add`, `edit`, `delete`, `complete`, `tasks`, `task` → `task add`, `task edit`, `task delete`, `task complete`, `task list`, `task get`
   - Project commands: `projects`, `project`, `add-project`, `edit-project`, `delete-project` → `project list`, `project get`, `project add`, `project edit`, `project delete`
   - Aliases preserved on nested commands: `task new`, `task done`, `task rm`, `task update`, `project rm`
+- Running `ticktick-cli` with no arguments now prints usage instead of an error
 
 ## [0.5.0]
 

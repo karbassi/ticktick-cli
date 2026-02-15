@@ -71,13 +71,18 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
 
             let closest = projects
                 .iter()
-                .map(|p| (p.name.as_str(), strsim::levenshtein(&search, &p.name.to_lowercase())))
+                .map(|p| {
+                    (
+                        p.name.as_str(),
+                        strsim::levenshtein(&search, &p.name.to_lowercase()),
+                    )
+                })
                 .min_by_key(|(_, d)| *d);
 
-            if let Some((name, dist)) = closest {
-                if dist <= 3 {
-                    msg.push_str(&format!("\n\n  Did you mean '{name}'?"));
-                }
+            if let Some((name, dist)) = closest
+                && dist <= 3
+            {
+                msg.push_str(&format!("\n\n  Did you mean '{name}'?"));
             }
 
             msg.push_str("\n\n  hint: Run 'ticktick-cli project list' to see available projects");

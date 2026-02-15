@@ -18,8 +18,5 @@ pub fn success(data: &impl serde::Serialize) {
 }
 
 pub fn error(msg: &str) {
-    eprintln!(
-        "{}",
-        serde_json::json!({"error": msg})
-    );
+    eprintln!("{}", serde_json::json!({"error": msg}));
 }
