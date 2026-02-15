@@ -27,6 +27,19 @@ pub struct Task {
     pub tags: Vec<String>,
 }
 
+pub fn get_by_id(project_id: &str, task_id: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let resp = super::get(&format!("/project/{project_id}/task/{task_id}"), &token)?;
+
+    let task: Task = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))?;
+
+    crate::output::success(&task);
+    Ok(())
+}
+
 pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
     let token = config::get_access_token()?;
 
@@ -126,7 +139,7 @@ pub fn parse_due_date(input: &str) -> Result<String, String> {
     Ok(format!("{year:04}-{month:02}-{day:02}T00:00:00.000+0000"))
 }
 
-pub fn create(title: &str, project_id: Option<&str>, due_date: Option<&str>, dry_run: bool) -> Result<(), String> {
+pub fn create(title: &str, project_id: Option<&str>, due_date: Option<&str>, priority: Option<i32>, dry_run: bool) -> Result<(), String> {
     let mut body = serde_json::json!({
         "title": title
     });
@@ -137,6 +150,10 @@ pub fn create(title: &str, project_id: Option<&str>, due_date: Option<&str>, dry
 
     if let Some(due) = due_date {
         body["dueDate"] = serde_json::Value::String(due.to_string());
+    }
+
+    if let Some(p) = priority {
+        body["priority"] = serde_json::Value::Number(p.into());
     }
 
     if dry_run {
@@ -167,6 +184,7 @@ pub fn update(
     task_id: &str,
     title: Option<&str>,
     due_date: Option<DueDate>,
+    priority: Option<i32>,
 ) -> Result<(), String> {
     let token = config::get_access_token()?;
 
@@ -187,6 +205,10 @@ pub fn update(
             body["dueDate"] = serde_json::Value::Null;
         }
         None => {}
+    }
+
+    if let Some(p) = priority {
+        body["priority"] = serde_json::Value::Number(p.into());
     }
 
     let resp = super::post(&format!("/task/{task_id}"), &token, &body)?;

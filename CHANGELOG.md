@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Restructured CLI from flat commands to nested `task`/`project` subcommand groups
+  - Task commands: `add`, `edit`, `delete`, `complete`, `tasks`, `task` → `task add`, `task edit`, `task delete`, `task complete`, `task list`, `task get`
+  - Project commands: `projects`, `project`, `add-project`, `edit-project`, `delete-project` → `project list`, `project get`, `project add`, `project edit`, `project delete`
+  - Aliases preserved on nested commands: `task new`, `task done`, `task rm`, `task update`, `project rm`
+
 ## [0.5.0]
 
 ### Added
-- `--due` / `-d` flag on `add` command — set due date when creating tasks (YYYY-MM-DD, `today`, or `tomorrow`)
-- `edit` command (aliased as `update`) — modify existing tasks (due date, title)
-- `--clear-due` flag on `edit` command — remove a task's due date
+- `--due` / `-d` flag on `task add` — set due date when creating tasks (YYYY-MM-DD, `today`, or `tomorrow`)
+- `task edit` command (aliased as `task update`) — modify existing tasks (due date, title)
+- `--clear-due` flag on `task edit` — remove a task's due date
 
 ## [0.4.0]
 

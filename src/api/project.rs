@@ -80,7 +80,7 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
                 }
             }
 
-            msg.push_str("\n\n  hint: Run 'ticktick-cli projects' to see available projects");
+            msg.push_str("\n\n  hint: Run 'ticktick-cli project list' to see available projects");
             Err(msg)
         }
         1 => Ok(matches[0].id.clone()),
@@ -103,5 +103,75 @@ pub fn get_by_id(project_id: &str) -> Result<(), String> {
         .map_err(|e| format!("failed to parse project: {e}"))?;
 
     crate::output::success(&project);
+    Ok(())
+}
+
+pub fn create(name: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let body = serde_json::json!({
+        "name": name
+    });
+
+    let resp = super::post("/project", &token, &body)?;
+
+    let project: Project = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))?;
+
+    crate::output::success(&project);
+    Ok(())
+}
+
+pub fn update(project_id: &str, name: Option<&str>) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let mut body = serde_json::json!({
+        "id": project_id
+    });
+
+    if let Some(n) = name {
+        body["name"] = serde_json::Value::String(n.to_string());
+    }
+
+    let resp = super::post(&format!("/project/{project_id}"), &token, &body)?;
+
+    let project: Project = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))?;
+
+    crate::output::success(&project);
+    Ok(())
+}
+
+pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
+    use std::io::IsTerminal;
+
+    let token = config::get_access_token()?;
+
+    if !force {
+        let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
+
+        if is_ci || !std::io::stdin().is_terminal() {
+            return Err(
+                "refusing to delete without confirmation in non-interactive mode\n\n  hint: Use --force to skip confirmation"
+                    .to_string(),
+            );
+        }
+
+        eprint!("Are you sure you want to delete this project? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("failed to read input: {e}"))?;
+        if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            eprintln!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    super::delete(&format!("/project/{project_id}"), &token)?;
+
+    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
