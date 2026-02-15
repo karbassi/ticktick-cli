@@ -28,6 +28,7 @@ Examples:
   ticktick-cli tasks Personal                 # List tasks in Personal project
   ticktick-cli add 'Buy milk'                 # Add task to inbox
   ticktick-cli add 'Review PR' -p Work        # Add task to Work project
+  ticktick-cli add 'Submit report' -d 2025-03-01  # Add with due date
   ticktick-cli complete Personal abc123       # Complete a task
   ticktick-cli delete Personal abc123         # Delete a task
 ")]
@@ -131,6 +132,8 @@ Examples:
   ticktick-cli add 'Review pull request' -p Work
   ticktick-cli add 'Call mom' --project Personal
   ticktick-cli add 'Team meeting' -p 'Work Projects'
+  ticktick-cli add 'Submit report' --due 2025-03-01
+  ticktick-cli add 'Call dentist' -d tomorrow
 ")]
     Add {
         /// Task title (use quotes for titles with spaces)
@@ -140,9 +143,45 @@ Examples:
         #[arg(short, long)]
         project: Option<String>,
 
+        /// Due date: YYYY-MM-DD, 'today', or 'tomorrow'
+        #[arg(short, long)]
+        due: Option<String>,
+
         /// Preview without creating the task
         #[arg(short = 'n', long)]
         dry_run: bool,
+    },
+
+    /// Edit an existing task
+    ///
+    /// Update properties of an existing task such as due date or title.
+    /// Requires the project and task ID (find via 'ticktick-cli tasks').
+    #[command(visible_alias = "update")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli edit Personal abc123 --due 2025-04-01
+  ticktick-cli edit Work xyz789 --due tomorrow
+  ticktick-cli edit Personal abc123 --title 'New title'
+  ticktick-cli edit Personal abc123 --clear-due
+")]
+    Edit {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID (find via 'ticktick-cli tasks')
+        task_id: String,
+
+        /// Set due date: YYYY-MM-DD, 'today', or 'tomorrow'
+        #[arg(short, long)]
+        due: Option<String>,
+
+        /// Remove the due date
+        #[arg(long, conflicts_with = "due")]
+        clear_due: bool,
+
+        /// Set a new title
+        #[arg(short, long)]
+        title: Option<String>,
     },
 
     /// Mark a task as complete
@@ -253,11 +292,23 @@ pub fn run() -> Result<(), String> {
                 .transpose()?;
             crate::api::task::list_by_project(project_id.as_deref())
         }
-        Commands::Add { title, project, dry_run } => {
+        Commands::Add { title, project, due, dry_run } => {
             let project_id = project
                 .map(|n| crate::api::project::resolve_id(&n))
                 .transpose()?;
-            crate::api::task::create(&title, project_id.as_deref(), dry_run)
+            let due_date = due.map(|d| crate::api::task::parse_due_date(&d)).transpose()?;
+            crate::api::task::create(&title, project_id.as_deref(), due_date.as_deref(), dry_run)
+        }
+        Commands::Edit { project, task_id, due, clear_due, title } => {
+            let project_id = crate::api::project::resolve_id(&project)?;
+            let due_date = if clear_due {
+                Some(crate::api::task::DueDate::Clear)
+            } else if let Some(d) = due {
+                Some(crate::api::task::DueDate::Set(crate::api::task::parse_due_date(&d)?))
+            } else {
+                None
+            };
+            crate::api::task::update(&project_id, &task_id, title.as_deref(), due_date)
         }
         Commands::Complete { project, task_id } => {
             let project_id = crate::api::project::resolve_id(&project)?;

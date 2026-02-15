@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+- `--due` / `-d` flag on `add` command — set due date when creating tasks (YYYY-MM-DD, `today`, or `tomorrow`)
+- `edit` command (aliased as `update`) — modify existing tasks (due date, title)
+- `--clear-due` flag on `edit` command — remove a task's due date
+
 ## [0.4.0]
 
 ### Added

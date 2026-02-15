@@ -60,13 +60,83 @@ struct ProjectData {
     tasks: Vec<Task>,
 }
 
-pub fn create(title: &str, project_id: Option<&str>, dry_run: bool) -> Result<(), String> {
+/// Parse a user-provided due date into TickTick's expected RFC 3339 format.
+///
+/// Accepts:
+///   - "today"      → today's date at midnight UTC
+///   - "tomorrow"   → tomorrow's date at midnight UTC
+///   - "YYYY-MM-DD" → that date at midnight UTC
+pub fn parse_due_date(input: &str) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let epoch_days = || -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 86400
+    };
+
+    let days = match input.trim().to_lowercase().as_str() {
+        "today" => epoch_days(),
+        "tomorrow" => epoch_days() + 1,
+        _ => {
+            // Expect YYYY-MM-DD
+            let parts: Vec<&str> = input.split('-').collect();
+            if parts.len() != 3 {
+                return Err(format!("invalid due date '{input}': expected YYYY-MM-DD, 'today', or 'tomorrow'"));
+            }
+            let year: i32 = parts[0]
+                .parse()
+                .map_err(|_| format!("invalid year in '{input}'"))?;
+            let month: u32 = parts[1]
+                .parse()
+                .map_err(|_| format!("invalid month in '{input}'"))?;
+            let day: u32 = parts[2]
+                .parse()
+                .map_err(|_| format!("invalid day in '{input}'"))?;
+
+            if !(1..=12).contains(&month) {
+                return Err(format!("month out of range in '{input}'"));
+            }
+            if !(1..=31).contains(&day) {
+                return Err(format!("day out of range in '{input}'"));
+            }
+
+            return Ok(format!("{year:04}-{month:02}-{day:02}T00:00:00.000+0000"));
+        }
+    };
+
+    // Convert epoch days back to a date for today/tomorrow
+    let total_days = days as i64;
+    // Inverse of the days-since-epoch calculation
+    let y = (10000 * total_days + 14780) / 3652425;
+    let doy = total_days - (365 * y + y / 4 - y / 100 + y / 400);
+    let (y, doy) = if doy < 0 {
+        let y = y - 1;
+        (y, total_days - (365 * y + y / 4 - y / 100 + y / 400))
+    } else {
+        (y, doy)
+    };
+    let mi = (100 * doy + 52) / 3060;
+    let month = if mi < 10 { mi + 3 } else { mi - 9 };
+    let year = y + (if month <= 2 { 1 } else { 0 });
+    let day = doy - (mi * 306 + 5) / 10 + 1;
+
+    Ok(format!("{year:04}-{month:02}-{day:02}T00:00:00.000+0000"))
+}
+
+pub fn create(title: &str, project_id: Option<&str>, due_date: Option<&str>, dry_run: bool) -> Result<(), String> {
     let mut body = serde_json::json!({
         "title": title
     });
 
     if let Some(pid) = project_id {
         body["projectId"] = serde_json::Value::String(pid.to_string());
+    }
+
+    if let Some(due) = due_date {
+        body["dueDate"] = serde_json::Value::String(due.to_string());
     }
 
     if dry_run {
@@ -78,6 +148,48 @@ pub fn create(title: &str, project_id: Option<&str>, dry_run: bool) -> Result<()
     let token = config::get_access_token()?;
 
     let resp = super::post("/task", &token, &body)?;
+
+    let task: Task = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))?;
+
+    crate::output::success(&task);
+    Ok(())
+}
+
+pub enum DueDate {
+    Set(String),
+    Clear,
+}
+
+pub fn update(
+    project_id: &str,
+    task_id: &str,
+    title: Option<&str>,
+    due_date: Option<DueDate>,
+) -> Result<(), String> {
+    let token = config::get_access_token()?;
+
+    let mut body = serde_json::json!({
+        "taskId": task_id,
+        "projectId": project_id,
+    });
+
+    if let Some(t) = title {
+        body["title"] = serde_json::Value::String(t.to_string());
+    }
+
+    match due_date {
+        Some(DueDate::Set(d)) => {
+            body["dueDate"] = serde_json::Value::String(d);
+        }
+        Some(DueDate::Clear) => {
+            body["dueDate"] = serde_json::Value::Null;
+        }
+        None => {}
+    }
+
+    let resp = super::post(&format!("/task/{task_id}"), &token, &body)?;
 
     let task: Task = resp
         .into_json()
