@@ -417,31 +417,64 @@ pub fn run() -> Result<(), String> {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 crate::api::task::get_by_id(&project_id, &task_id)
             }
-            TaskCommands::Add { title, project, due, priority, dry_run } => {
+            TaskCommands::Add {
+                title,
+                project,
+                due,
+                priority,
+                dry_run,
+            } => {
                 let project_id = project
                     .map(|n| crate::api::project::resolve_id(&n))
                     .transpose()?;
-                let due_date = due.map(|d| crate::api::task::parse_due_date(&d)).transpose()?;
+                let due_date = due
+                    .map(|d| crate::api::task::parse_due_date(&d))
+                    .transpose()?;
                 let priority = priority.map(|p| p.to_api_value());
-                crate::api::task::create(&title, project_id.as_deref(), due_date.as_deref(), priority, dry_run)
+                crate::api::task::create(
+                    &title,
+                    project_id.as_deref(),
+                    due_date.as_deref(),
+                    priority,
+                    dry_run,
+                )
             }
-            TaskCommands::Edit { project, task_id, due, clear_due, title, priority } => {
+            TaskCommands::Edit {
+                project,
+                task_id,
+                due,
+                clear_due,
+                title,
+                priority,
+            } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 let due_date = if clear_due {
                     Some(crate::api::task::DueDate::Clear)
                 } else if let Some(d) = due {
-                    Some(crate::api::task::DueDate::Set(crate::api::task::parse_due_date(&d)?))
+                    Some(crate::api::task::DueDate::Set(
+                        crate::api::task::parse_due_date(&d)?,
+                    ))
                 } else {
                     None
                 };
                 let priority = priority.map(|p| p.to_api_value());
-                crate::api::task::update(&project_id, &task_id, title.as_deref(), due_date, priority)
+                crate::api::task::update(
+                    &project_id,
+                    &task_id,
+                    title.as_deref(),
+                    due_date,
+                    priority,
+                )
             }
             TaskCommands::Complete { project, task_id } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 crate::api::task::complete(&project_id, &task_id)
             }
-            TaskCommands::Delete { project, task_id, force } => {
+            TaskCommands::Delete {
+                project,
+                task_id,
+                force,
+            } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 crate::api::task::delete(&project_id, &task_id, force)
             }
@@ -464,7 +497,12 @@ pub fn run() -> Result<(), String> {
         },
         Commands::Init { local, force } => crate::config::init(local, force),
         Commands::Completions { shell } => {
-            clap_complete::generate(shell, &mut Cli::command(), "ticktick-cli", &mut std::io::stdout());
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "ticktick-cli",
+                &mut std::io::stdout(),
+            );
             Ok(())
         }
         Commands::Usage => {
@@ -509,24 +547,15 @@ fn print_command(name: &str, cmd: &clap::Command) {
         if arg.is_hide_set() || arg.get_id() == "help" || arg.get_id() == "version" {
             continue;
         }
-        let long = arg
-            .get_long()
-            .map(|l| format!("--{l}"))
-            .unwrap_or_default();
-        let short = arg
-            .get_short()
-            .map(|s| format!("-{s}"))
-            .unwrap_or_default();
+        let long = arg.get_long().map(|l| format!("--{l}")).unwrap_or_default();
+        let short = arg.get_short().map(|s| format!("-{s}")).unwrap_or_default();
         let flag = match (short.is_empty(), long.is_empty()) {
             (false, false) => format!("{short}, {long}"),
             (false, true) => short,
             (true, false) => long,
             _ => String::new(),
         };
-        let help = arg
-            .get_help()
-            .map(|h| h.to_string())
-            .unwrap_or_default();
+        let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
         if flag.is_empty() {
             let id = arg.get_id().to_string();
             if id == "verbose" {

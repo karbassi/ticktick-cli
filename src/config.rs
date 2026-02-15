@@ -142,9 +142,9 @@ pub fn get_access_token() -> Result<String, String> {
 
     // Then check stored config
     let config = load();
-    config
-        .access_token
-        .ok_or_else(|| "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string())
+    config.access_token.ok_or_else(|| {
+        "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string()
+    })
 }
 
 const ENV_TEMPLATE: &str = "\

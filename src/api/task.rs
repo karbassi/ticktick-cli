@@ -97,7 +97,9 @@ pub fn parse_due_date(input: &str) -> Result<String, String> {
             // Expect YYYY-MM-DD
             let parts: Vec<&str> = input.split('-').collect();
             if parts.len() != 3 {
-                return Err(format!("invalid due date '{input}': expected YYYY-MM-DD, 'today', or 'tomorrow'"));
+                return Err(format!(
+                    "invalid due date '{input}': expected YYYY-MM-DD, 'today', or 'tomorrow'"
+                ));
             }
             let year: i32 = parts[0]
                 .parse()
@@ -139,7 +141,13 @@ pub fn parse_due_date(input: &str) -> Result<String, String> {
     Ok(format!("{year:04}-{month:02}-{day:02}T00:00:00.000+0000"))
 }
 
-pub fn create(title: &str, project_id: Option<&str>, due_date: Option<&str>, priority: Option<i32>, dry_run: bool) -> Result<(), String> {
+pub fn create(
+    title: &str,
+    project_id: Option<&str>,
+    due_date: Option<&str>,
+    priority: Option<i32>,
+    dry_run: bool,
+) -> Result<(), String> {
     let mut body = serde_json::json!({
         "title": title
     });
