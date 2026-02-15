@@ -8,7 +8,7 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 - OAuth authentication flow with automatic token refresh
 - Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
 - List all projects and tasks
-- Create, complete, and delete tasks
+- Create, edit, complete, and delete tasks
 - Shell completions (bash, zsh, fish)
 
 ## Installation
@@ -78,12 +78,17 @@ ticktick-cli <COMMAND> [OPTIONS]
 |---------|---------|-------------|
 | `login` | | Authenticate with TickTick |
 | `logout` | | Remove stored credentials |
-| `projects` | | List all projects |
-| `project <name>` | | Get project details by name or ID |
-| `tasks [project]` | | List all tasks, optionally filtered by project |
-| `add <title> [-p project]` | `new` | Create a new task |
-| `complete <project> <task_id>` | `done` | Mark a task as complete |
-| `delete <project> <task_id>` | `rm` | Delete a task |
+| `task list [project]` | | List all tasks, optionally filtered by project |
+| `task get <project> <task_id>` | | Get task details |
+| `task add <title> [-p project]` | `task new` | Create a new task |
+| `task edit <project> <task_id>` | `task update` | Edit an existing task |
+| `task complete <project> <task_id>` | `task done` | Mark a task as complete |
+| `task delete <project> <task_id>` | `task rm` | Delete a task |
+| `project list` | | List all projects |
+| `project get <name>` | | Get project details by name or ID |
+| `project add <name>` | | Create a new project |
+| `project edit <project> [--name]` | | Rename a project |
+| `project delete <project>` | `project rm` | Delete a project |
 | `init [--local]` | | Generate `.env` template |
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
@@ -102,31 +107,31 @@ Run `ticktick-cli --help` for a list of commands, or `ticktick-cli <command> --h
 
 ```bash
 # List all projects (JSON array to stdout)
-ticktick-cli projects
+ticktick-cli project list
 
 # Pipe through jq
-ticktick-cli projects | jq '.[].name'
+ticktick-cli project list | jq '.[].name'
 
 # List tasks in a project (by name)
-ticktick-cli tasks Work
-ticktick-cli tasks Personal
+ticktick-cli task list Work
+ticktick-cli task list Personal
 
 # Create a task (goes to inbox)
-ticktick-cli add "Buy groceries"
+ticktick-cli task add "Buy groceries"
 
 # Create a task in a specific project
-ticktick-cli add "Review PR" -p Work
+ticktick-cli task add "Review PR" -p Work
 
 # Preview a task without creating it
-ticktick-cli add --dry-run "Test task"
+ticktick-cli task add --dry-run "Test task"
 
 # Complete a task
-ticktick-cli complete Work abc123def456
-ticktick-cli done Work abc123def456    # alias
+ticktick-cli task complete Work abc123def456
+ticktick-cli task done Work abc123def456    # alias
 
 # Delete a task
-ticktick-cli delete Personal abc123def456
-ticktick-cli rm Personal abc123def456    # alias
+ticktick-cli task delete Personal abc123def456
+ticktick-cli task rm Personal abc123def456    # alias
 
 # Concise help for all commands
 ticktick-cli usage
@@ -138,11 +143,11 @@ All data commands emit JSON on stdout. Errors emit JSON on stderr:
 
 ```bash
 # Success: JSON on stdout
-ticktick-cli projects
+ticktick-cli project list
 # [{"id": "...", "name": "Personal", ...}, ...]
 
 # Error: JSON on stderr, non-zero exit
-ticktick-cli projects
+ticktick-cli project list
 # {"error":"not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate"}
 ```
 
@@ -178,12 +183,17 @@ This CLI implements the complete [TickTick OpenAPI specification](https://tickti
 
 | Endpoint | CLI Command |
 |----------|-------------|
-| `GET /project` | `projects` |
-| `GET /project/{id}` | `project <id>` |
-| `GET /project/{id}/data` | `tasks <id>` |
-| `POST /task` | `add <title>` |
-| `POST /project/{pid}/task/{tid}/complete` | `complete <pid> <tid>` |
-| `DELETE /project/{pid}/task/{tid}` | `delete <pid> <tid>` |
+| `GET /project` | `project list` |
+| `GET /project/{id}` | `project get <id>` |
+| `POST /project` | `project add <name>` |
+| `POST /project/{id}` | `project edit <id>` |
+| `DELETE /project/{id}` | `project delete <id>` |
+| `GET /project/{id}/data` | `task list <project>` |
+| `GET /project/{pid}/task/{tid}` | `task get <project> <tid>` |
+| `POST /task` | `task add <title>` |
+| `POST /task/{tid}` | `task edit <project> <tid>` |
+| `POST /project/{pid}/task/{tid}/complete` | `task complete <project> <tid>` |
+| `DELETE /project/{pid}/task/{tid}` | `task delete <project> <tid>` |
 
 ## License
 

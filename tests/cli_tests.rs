@@ -45,8 +45,8 @@ fn unknown_flag_exits_two() {
 }
 
 #[test]
-fn subcommand_help_exits_zero() {
-    for subcmd in ["login", "logout", "projects", "project", "tasks", "add", "complete", "delete", "init", "completions"] {
+fn top_level_subcommand_help_exits_zero() {
+    for subcmd in ["login", "logout", "task", "project", "init", "completions"] {
         cmd()
             .args([subcmd, "--help"])
             .assert()
@@ -55,30 +55,50 @@ fn subcommand_help_exits_zero() {
 }
 
 #[test]
+fn task_subcommand_help_exits_zero() {
+    for subcmd in ["list", "get", "add", "edit", "complete", "delete"] {
+        cmd()
+            .args(["task", subcmd, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn project_subcommand_help_exits_zero() {
+    for subcmd in ["list", "get", "add", "edit", "delete"] {
+        cmd()
+            .args(["project", subcmd, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn add_missing_title_exits_two() {
-    cmd().arg("add").assert().failure().code(2);
+    cmd().args(["task", "add"]).assert().failure().code(2);
 }
 
 #[test]
 fn complete_missing_args_exits_two() {
-    cmd().arg("complete").assert().failure().code(2);
+    cmd().args(["task", "complete"]).assert().failure().code(2);
 }
 
 #[test]
 fn delete_missing_args_exits_two() {
-    cmd().arg("delete").assert().failure().code(2);
+    cmd().args(["task", "delete"]).assert().failure().code(2);
 }
 
 #[test]
 fn unauthenticated_commands_fail_with_hint() {
-    for subcmd in ["projects", "tasks"] {
-        let output = cmd().arg(subcmd).output().expect("failed to run");
+    for args in [vec!["project", "list"], vec!["task", "list"]] {
+        let output = cmd().args(&args).output().expect("failed to run");
         if !output.status.success() {
             let stderr = String::from_utf8(output.stderr).unwrap();
             let parsed: serde_json::Value = serde_json::from_str(stderr.trim())
                 .expect("error output should be valid JSON");
             let error_msg = parsed["error"].as_str().expect("should have error field");
-            assert!(error_msg.contains("hint"), "error for '{subcmd}' should contain hint");
+            assert!(error_msg.contains("hint"), "error for '{args:?}' should contain hint");
         }
     }
 }
@@ -88,7 +108,7 @@ fn delete_refuses_without_force_in_non_tty() {
     // In a non-TTY environment (like tests), delete without --force should fail.
     // The error might be about missing auth or missing project, but should never succeed.
     cmd()
-        .args(["delete", "someproject", "sometask"])
+        .args(["task", "delete", "someproject", "sometask"])
         .assert()
         .failure();
 }
@@ -126,20 +146,20 @@ fn completions_missing_shell_exits_two() {
 fn verbose_flag_accepted() {
     // -v should not be a usage error (exit code 2), regardless of auth state
     cmd()
-        .args(["-v", "projects"])
+        .args(["-v", "project", "list"])
         .assert()
         .code(predicate::ne(2));
 }
 
 #[test]
-fn project_missing_name_exits_two() {
-    cmd().arg("project").assert().failure().code(2);
+fn project_get_missing_name_exits_two() {
+    cmd().args(["project", "get"]).assert().failure().code(2);
 }
 
 #[test]
 fn add_dry_run_exits_zero() {
     cmd()
-        .args(["add", "--dry-run", "test task"])
+        .args(["task", "add", "--dry-run", "test task"])
         .assert()
         .success();
 }
@@ -147,7 +167,7 @@ fn add_dry_run_exits_zero() {
 #[test]
 fn add_dry_run_json_is_valid_json() {
     let output = cmd()
-        .args(["add", "--dry-run", "test task"])
+        .args(["task", "add", "--dry-run", "test task"])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -215,7 +235,7 @@ fn init_local_force_overwrites() {
 #[test]
 fn mutation_confirmations_go_to_stderr() {
     let output = cmd()
-        .args(["add", "--dry-run", "test task"])
+        .args(["task", "add", "--dry-run", "test task"])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -239,7 +259,7 @@ fn usage_lists_subcommands() {
         .expect("failed to run");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for name in ["login", "logout", "projects", "project", "tasks", "add", "complete", "delete", "init", "completions"] {
+    for name in ["login", "logout", "task list", "task add", "task complete", "task delete", "project list", "project add", "project delete", "init", "completions"] {
         assert!(stdout.contains(name), "usage output should contain '{name}'");
     }
 }
@@ -247,7 +267,7 @@ fn usage_lists_subcommands() {
 #[test]
 fn errors_are_json_on_stderr() {
     let output = cmd()
-        .arg("projects")
+        .args(["project", "list"])
         .output()
         .expect("failed to run");
     if !output.status.success() {
@@ -261,7 +281,7 @@ fn errors_are_json_on_stderr() {
 #[test]
 fn output_is_always_json() {
     let output = cmd()
-        .args(["add", "--dry-run", "test task"])
+        .args(["task", "add", "--dry-run", "test task"])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
