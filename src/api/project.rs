@@ -1,6 +1,31 @@
 use crate::config;
 use serde::{Deserialize, Serialize};
 
+#[derive(Default, Clone)]
+pub struct ProjectFields {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub view_mode: Option<String>,
+    pub kind: Option<String>,
+}
+
+impl ProjectFields {
+    pub fn apply_to(&self, body: &mut serde_json::Value) {
+        if let Some(ref n) = self.name {
+            body["name"] = serde_json::Value::String(n.clone());
+        }
+        if let Some(ref c) = self.color {
+            body["color"] = serde_json::Value::String(c.clone());
+        }
+        if let Some(ref vm) = self.view_mode {
+            body["viewMode"] = serde_json::Value::String(vm.clone());
+        }
+        if let Some(ref k) = self.kind {
+            body["kind"] = serde_json::Value::String(k.clone());
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -111,12 +136,15 @@ pub fn get_by_id(project_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn create(name: &str) -> Result<(), String> {
+pub fn create(fields: &ProjectFields) -> Result<(), String> {
+    let name = fields
+        .name
+        .as_ref()
+        .ok_or_else(|| "name is required to create a project".to_string())?;
     let token = config::get_access_token()?;
 
-    let body = serde_json::json!({
-        "name": name
-    });
+    let mut body = serde_json::json!({ "name": name });
+    fields.apply_to(&mut body);
 
     let resp = super::post("/project", &token, &body)?;
 
@@ -128,16 +156,11 @@ pub fn create(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn update(project_id: &str, name: Option<&str>) -> Result<(), String> {
+pub fn update(project_id: &str, fields: &ProjectFields) -> Result<(), String> {
     let token = config::get_access_token()?;
 
-    let mut body = serde_json::json!({
-        "id": project_id
-    });
-
-    if let Some(n) = name {
-        body["name"] = serde_json::Value::String(n.to_string());
-    }
+    let mut body = serde_json::json!({ "id": project_id });
+    fields.apply_to(&mut body);
 
     let resp = super::post(&format!("/project/{project_id}"), &token, &body)?;
 
