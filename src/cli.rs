@@ -647,6 +647,61 @@ type TimeblockResult = (
     Option<String>,
 );
 
+/// If `--tz` was given, use that. Otherwise, compare the local system timezone
+/// with the stored TickTick account timezone.  When they differ and stdin is a
+/// terminal, prompt the user to choose.
+///
+/// Returns `(tz_for_offset, tz_field)`:
+/// - `tz_for_offset`: IANA name to compute the UTC offset (None = local)
+/// - `tz_field`: value to send as the `timeZone` JSON field
+fn resolve_timezone(
+    explicit_tz: Option<String>,
+    has_datetime: bool,
+) -> (Option<String>, Option<String>) {
+    use std::io::IsTerminal;
+
+    // --tz always wins
+    if let Some(tz) = explicit_tz {
+        return (Some(tz.clone()), Some(tz));
+    }
+
+    // No datetime flags → nothing to resolve
+    if !has_datetime {
+        return (None, None);
+    }
+
+    let local = crate::api::task::local_iana_timezone();
+    let account = crate::config::get_account_timezone();
+
+    // If we don't know the account timezone yet, or they match, use local
+    let (Some(local_tz), Some(account_tz)) = (&local, &account) else {
+        return (None, None);
+    };
+
+    if local_tz == account_tz {
+        return (None, None);
+    }
+
+    // They differ — prompt if interactive, otherwise default to local
+    if !std::io::stdin().is_terminal() {
+        return (None, local);
+    }
+
+    eprint!(
+        "Local timezone ({local_tz}) differs from TickTick account ({account_tz}).\n\
+         Use which timezone? [l]ocal / [a]ccount (default: local): "
+    );
+
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_ok()
+        && matches!(input.trim().to_lowercase().as_str(), "a" | "account")
+    {
+        (Some(account_tz.clone()), Some(account_tz.clone()))
+    } else {
+        (None, local)
+    }
+}
+
 /// Resolve timeblocking flags into TaskFields components.
 /// Returns (due_date, start_date, is_all_day, time_zone).
 fn resolve_timeblock(
@@ -655,6 +710,7 @@ fn resolve_timeblock(
     duration: Option<&str>,
     all_day: bool,
     timezone: Option<String>,
+    tz_for_offset: Option<&str>,
 ) -> Result<TimeblockResult, String> {
     use crate::api::task::{DateField, parse_datetime, parse_duration};
 
@@ -680,13 +736,13 @@ fn resolve_timeblock(
         let ps = parsed_start.as_ref().unwrap(); // guaranteed by check above
         let end = ps.add_duration(&dur)?;
         (
-            Some(DateField::Set(end.to_api_string())),
-            Some(DateField::Set(ps.to_api_string())),
+            Some(DateField::Set(end.to_api_string(tz_for_offset))),
+            Some(DateField::Set(ps.to_api_string(tz_for_offset))),
         )
     } else {
         (
-            parsed_due.as_ref().map(|d| DateField::Set(d.to_api_string())),
-            parsed_start.as_ref().map(|d| DateField::Set(d.to_api_string())),
+            parsed_due.as_ref().map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
+            parsed_start.as_ref().map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
         )
     };
 
@@ -703,6 +759,17 @@ fn resolve_timeblock(
     };
 
     Ok((resolved_due, resolved_start, is_all_day, timezone))
+}
+
+/// After a task create/update, detect the TickTick account timezone from the
+/// response and store it in config if not already known.
+fn detect_account_timezone(task: &crate::api::task::Task) {
+    if crate::config::get_account_timezone().is_some() {
+        return;
+    }
+    if let Some(ref tz) = task.time_zone {
+        let _ = crate::config::save_account_timezone(tz);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -769,12 +836,15 @@ pub fn run() -> Result<(), String> {
                     .transpose()?;
                 let priority = priority.map(|p| p.to_api_value());
 
+                let has_datetime = due.is_some() || start.is_some();
+                let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (due_date, start_date, is_all_day, time_zone) = resolve_timeblock(
                     due.as_deref(),
                     start.as_deref(),
                     duration.as_deref(),
                     all_day,
-                    timezone,
+                    tz_field,
+                    tz_for_offset.as_deref(),
                 )?;
 
                 let content = content.map(Some);
@@ -845,12 +915,15 @@ pub fn run() -> Result<(), String> {
                             repeat_flag: repeat_flag.clone(),
                         };
                         match crate::api::task::create(&token, &fields) {
-                            Ok(task) => BulkResult {
-                                id: title.clone(),
-                                status: "ok".into(),
-                                data: Some(serde_json::to_value(&task).unwrap_or_default()),
-                                error: None,
-                            },
+                            Ok(task) => {
+                                detect_account_timezone(&task);
+                                BulkResult {
+                                    id: title.clone(),
+                                    status: "ok".into(),
+                                    data: Some(serde_json::to_value(&task).unwrap_or_default()),
+                                    error: None,
+                                }
+                            }
                             Err(e) => BulkResult {
                                 id: title.clone(),
                                 status: "error".into(),
@@ -898,12 +971,15 @@ pub fn run() -> Result<(), String> {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 let priority = priority.map(|p| p.to_api_value());
 
+                let has_datetime = due.is_some() || start.is_some();
+                let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (mut resolved_due, mut resolved_start, is_all_day, time_zone) = resolve_timeblock(
                     due.as_deref(),
                     start.as_deref(),
                     duration.as_deref(),
                     all_day,
-                    timezone,
+                    tz_field,
+                    tz_for_offset.as_deref(),
                 )?;
 
                 if clear_due {
@@ -947,12 +1023,15 @@ pub fn run() -> Result<(), String> {
                             repeat_flag: repeat_flag.clone(),
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
-                            Ok(task) => BulkResult {
-                                id: task_id.clone(),
-                                status: "ok".into(),
-                                data: Some(serde_json::to_value(&task).unwrap_or_default()),
-                                error: None,
-                            },
+                            Ok(task) => {
+                                detect_account_timezone(&task);
+                                BulkResult {
+                                    id: task_id.clone(),
+                                    status: "ok".into(),
+                                    data: Some(serde_json::to_value(&task).unwrap_or_default()),
+                                    error: None,
+                                }
+                            }
                             Err(e) => BulkResult {
                                 id: task_id.clone(),
                                 status: "error".into(),

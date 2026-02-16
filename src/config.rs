@@ -6,6 +6,8 @@ use std::path::PathBuf;
 pub struct Config {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_timezone: Option<String>,
 }
 
 #[derive(Debug)]
@@ -190,6 +192,16 @@ pub fn init(local: bool, force: bool) -> Result<(), String> {
     eprintln!("Created {}", path.display());
     crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
     Ok(())
+}
+
+pub fn get_account_timezone() -> Option<String> {
+    load().account_timezone
+}
+
+pub fn save_account_timezone(tz: &str) -> Result<(), String> {
+    let mut config = load();
+    config.account_timezone = Some(tz.to_string());
+    save(&config)
 }
 
 pub fn logout() -> Result<(), String> {
