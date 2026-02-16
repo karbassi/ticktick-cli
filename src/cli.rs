@@ -199,6 +199,8 @@ Examples:
   ticktick-cli task add 'Submit report' --due 2025-03-01
   ticktick-cli task add 'Call dentist' -d tomorrow
   ticktick-cli task add 'Urgent fix' --priority high
+  ticktick-cli task add 'Focus block' --start 2026-02-16T14:00 --duration 2h
+  ticktick-cli task add 'Meeting' --start 2026-02-16T14:00 --due 2026-02-16T15:30 --tz America/Los_Angeles
   echo -e 'Task A\\nTask B' | ticktick-cli task add --stdin -p Work
 ")]
     Add {
@@ -210,13 +212,29 @@ Examples:
         #[arg(short, long)]
         project: Option<String>,
 
-        /// Due date: YYYY-MM-DD, 'today', or 'tomorrow'
+        /// Due date/time: YYYY-MM-DD or YYYY-MM-DDTHH:MM, 'today', 'tomorrow'
         #[arg(short, long)]
         due: Option<String>,
 
         /// Priority: none, low, medium, high
         #[arg(short = 'P', long)]
         priority: Option<Priority>,
+
+        /// Start date/time: YYYY-MM-DD or YYYY-MM-DDTHH:MM, 'today', 'tomorrow'
+        #[arg(short, long)]
+        start: Option<String>,
+
+        /// Duration (e.g. 1h, 30m, 1h30m). Computes due = start + duration
+        #[arg(long, conflicts_with = "due")]
+        duration: Option<String>,
+
+        /// Force all-day event even with time inputs
+        #[arg(long)]
+        all_day: bool,
+
+        /// IANA timezone (e.g. America/New_York)
+        #[arg(long = "timezone", visible_alias = "tz")]
+        timezone: Option<String>,
 
         /// Preview without creating the task
         #[arg(short = 'n', long)]
@@ -240,6 +258,8 @@ Examples:
   ticktick-cli task edit Personal abc123 --title 'New title'
   ticktick-cli task edit Personal abc123 --clear-due
   ticktick-cli task edit Personal abc123 --priority high
+  ticktick-cli task edit Personal abc123 --start 2026-02-16T14:00 --duration 1h30m
+  ticktick-cli task edit Personal abc123 --clear-start
   echo -e 'id1\\nid2' | ticktick-cli task edit Personal --stdin --due tomorrow
 ")]
     Edit {
@@ -250,7 +270,7 @@ Examples:
         #[arg(num_args = 1.., required_unless_present = "stdin")]
         task_ids: Vec<String>,
 
-        /// Set due date: YYYY-MM-DD, 'today', or 'tomorrow'
+        /// Set due date/time: YYYY-MM-DD or YYYY-MM-DDTHH:MM, 'today', 'tomorrow'
         #[arg(short, long)]
         due: Option<String>,
 
@@ -265,6 +285,26 @@ Examples:
         /// Priority: none, low, medium, high
         #[arg(short = 'P', long)]
         priority: Option<Priority>,
+
+        /// Start date/time: YYYY-MM-DD or YYYY-MM-DDTHH:MM, 'today', 'tomorrow'
+        #[arg(short, long)]
+        start: Option<String>,
+
+        /// Remove the start date
+        #[arg(long, conflicts_with = "start")]
+        clear_start: bool,
+
+        /// Duration (e.g. 1h, 30m, 1h30m). Computes due = start + duration
+        #[arg(long, conflicts_with = "due", conflicts_with = "clear_due")]
+        duration: Option<String>,
+
+        /// Force all-day event even with time inputs
+        #[arg(long)]
+        all_day: bool,
+
+        /// IANA timezone (e.g. America/New_York)
+        #[arg(long = "timezone", visible_alias = "tz")]
+        timezone: Option<String>,
 
         /// Read task IDs from stdin (one per line)
         #[arg(long)]
@@ -506,6 +546,70 @@ fn confirm_delete(count: usize, from_stdin: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve timeblocking flags into TaskFields components.
+/// Returns (due_date, start_date, is_all_day, time_zone).
+fn resolve_timeblock(
+    due: Option<&str>,
+    start: Option<&str>,
+    duration: Option<&str>,
+    all_day: bool,
+    timezone: Option<String>,
+) -> Result<(
+    Option<crate::api::task::DateField>,
+    Option<crate::api::task::DateField>,
+    Option<bool>,
+    Option<String>,
+), String> {
+    use crate::api::task::{DateField, parse_datetime, parse_duration};
+
+    // --duration requires --start
+    if duration.is_some() && start.is_none() {
+        return Err("--duration requires --start".to_string());
+    }
+
+    let parsed_start = start.map(parse_datetime).transpose()?;
+    let parsed_due = due.map(parse_datetime).transpose()?;
+
+    // --duration with date-only --start is an error
+    if let Some(ref _dur_str) = duration {
+        if let Some(ref ps) = parsed_start {
+            if ps.is_all_day() {
+                return Err("--duration requires --start with a time (YYYY-MM-DDTHH:MM)".to_string());
+            }
+        }
+    }
+
+    // Compute due from start + duration if --duration given
+    let (resolved_due, resolved_start) = if let Some(dur_str) = duration {
+        let dur = parse_duration(dur_str)?;
+        let ps = parsed_start.as_ref().unwrap(); // guaranteed by check above
+        let end = ps.add_duration(&dur)?;
+        (
+            Some(DateField::Set(end.to_api_string())),
+            Some(DateField::Set(ps.to_api_string())),
+        )
+    } else {
+        (
+            parsed_due.as_ref().map(|d| DateField::Set(d.to_api_string())),
+            parsed_start.as_ref().map(|d| DateField::Set(d.to_api_string())),
+        )
+    };
+
+    // Derive isAllDay
+    let is_all_day = if all_day {
+        Some(true)
+    } else if parsed_start.is_some() || parsed_due.is_some() || duration.is_some() {
+        let has_time = parsed_start.as_ref().is_some_and(|d| !d.is_all_day())
+            || parsed_due.as_ref().is_some_and(|d| !d.is_all_day())
+            || duration.is_some();
+        Some(!has_time)
+    } else {
+        None
+    };
+
+    Ok((resolved_due, resolved_start, is_all_day, timezone))
+}
+
 // ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
@@ -551,6 +655,10 @@ pub fn run() -> Result<(), String> {
                 project,
                 due,
                 priority,
+                start,
+                duration,
+                all_day,
+                timezone,
                 dry_run,
                 stdin,
             } => {
@@ -558,27 +666,31 @@ pub fn run() -> Result<(), String> {
                 let project_id = project
                     .map(|n| crate::api::project::resolve_id(&n))
                     .transpose()?;
-                let due_date = due
-                    .map(|d| crate::api::task::parse_due_date(&d))
-                    .transpose()?;
                 let priority = priority.map(|p| p.to_api_value());
+
+                let (due_date, start_date, is_all_day, time_zone) = resolve_timeblock(
+                    due.as_deref(),
+                    start.as_deref(),
+                    duration.as_deref(),
+                    all_day,
+                    timezone,
+                )?;
 
                 if dry_run {
                     let previews: Vec<serde_json::Value> = inputs
                         .iter()
                         .map(|title| {
-                            let mut body = serde_json::json!({ "title": title, "dryRun": true });
-                            if let Some(pid) = &project_id {
-                                body["projectId"] =
-                                    serde_json::Value::String(pid.clone());
-                            }
-                            if let Some(d) = &due_date {
-                                body["dueDate"] =
-                                    serde_json::Value::String(d.clone());
-                            }
-                            if let Some(p) = priority {
-                                body["priority"] = serde_json::Value::Number(p.into());
-                            }
+                            let fields = crate::api::task::TaskFields {
+                                title: Some(title.clone()),
+                                project_id: project_id.clone(),
+                                due_date: due_date.clone(),
+                                start_date: start_date.clone(),
+                                priority,
+                                is_all_day,
+                                time_zone: time_zone.clone(),
+                            };
+                            let mut body = serde_json::json!({ "dryRun": true });
+                            fields.apply_to(&mut body);
                             body
                         })
                         .collect();
@@ -595,19 +707,20 @@ pub fn run() -> Result<(), String> {
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|title| {
-                        match crate::api::task::create(
-                            &token,
-                            title,
-                            project_id.as_deref(),
-                            due_date.as_deref(),
+                        let fields = crate::api::task::TaskFields {
+                            title: Some(title.clone()),
+                            project_id: project_id.clone(),
+                            due_date: due_date.clone(),
+                            start_date: start_date.clone(),
                             priority,
-                        ) {
+                            is_all_day,
+                            time_zone: time_zone.clone(),
+                        };
+                        match crate::api::task::create(&token, &fields) {
                             Ok(task) => BulkResult {
                                 id: title.clone(),
                                 status: "ok".into(),
-                                data: Some(
-                                    serde_json::to_value(&task).unwrap_or_default(),
-                                ),
+                                data: Some(serde_json::to_value(&task).unwrap_or_default()),
                                 error: None,
                             },
                             Err(e) => BulkResult {
@@ -629,46 +742,55 @@ pub fn run() -> Result<(), String> {
                 clear_due,
                 title,
                 priority,
+                start,
+                clear_start,
+                duration,
+                all_day,
+                timezone,
                 stdin,
             } => {
                 let inputs = collect_inputs(task_ids, stdin)?;
 
                 if title.is_some() && inputs.len() > 1 {
-                    return Err(
-                        "--title can only be used with a single task ID".to_string()
-                    );
+                    return Err("--title can only be used with a single task ID".to_string());
                 }
 
                 let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
-                let due_date = if clear_due {
-                    Some(crate::api::task::DueDate::Clear)
-                } else if let Some(d) = due {
-                    Some(crate::api::task::DueDate::Set(
-                        crate::api::task::parse_due_date(&d)?,
-                    ))
-                } else {
-                    None
-                };
                 let priority = priority.map(|p| p.to_api_value());
+
+                let (mut resolved_due, mut resolved_start, is_all_day, time_zone) = resolve_timeblock(
+                    due.as_deref(),
+                    start.as_deref(),
+                    duration.as_deref(),
+                    all_day,
+                    timezone,
+                )?;
+
+                if clear_due {
+                    resolved_due = Some(crate::api::task::DateField::Clear);
+                }
+                if clear_start {
+                    resolved_start = Some(crate::api::task::DateField::Clear);
+                }
 
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|task_id| {
-                        match crate::api::task::update(
-                            &token,
-                            &project_id,
-                            task_id,
-                            title.as_deref(),
-                            due_date.clone(),
+                        let fields = crate::api::task::TaskFields {
+                            title: title.clone(),
+                            project_id: None,
+                            due_date: resolved_due.clone(),
+                            start_date: resolved_start.clone(),
                             priority,
-                        ) {
+                            is_all_day,
+                            time_zone: time_zone.clone(),
+                        };
+                        match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => BulkResult {
                                 id: task_id.clone(),
                                 status: "ok".into(),
-                                data: Some(
-                                    serde_json::to_value(&task).unwrap_or_default(),
-                                ),
+                                data: Some(serde_json::to_value(&task).unwrap_or_default()),
                                 error: None,
                             },
                             Err(e) => BulkResult {

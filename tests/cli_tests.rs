@@ -356,3 +356,230 @@ fn output_is_always_json() {
     let _: serde_json::Value = serde_json::from_str(&stdout)
         .expect("output should always be valid JSON without any flags");
 }
+
+// -- Timeblocking tests -------------------------------------------------------
+
+#[test]
+fn add_dry_run_with_start_date_only() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Meeting", "--start", "2026-03-15"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["title"], "Meeting");
+    assert_eq!(parsed["startDate"], "2026-03-15T00:00:00.000+0000");
+    assert_eq!(parsed["isAllDay"], true);
+    assert!(parsed.get("dueDate").is_none() || parsed["dueDate"].is_null());
+}
+
+#[test]
+fn add_dry_run_with_start_datetime() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Focus", "--start", "2026-03-15T14:00"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["startDate"], "2026-03-15T14:00:00.000+0000");
+    assert_eq!(parsed["isAllDay"], false);
+}
+
+#[test]
+fn add_dry_run_with_duration() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Block", "--start", "2026-03-15T14:00", "--duration", "2h"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["startDate"], "2026-03-15T14:00:00.000+0000");
+    assert_eq!(parsed["dueDate"], "2026-03-15T16:00:00.000+0000");
+    assert_eq!(parsed["isAllDay"], false);
+}
+
+#[test]
+fn add_dry_run_duration_day_overflow() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Late", "--start", "2026-03-15T23:00", "--duration", "2h"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["startDate"], "2026-03-15T23:00:00.000+0000");
+    assert_eq!(parsed["dueDate"], "2026-03-16T01:00:00.000+0000");
+}
+
+#[test]
+fn add_dry_run_duration_month_overflow() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "End of month", "--start", "2026-01-31T23:00", "--duration", "2h"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["dueDate"], "2026-02-01T01:00:00.000+0000");
+}
+
+#[test]
+fn add_dry_run_duration_leap_year() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Leap", "--start", "2024-02-28T23:30", "--duration", "1h"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["dueDate"], "2024-02-29T00:30:00.000+0000");
+}
+
+#[test]
+fn add_dry_run_with_timezone() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "TZ test", "--start", "2026-03-15T14:00", "--timezone", "America/New_York"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["timeZone"], "America/New_York");
+}
+
+#[test]
+fn add_dry_run_with_tz_alias() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "TZ alias", "--start", "2026-03-15T14:00", "--tz", "Europe/London"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["timeZone"], "Europe/London");
+}
+
+#[test]
+fn add_dry_run_all_day_override() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "All day", "--start", "2026-03-15T14:00", "--all-day"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    // --all-day forces isAllDay: true even with a time input
+    assert_eq!(parsed["isAllDay"], true);
+}
+
+#[test]
+fn add_dry_run_due_datetime() {
+    // --due with a time component should set isAllDay: false
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Timed", "--due", "2026-03-15T17:00"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["dueDate"], "2026-03-15T17:00:00.000+0000");
+    assert_eq!(parsed["isAllDay"], false);
+}
+
+#[test]
+fn add_dry_run_due_date_only_is_all_day() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Day task", "--due", "2026-03-15"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["isAllDay"], true);
+}
+
+// -- Error cases --
+
+#[test]
+fn add_duration_without_start_fails() {
+    // --duration requires --start
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Bad", "--duration", "1h"])
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--duration requires --start"));
+}
+
+#[test]
+fn add_duration_with_date_only_start_fails() {
+    // --start date-only + --duration is an error
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15", "--duration", "1h"])
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--duration requires --start with a time"));
+}
+
+#[test]
+fn add_duration_conflicts_with_due() {
+    // clap conflicts_with should reject this
+    cmd()
+        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "1h", "--due", "2026-03-15"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn add_invalid_duration_format() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "abc"])
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn add_zero_duration_fails() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "0h"])
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success());
+}
+
+// -- Edit conflict cases --
+
+#[test]
+fn edit_start_conflicts_with_clear_start() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15", "--clear-start"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn edit_duration_conflicts_with_due() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15T14:00", "--duration", "1h", "--due", "2026-03-15"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn edit_duration_conflicts_with_clear_due() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15T14:00", "--duration", "1h", "--clear-due"])
+        .assert()
+        .failure()
+        .code(2);
+}
