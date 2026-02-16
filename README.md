@@ -7,8 +7,10 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 - **JSON-first** — every command outputs structured JSON, no flags needed
 - OAuth authentication flow with automatic token refresh
 - Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
-- List all projects and tasks
-- Create, edit, complete, and delete tasks
+- Full task management: create, edit, complete, delete with bulk operations
+- Task details: content, description, tags, checklist items, reminders, recurrence
+- Timeblocking: start/due dates, durations, timezones, all-day events
+- Project options: color, view mode (list/kanban/timeline), kind (task/note)
 - Shell completions (bash, zsh, fish)
 
 ## Installation
@@ -87,13 +89,49 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `project list` | | List all projects |
 | `project get <name>` | | Get project details by name or ID |
 | `project add <name>` | | Create a new project |
-| `project edit <project> [--name]` | | Rename a project |
+| `project edit <project>` | | Edit a project |
 | `project delete <project>` | `project rm` | Delete a project |
 | `init [--local]` | | Generate `.env` template |
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
 
 All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept multiple positional arguments and a `--stdin` flag to read items from a pipe (one per line).
+
+#### Task flags
+
+| Flag | Commands | Description |
+|------|----------|-------------|
+| `-p`, `--project` | `add` | Target project |
+| `-d`, `--due` | `add`, `edit` | Due date (`YYYY-MM-DD`, `YYYY-MM-DDTHH:MM`, `today`, `tomorrow`) |
+| `-s`, `--start` | `add`, `edit` | Start date/time |
+| `--duration` | `add`, `edit` | Duration (e.g. `1h`, `30m`, `1h30m`). Computes due = start + duration |
+| `--all-day` | `add`, `edit` | Force all-day event |
+| `--timezone`, `--tz` | `add`, `edit` | IANA timezone (e.g. `America/New_York`) |
+| `-P`, `--priority` | `add`, `edit` | Priority: `none`, `low`, `medium`, `high` |
+| `-t`, `--title` | `edit` | New title (single task only) |
+| `--content` | `add`, `edit` | Task content/notes |
+| `--desc` | `add`, `edit` | Task description |
+| `--tag` | `add`, `edit` | Tag (repeatable) |
+| `--item` | `add`, `edit` | Checklist item (repeatable) |
+| `--reminder` | `add`, `edit` | Reminder trigger (repeatable, e.g. `TRIGGER:PT0S`) |
+| `--repeat` | `add`, `edit` | Recurrence rule (e.g. `RRULE:FREQ=DAILY;INTERVAL=1`) |
+| `--clear-due` | `edit` | Remove due date |
+| `--clear-start` | `edit` | Remove start date |
+| `--clear-content` | `edit` | Remove content |
+| `--clear-desc` | `edit` | Remove description |
+| `--clear-tags` | `edit` | Remove all tags |
+| `--clear-reminders` | `edit` | Remove all reminders |
+| `--clear-repeat` | `edit` | Remove recurrence |
+| `-n`, `--dry-run` | `add` | Preview request body without creating |
+
+#### Project flags
+
+| Flag | Commands | Description |
+|------|----------|-------------|
+| `-n`, `--name` | `edit` | New project name |
+| `--color` | `add`, `edit` | Project color (hex, e.g. `#FF0000`) |
+| `--view-mode` | `add`, `edit` | View mode: `list`, `kanban`, `timeline` |
+| `--kind` | `add`, `edit` | Project kind: `TASK`, `NOTE` |
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
@@ -127,8 +165,30 @@ ticktick-cli task add "Review PR" -p Work
 # Create multiple tasks at once
 ticktick-cli task add "Task 1" "Task 2" "Task 3" -p Work
 
+# Create a task with due date
+ticktick-cli task add "Submit report" --due 2026-03-01
+ticktick-cli task add "Call dentist" -d tomorrow
+
+# Timeblocking: start + duration
+ticktick-cli task add "Focus block" --start 2026-02-16T14:00 --duration 2h
+
+# Tags, content, and checklist items
+ticktick-cli task add "Sprint planning" --tag work --tag urgent \
+  --content "Quarterly review" --item "Review backlog" --item "Set priorities"
+
+# Recurring task with reminder
+ticktick-cli task add "Daily standup" \
+  --repeat "RRULE:FREQ=DAILY;INTERVAL=1" --reminder "TRIGGER:PT0S"
+
+# Edit a task
+ticktick-cli task edit Personal abc123 --due tomorrow --priority high
+ticktick-cli task edit Personal abc123 --clear-tags
+
 # Preview a task without creating it
 ticktick-cli task add --dry-run "Test task"
+
+# Create a project with options
+ticktick-cli project add "Sprint Board" --color "#FF0000" --view-mode kanban --kind TASK
 
 # Complete a task
 ticktick-cli task complete Work abc123def456
