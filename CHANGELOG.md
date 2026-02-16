@@ -7,9 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0]
+
+### Added
+- `--content` and `--desc` flags on `task add` and `task edit` — set task content/notes and description
+- `--clear-content` and `--clear-desc` flags on `task edit` — remove content or description
+- `--tag` flag (repeatable) on `task add` and `task edit` — set tags
+- `--clear-tags` flag on `task edit` — remove all tags
+- `--item` flag (repeatable) on `task add` and `task edit` — add checklist/subtask items
+- `--reminder` flag (repeatable) on `task add` and `task edit` — set reminders (e.g. `TRIGGER:PT0S`)
+- `--repeat` flag on `task add` and `task edit` — set recurrence rules (e.g. `RRULE:FREQ=DAILY;INTERVAL=1`)
+- `--clear-reminders` and `--clear-repeat` flags on `task edit` — remove reminders or recurrence
+- `--color` flag on `project add` and `project edit` — set project color (hex string, e.g. `#FF0000`)
+- `--view-mode` flag on `project add` and `project edit` — set view mode (`list`, `kanban`, `timeline`)
+- `--kind` flag on `project add` and `project edit` — set project kind (`TASK`, `NOTE`)
+
 ## [0.7.0]
 
 ### Added
+- Timeblocking support: `--start`, `--duration`, `--all-day`, `--timezone`/`--tz` flags on `task add` and `task edit`
+- `--duration` computes due date from start + duration (e.g. `--start 2026-02-16T14:00 --duration 2h`)
+- `--all-day` forces all-day event even with time inputs
+- `--timezone` sets the IANA timezone for the task
+- `--dry-run` / `-n` flag on `task add` — preview the API request body without creating the task
 - Bulk operations for `task add`, `task edit`, `task complete`, and `task delete` — pass multiple positional args to operate on several tasks at once
 - `--stdin` flag on all four task mutation commands — read titles or task IDs from stdin (one per line) for pipeline-friendly workflows
 - Bulk output format: single item returns the same JSON as before (backward compatible); multiple items return a JSON array of `{id, status, data?, error?}` objects
