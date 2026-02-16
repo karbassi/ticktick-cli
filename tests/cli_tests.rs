@@ -288,6 +288,64 @@ fn errors_are_json_on_stderr() {
 }
 
 #[test]
+fn add_multiple_dry_run() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Task A", "Task B", "Task C"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("multi dry-run output should be valid JSON");
+    let arr = parsed.as_array().expect("should be a JSON array");
+    assert_eq!(arr.len(), 3);
+    assert_eq!(arr[0]["title"], "Task A");
+    assert_eq!(arr[1]["title"], "Task B");
+    assert_eq!(arr[2]["title"], "Task C");
+    for item in arr {
+        assert_eq!(item["dryRun"], true);
+    }
+}
+
+#[test]
+fn add_stdin_dry_run() {
+    let output = cmd()
+        .args(["task", "add", "--stdin", "--dry-run"])
+        .write_stdin("Task X\nTask Y\n")
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdin dry-run output should be valid JSON");
+    let arr = parsed.as_array().expect("should be a JSON array");
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["title"], "Task X");
+    assert_eq!(arr[1]["title"], "Task Y");
+}
+
+#[test]
+fn edit_title_with_multiple_ids_exits_one() {
+    cmd()
+        .args([
+            "task", "edit", "someproject", "id1", "id2", "--title", "New",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--title can only be used with a single task ID"));
+}
+
+#[test]
+fn delete_stdin_without_force_refuses() {
+    cmd()
+        .args(["task", "delete", "someproject", "--stdin"])
+        .write_stdin("id1\nid2\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+#[test]
 fn output_is_always_json() {
     let output = cmd()
         .args(["task", "add", "--dry-run", "test task"])

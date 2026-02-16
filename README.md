@@ -80,10 +80,10 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `logout` | | Remove stored credentials |
 | `task list [project]` | | List all tasks, optionally filtered by project |
 | `task get <project> <task_id>` | | Get task details |
-| `task add <title> [-p project]` | `task new` | Create a new task |
-| `task edit <project> <task_id>` | `task update` | Edit an existing task |
-| `task complete <project> <task_id>` | `task done` | Mark a task as complete |
-| `task delete <project> <task_id>` | `task rm` | Delete a task |
+| `task add <titles...> [-p project]` | `task new` | Create one or more tasks |
+| `task edit <project> <task_ids...>` | `task update` | Edit one or more tasks |
+| `task complete <project> <task_ids...>` | `task done` | Mark one or more tasks as complete |
+| `task delete <project> <task_ids...>` | `task rm` | Delete one or more tasks |
 | `project list` | | List all projects |
 | `project get <name>` | | Get project details by name or ID |
 | `project add <name>` | | Create a new project |
@@ -92,6 +92,8 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `init [--local]` | | Generate `.env` template |
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
+
+All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept multiple positional arguments and a `--stdin` flag to read items from a pipe (one per line).
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
 
@@ -122,6 +124,9 @@ ticktick-cli task add "Buy groceries"
 # Create a task in a specific project
 ticktick-cli task add "Review PR" -p Work
 
+# Create multiple tasks at once
+ticktick-cli task add "Task 1" "Task 2" "Task 3" -p Work
+
 # Preview a task without creating it
 ticktick-cli task add --dry-run "Test task"
 
@@ -129,9 +134,17 @@ ticktick-cli task add --dry-run "Test task"
 ticktick-cli task complete Work abc123def456
 ticktick-cli task done Work abc123def456    # alias
 
+# Complete multiple tasks
+ticktick-cli task complete Personal id1 id2 id3
+
 # Delete a task
 ticktick-cli task delete Personal abc123def456
 ticktick-cli task rm Personal abc123def456    # alias
+
+# Bulk operations via stdin (pipe-friendly)
+ticktick-cli task list Work | jq -r '.[].id' | ticktick-cli task complete Work --stdin
+ticktick-cli task list Work | jq -r '.[].id' | ticktick-cli task delete Work --stdin --force
+echo -e "Task A\nTask B" | ticktick-cli task add --stdin -p Work
 
 # Concise help for all commands
 ticktick-cli usage
@@ -150,6 +163,17 @@ ticktick-cli project list
 ticktick-cli project list
 # {"error":"not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate"}
 ```
+
+**Bulk operations:** A single item outputs the same JSON as before (backward compatible). Multiple items output a JSON array of result objects:
+
+```json
+[
+  { "id": "abc", "status": "ok", "data": { ... } },
+  { "id": "def", "status": "error", "error": "not found" }
+]
+```
+
+Exit code is 0 if all operations succeed, 1 if any fail.
 
 Interactive messages (login prompts, delete confirmations) go to stderr as plain text and won't interfere with piped JSON.
 

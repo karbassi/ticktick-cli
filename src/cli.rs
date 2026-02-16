@@ -1,5 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::CompleteEnv;
+use serde::Serialize;
 
 /// Task priority level
 #[derive(Clone, Copy, ValueEnum)]
@@ -183,25 +184,27 @@ Examples:
         task_id: String,
     },
 
-    /// Create a new task with the given title
+    /// Create new tasks with the given titles
     ///
-    /// Creates a new task in TickTick. Optionally assign it to a specific
-    /// project using the -p/--project flag. If no project is specified,
-    /// the task is added to the inbox/default project.
+    /// Creates one or more tasks in TickTick. Optionally assign them to a
+    /// specific project using the -p/--project flag. If no project is specified,
+    /// tasks are added to the inbox/default project.
     #[command(visible_alias = "new")]
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task add 'Buy groceries'
+  ticktick-cli task add 'Task 1' 'Task 2' 'Task 3'  # Add multiple tasks
   ticktick-cli task add 'Review pull request' -p Work
   ticktick-cli task add 'Call mom' --project Personal
-  ticktick-cli task add 'Team meeting' -p 'Work Projects'
   ticktick-cli task add 'Submit report' --due 2025-03-01
   ticktick-cli task add 'Call dentist' -d tomorrow
   ticktick-cli task add 'Urgent fix' --priority high
+  echo -e 'Task A\\nTask B' | ticktick-cli task add --stdin -p Work
 ")]
     Add {
-        /// Task title (use quotes for titles with spaces)
-        title: String,
+        /// Task titles (use quotes for titles with spaces)
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        titles: Vec<String>,
 
         /// Project name or ID to add the task to
         #[arg(short, long)]
@@ -218,27 +221,34 @@ Examples:
         /// Preview without creating the task
         #[arg(short = 'n', long)]
         dry_run: bool,
+
+        /// Read titles from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
     },
 
-    /// Edit an existing task
+    /// Edit one or more existing tasks
     ///
-    /// Update properties of an existing task such as due date or title.
-    /// Requires the project and task ID (find via 'ticktick-cli task list').
+    /// Update properties of existing tasks such as due date or title.
+    /// Requires the project and task IDs (find via 'ticktick-cli task list').
+    /// Note: --title can only be used with a single task ID.
     #[command(visible_alias = "update")]
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task edit Personal abc123 --due 2025-04-01
-  ticktick-cli task edit Work xyz789 --due tomorrow
+  ticktick-cli task edit Work id1 id2 id3 --due tomorrow   # Edit multiple tasks
   ticktick-cli task edit Personal abc123 --title 'New title'
   ticktick-cli task edit Personal abc123 --clear-due
   ticktick-cli task edit Personal abc123 --priority high
+  echo -e 'id1\\nid2' | ticktick-cli task edit Personal --stdin --due tomorrow
 ")]
     Edit {
         /// Project name or ID containing the task
         project: String,
 
-        /// Task ID (find via 'ticktick-cli task list')
-        task_id: String,
+        /// Task IDs (find via 'ticktick-cli task list')
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        task_ids: Vec<String>,
 
         /// Set due date: YYYY-MM-DD, 'today', or 'tomorrow'
         #[arg(short, long)]
@@ -248,63 +258,79 @@ Examples:
         #[arg(long, conflicts_with = "due")]
         clear_due: bool,
 
-        /// Set a new title
+        /// Set a new title (only valid with a single task ID)
         #[arg(short, long)]
         title: Option<String>,
 
         /// Priority: none, low, medium, high
         #[arg(short = 'P', long)]
         priority: Option<Priority>,
+
+        /// Read task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
     },
 
-    /// Mark a task as complete
+    /// Mark one or more tasks as complete
     ///
-    /// Marks a task as complete in TickTick. The task will be moved to
+    /// Marks tasks as complete in TickTick. The tasks will be moved to
     /// the completed tasks section. This action can be undone in the
     /// TickTick app or web interface.
     ///
-    /// To find the task ID, run 'ticktick-cli task list <project>' first.
+    /// To find task IDs, run 'ticktick-cli task list <project>' first.
     #[command(visible_alias = "done")]
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task complete Personal abc123def456
-  ticktick-cli task complete 'Work Projects' 789xyz123
+  ticktick-cli task complete Personal id1 id2 id3    # Complete multiple tasks
   ticktick-cli task done Personal abc123def456        # Using alias
+  ticktick-cli task list Work | jq -r '.[].id' | ticktick-cli task complete Work --stdin
 ")]
     Complete {
         /// Project name or ID containing the task
         project: String,
 
-        /// Task ID (find via 'ticktick-cli task list')
-        task_id: String,
+        /// Task IDs (find via 'ticktick-cli task list')
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        task_ids: Vec<String>,
+
+        /// Read task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
     },
 
-    /// Permanently delete a task
+    /// Permanently delete one or more tasks
     ///
     /// WARNING: This action cannot be undone!
     ///
-    /// Permanently deletes a task from TickTick. Use 'ticktick-cli task complete'
-    /// if you want to mark a task as done without removing it.
+    /// Permanently deletes tasks from TickTick. Use 'ticktick-cli task complete'
+    /// if you want to mark tasks as done without removing them.
     ///
-    /// To find the task ID, run 'ticktick-cli task list <project>' first.
+    /// To find task IDs, run 'ticktick-cli task list <project>' first.
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task delete Personal abc123def456
-  ticktick-cli task delete 'Work Projects' 789xyz123
+  ticktick-cli task delete Personal id1 id2 id3      # Delete multiple tasks
   ticktick-cli task delete --force Personal abc123def456
   ticktick-cli task rm Personal abc123def456          # Using alias
+  ticktick-cli task list Work | jq -r '.[].id' | ticktick-cli task delete Work --stdin --force
 ")]
     Delete {
         /// Project name or ID containing the task
         project: String,
 
-        /// Task ID (find via 'ticktick-cli task list')
-        task_id: String,
+        /// Task IDs (find via 'ticktick-cli task list')
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        task_ids: Vec<String>,
 
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
+
+        /// Read task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
     },
 }
 
@@ -388,6 +414,102 @@ Examples:
     },
 }
 
+// ---------------------------------------------------------------------------
+// Bulk helpers
+// ---------------------------------------------------------------------------
+
+/// Merge positional args with stdin lines (one item per line).
+fn collect_inputs(mut positional: Vec<String>, from_stdin: bool) -> Result<Vec<String>, String> {
+    if from_stdin {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read stdin: {e}"))?;
+        for line in buf.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                positional.push(trimmed.to_string());
+            }
+        }
+    }
+    if positional.is_empty() {
+        return Err("no inputs provided".to_string());
+    }
+    Ok(positional)
+}
+
+#[derive(Serialize)]
+struct BulkResult {
+    id: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Output bulk results.
+///
+/// - 1 item, success → output inner data (backward compat)
+/// - 1 item, failure → return Err
+/// - N items → output the BulkResult array, then Err summary if any failed
+fn output_results(results: &[BulkResult]) -> Result<(), String> {
+    if results.len() == 1 {
+        let r = &results[0];
+        if r.status == "ok" {
+            if let Some(data) = &r.data {
+                crate::output::success(data);
+            } else {
+                crate::output::success(&serde_json::json!({"status": "ok"}));
+            }
+            return Ok(());
+        } else {
+            return Err(r.error.clone().unwrap_or_else(|| "unknown error".into()));
+        }
+    }
+
+    // Multiple items — always output the full array
+    crate::output::success(&results);
+
+    let failed = results.iter().filter(|r| r.status == "error").count();
+    if failed > 0 {
+        Err(format!("{failed} of {} operations failed", results.len()))
+    } else {
+        Ok(())
+    }
+}
+
+/// Prompt for delete confirmation.
+fn confirm_delete(count: usize, from_stdin: bool) -> Result<(), String> {
+    use std::io::IsTerminal;
+
+    let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
+
+    if is_ci || from_stdin || !std::io::stdin().is_terminal() {
+        return Err(
+            "refusing to delete without confirmation in non-interactive mode\n\n  hint: Use --force to skip confirmation"
+                .to_string(),
+        );
+    }
+
+    eprint!("Are you sure you want to delete {count} task(s)? [y/N] ");
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| format!("failed to read input: {e}"))?;
+    if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+        eprintln!("Cancelled.");
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Main dispatch
+// ---------------------------------------------------------------------------
+
 pub fn run() -> Result<(), String> {
     CompleteEnv::with_factory(Cli::command).complete();
 
@@ -408,22 +530,31 @@ pub fn run() -> Result<(), String> {
         Commands::Logout => crate::config::logout(),
         Commands::Task(subcmd) => match subcmd {
             TaskCommands::List { project } => {
+                let token = crate::config::get_access_token()?;
                 let project_id = project
                     .map(|s| crate::api::project::resolve_id(&s))
                     .transpose()?;
-                crate::api::task::list_by_project(project_id.as_deref())
+                let tasks =
+                    crate::api::task::list_by_project(&token, project_id.as_deref())?;
+                crate::output::success(&tasks);
+                Ok(())
             }
             TaskCommands::Get { project, task_id } => {
+                let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::task::get_by_id(&project_id, &task_id)
+                let task = crate::api::task::get_by_id(&token, &project_id, &task_id)?;
+                crate::output::success(&task);
+                Ok(())
             }
             TaskCommands::Add {
-                title,
+                titles,
                 project,
                 due,
                 priority,
                 dry_run,
+                stdin,
             } => {
+                let inputs = collect_inputs(titles, stdin)?;
                 let project_id = project
                     .map(|n| crate::api::project::resolve_id(&n))
                     .transpose()?;
@@ -431,22 +562,84 @@ pub fn run() -> Result<(), String> {
                     .map(|d| crate::api::task::parse_due_date(&d))
                     .transpose()?;
                 let priority = priority.map(|p| p.to_api_value());
-                crate::api::task::create(
-                    &title,
-                    project_id.as_deref(),
-                    due_date.as_deref(),
-                    priority,
-                    dry_run,
-                )
+
+                if dry_run {
+                    let previews: Vec<serde_json::Value> = inputs
+                        .iter()
+                        .map(|title| {
+                            let mut body = serde_json::json!({ "title": title, "dryRun": true });
+                            if let Some(pid) = &project_id {
+                                body["projectId"] =
+                                    serde_json::Value::String(pid.clone());
+                            }
+                            if let Some(d) = &due_date {
+                                body["dueDate"] =
+                                    serde_json::Value::String(d.clone());
+                            }
+                            if let Some(p) = priority {
+                                body["priority"] = serde_json::Value::Number(p.into());
+                            }
+                            body
+                        })
+                        .collect();
+
+                    if previews.len() == 1 {
+                        crate::output::success(&previews[0]);
+                    } else {
+                        crate::output::success(&previews);
+                    }
+                    return Ok(());
+                }
+
+                let token = crate::config::get_access_token()?;
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|title| {
+                        match crate::api::task::create(
+                            &token,
+                            title,
+                            project_id.as_deref(),
+                            due_date.as_deref(),
+                            priority,
+                        ) {
+                            Ok(task) => BulkResult {
+                                id: title.clone(),
+                                status: "ok".into(),
+                                data: Some(
+                                    serde_json::to_value(&task).unwrap_or_default(),
+                                ),
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: title.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
             }
             TaskCommands::Edit {
                 project,
-                task_id,
+                task_ids,
                 due,
                 clear_due,
                 title,
                 priority,
+                stdin,
             } => {
+                let inputs = collect_inputs(task_ids, stdin)?;
+
+                if title.is_some() && inputs.len() > 1 {
+                    return Err(
+                        "--title can only be used with a single task ID".to_string()
+                    );
+                }
+
+                let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
                 let due_date = if clear_due {
                     Some(crate::api::task::DueDate::Clear)
@@ -458,25 +651,105 @@ pub fn run() -> Result<(), String> {
                     None
                 };
                 let priority = priority.map(|p| p.to_api_value());
-                crate::api::task::update(
-                    &project_id,
-                    &task_id,
-                    title.as_deref(),
-                    due_date,
-                    priority,
-                )
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|task_id| {
+                        match crate::api::task::update(
+                            &token,
+                            &project_id,
+                            task_id,
+                            title.as_deref(),
+                            due_date.clone(),
+                            priority,
+                        ) {
+                            Ok(task) => BulkResult {
+                                id: task_id.clone(),
+                                status: "ok".into(),
+                                data: Some(
+                                    serde_json::to_value(&task).unwrap_or_default(),
+                                ),
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: task_id.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
             }
-            TaskCommands::Complete { project, task_id } => {
+            TaskCommands::Complete {
+                project,
+                task_ids,
+                stdin,
+            } => {
+                let inputs = collect_inputs(task_ids, stdin)?;
+                let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::task::complete(&project_id, &task_id)
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|task_id| {
+                        match crate::api::task::complete(&token, &project_id, task_id) {
+                            Ok(()) => BulkResult {
+                                id: task_id.clone(),
+                                status: "ok".into(),
+                                data: None,
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: task_id.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
             }
             TaskCommands::Delete {
                 project,
-                task_id,
+                task_ids,
                 force,
+                stdin,
             } => {
+                let inputs = collect_inputs(task_ids, stdin)?;
+
+                if !force {
+                    confirm_delete(inputs.len(), stdin)?;
+                }
+
+                let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::task::delete(&project_id, &task_id, force)
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|task_id| {
+                        match crate::api::task::delete(&token, &project_id, task_id) {
+                            Ok(()) => BulkResult {
+                                id: task_id.clone(),
+                                status: "ok".into(),
+                                data: None,
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: task_id.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
             }
         },
         Commands::Project(subcmd) => match subcmd {
