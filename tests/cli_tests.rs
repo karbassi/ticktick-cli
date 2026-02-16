@@ -1,9 +1,9 @@
-use assert_cmd::Command;
+use assert_cmd::{cargo::cargo_bin_cmd, Command};
 use predicates::prelude::*;
 use std::fs;
 
 fn cmd() -> Command {
-    Command::cargo_bin("ticktick-cli").unwrap()
+    cargo_bin_cmd!("ticktick-cli")
 }
 
 #[test]

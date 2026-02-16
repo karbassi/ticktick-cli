@@ -101,7 +101,7 @@ Examples:
 
     /// Manage tasks
     #[command(subcommand)]
-    Task(TaskCommands),
+    Task(Box<TaskCommands>),
 
     /// Manage projects
     #[command(subcommand)]
@@ -640,6 +640,13 @@ fn confirm_delete(count: usize, from_stdin: bool) -> Result<(), String> {
     Ok(())
 }
 
+type TimeblockResult = (
+    Option<crate::api::task::DateField>,
+    Option<crate::api::task::DateField>,
+    Option<bool>,
+    Option<String>,
+);
+
 /// Resolve timeblocking flags into TaskFields components.
 /// Returns (due_date, start_date, is_all_day, time_zone).
 fn resolve_timeblock(
@@ -648,12 +655,7 @@ fn resolve_timeblock(
     duration: Option<&str>,
     all_day: bool,
     timezone: Option<String>,
-) -> Result<(
-    Option<crate::api::task::DateField>,
-    Option<crate::api::task::DateField>,
-    Option<bool>,
-    Option<String>,
-), String> {
+) -> Result<TimeblockResult, String> {
     use crate::api::task::{DateField, parse_datetime, parse_duration};
 
     // --duration requires --start
@@ -665,12 +667,11 @@ fn resolve_timeblock(
     let parsed_due = due.map(parse_datetime).transpose()?;
 
     // --duration with date-only --start is an error
-    if let Some(ref _dur_str) = duration {
-        if let Some(ref ps) = parsed_start {
-            if ps.is_all_day() {
-                return Err("--duration requires --start with a time (YYYY-MM-DDTHH:MM)".to_string());
-            }
-        }
+    if duration.is_some()
+        && let Some(ref ps) = parsed_start
+        && ps.is_all_day()
+    {
+        return Err("--duration requires --start with a time (YYYY-MM-DDTHH:MM)".to_string());
     }
 
     // Compute due from start + duration if --duration given
@@ -726,7 +727,7 @@ pub fn run() -> Result<(), String> {
     match command {
         Commands::Login => crate::api::auth::login(),
         Commands::Logout => crate::config::logout(),
-        Commands::Task(subcmd) => match subcmd {
+        Commands::Task(subcmd) => match *subcmd {
             TaskCommands::List { project } => {
                 let token = crate::config::get_access_token()?;
                 let project_id = project
@@ -776,8 +777,8 @@ pub fn run() -> Result<(), String> {
                     timezone,
                 )?;
 
-                let content = content.map(|c| Some(c));
-                let desc = desc.map(|d| Some(d));
+                let content = content.map(Some);
+                let desc = desc.map(Some);
                 let tags_field = if tags.is_empty() { None } else { Some(tags) };
                 let items_field = if items.is_empty() {
                     None
@@ -789,7 +790,7 @@ pub fn run() -> Result<(), String> {
                     }).collect())
                 };
                 let reminders_field = if reminders.is_empty() { None } else { Some(reminders) };
-                let repeat_flag = repeat.map(|r| Some(r));
+                let repeat_flag = repeat.map(Some);
 
                 if dry_run {
                     let previews: Vec<serde_json::Value> = inputs
@@ -912,8 +913,8 @@ pub fn run() -> Result<(), String> {
                     resolved_start = Some(crate::api::task::DateField::Clear);
                 }
 
-                let content = if clear_content { Some(None) } else { content.map(|c| Some(c)) };
-                let desc = if clear_desc { Some(None) } else { desc.map(|d| Some(d)) };
+                let content = if clear_content { Some(None) } else { content.map(Some) };
+                let desc = if clear_desc { Some(None) } else { desc.map(Some) };
                 let tags_field = if clear_tags { Some(vec![]) } else if tags.is_empty() { None } else { Some(tags) };
                 let items_field = if items.is_empty() {
                     None
@@ -925,7 +926,7 @@ pub fn run() -> Result<(), String> {
                     }).collect())
                 };
                 let reminders_field = if clear_reminders { Some(vec![]) } else if reminders.is_empty() { None } else { Some(reminders) };
-                let repeat_flag = if clear_repeat { Some(None) } else { repeat.map(|r| Some(r)) };
+                let repeat_flag = if clear_repeat { Some(None) } else { repeat.map(Some) };
 
                 let results: Vec<BulkResult> = inputs
                     .iter()
