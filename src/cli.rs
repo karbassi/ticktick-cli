@@ -236,6 +236,30 @@ Examples:
         #[arg(long = "timezone", visible_alias = "tz")]
         timezone: Option<String>,
 
+        /// Task content/notes
+        #[arg(long)]
+        content: Option<String>,
+
+        /// Task description
+        #[arg(long)]
+        desc: Option<String>,
+
+        /// Add a tag (repeatable)
+        #[arg(long = "tag", action = clap::ArgAction::Append)]
+        tags: Vec<String>,
+
+        /// Add a subtask/checklist item (repeatable)
+        #[arg(long = "item", action = clap::ArgAction::Append)]
+        items: Vec<String>,
+
+        /// Add a reminder trigger (repeatable, e.g. TRIGGER:P0DT9H0M0S)
+        #[arg(long = "reminder", action = clap::ArgAction::Append)]
+        reminders: Vec<String>,
+
+        /// Recurrence rule (e.g. RRULE:FREQ=DAILY;INTERVAL=1)
+        #[arg(long = "repeat")]
+        repeat: Option<String>,
+
         /// Preview without creating the task
         #[arg(short = 'n', long)]
         dry_run: bool,
@@ -305,6 +329,50 @@ Examples:
         /// IANA timezone (e.g. America/New_York)
         #[arg(long = "timezone", visible_alias = "tz")]
         timezone: Option<String>,
+
+        /// Set task content/notes
+        #[arg(long)]
+        content: Option<String>,
+
+        /// Clear task content
+        #[arg(long, conflicts_with = "content")]
+        clear_content: bool,
+
+        /// Set task description
+        #[arg(long)]
+        desc: Option<String>,
+
+        /// Clear task description
+        #[arg(long, conflicts_with = "desc")]
+        clear_desc: bool,
+
+        /// Set tags (repeatable)
+        #[arg(long = "tag", action = clap::ArgAction::Append)]
+        tags: Vec<String>,
+
+        /// Remove all tags
+        #[arg(long, conflicts_with = "tags")]
+        clear_tags: bool,
+
+        /// Add a subtask/checklist item (repeatable)
+        #[arg(long = "item", action = clap::ArgAction::Append)]
+        items: Vec<String>,
+
+        /// Set a reminder trigger (repeatable, e.g. TRIGGER:P0DT9H0M0S)
+        #[arg(long = "reminder", action = clap::ArgAction::Append)]
+        reminders: Vec<String>,
+
+        /// Remove all reminders
+        #[arg(long, conflicts_with = "reminders")]
+        clear_reminders: bool,
+
+        /// Set recurrence rule (e.g. RRULE:FREQ=DAILY;INTERVAL=1)
+        #[arg(long = "repeat")]
+        repeat: Option<String>,
+
+        /// Remove recurrence rule
+        #[arg(long, conflicts_with = "repeat")]
+        clear_repeat: bool,
 
         /// Read task IDs from stdin (one per line)
         #[arg(long)]
@@ -414,16 +482,30 @@ Examples:
     Add {
         /// Project name
         name: String,
+
+        /// Project color (hex string, e.g. '#FF0000')
+        #[arg(long)]
+        color: Option<String>,
+
+        /// View mode: list, kanban, timeline
+        #[arg(long)]
+        view_mode: Option<String>,
+
+        /// Project kind: TASK, NOTE
+        #[arg(long)]
+        kind: Option<String>,
     },
 
-    /// Rename an existing project
+    /// Edit an existing project
     ///
-    /// Changes the name of an existing project. Identify the project
+    /// Update properties of an existing project. Identify the project
     /// by its current name or ID.
     #[command(after_long_help = "\
 Examples:
   ticktick-cli project edit Personal --name 'My Tasks'
   ticktick-cli project edit Work --name 'Work Tasks'
+  ticktick-cli project edit Work --color '#FF0000'
+  ticktick-cli project edit Work --view-mode kanban
 ")]
     Edit {
         /// Current project name or ID
@@ -432,6 +514,18 @@ Examples:
         /// New project name
         #[arg(short, long)]
         name: Option<String>,
+
+        /// Project color (hex string, e.g. '#FF0000')
+        #[arg(long)]
+        color: Option<String>,
+
+        /// View mode: list, kanban, timeline
+        #[arg(long)]
+        view_mode: Option<String>,
+
+        /// Project kind: TASK, NOTE
+        #[arg(long)]
+        kind: Option<String>,
     },
 
     /// Permanently delete a project
@@ -659,6 +753,12 @@ pub fn run() -> Result<(), String> {
                 duration,
                 all_day,
                 timezone,
+                content,
+                desc,
+                tags,
+                items,
+                reminders,
+                repeat,
                 dry_run,
                 stdin,
             } => {
@@ -676,6 +776,21 @@ pub fn run() -> Result<(), String> {
                     timezone,
                 )?;
 
+                let content = content.map(|c| Some(c));
+                let desc = desc.map(|d| Some(d));
+                let tags_field = if tags.is_empty() { None } else { Some(tags) };
+                let items_field = if items.is_empty() {
+                    None
+                } else {
+                    Some(items.into_iter().map(|t| crate::api::task::ChecklistItem {
+                        title: t,
+                        status: 0,
+                        ..Default::default()
+                    }).collect())
+                };
+                let reminders_field = if reminders.is_empty() { None } else { Some(reminders) };
+                let repeat_flag = repeat.map(|r| Some(r));
+
                 if dry_run {
                     let previews: Vec<serde_json::Value> = inputs
                         .iter()
@@ -688,6 +803,12 @@ pub fn run() -> Result<(), String> {
                                 priority,
                                 is_all_day,
                                 time_zone: time_zone.clone(),
+                                content: content.clone(),
+                                desc: desc.clone(),
+                                tags: tags_field.clone(),
+                                items: items_field.clone(),
+                                reminders: reminders_field.clone(),
+                                repeat_flag: repeat_flag.clone(),
                             };
                             let mut body = serde_json::json!({ "dryRun": true });
                             fields.apply_to(&mut body);
@@ -715,6 +836,12 @@ pub fn run() -> Result<(), String> {
                             priority,
                             is_all_day,
                             time_zone: time_zone.clone(),
+                            content: content.clone(),
+                            desc: desc.clone(),
+                            tags: tags_field.clone(),
+                            items: items_field.clone(),
+                            reminders: reminders_field.clone(),
+                            repeat_flag: repeat_flag.clone(),
                         };
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => BulkResult {
@@ -747,6 +874,17 @@ pub fn run() -> Result<(), String> {
                 duration,
                 all_day,
                 timezone,
+                content,
+                clear_content,
+                desc,
+                clear_desc,
+                tags,
+                clear_tags,
+                items,
+                reminders,
+                clear_reminders,
+                repeat,
+                clear_repeat,
                 stdin,
             } => {
                 let inputs = collect_inputs(task_ids, stdin)?;
@@ -774,6 +912,21 @@ pub fn run() -> Result<(), String> {
                     resolved_start = Some(crate::api::task::DateField::Clear);
                 }
 
+                let content = if clear_content { Some(None) } else { content.map(|c| Some(c)) };
+                let desc = if clear_desc { Some(None) } else { desc.map(|d| Some(d)) };
+                let tags_field = if clear_tags { Some(vec![]) } else if tags.is_empty() { None } else { Some(tags) };
+                let items_field = if items.is_empty() {
+                    None
+                } else {
+                    Some(items.into_iter().map(|t| crate::api::task::ChecklistItem {
+                        title: t,
+                        status: 0,
+                        ..Default::default()
+                    }).collect())
+                };
+                let reminders_field = if clear_reminders { Some(vec![]) } else if reminders.is_empty() { None } else { Some(reminders) };
+                let repeat_flag = if clear_repeat { Some(None) } else { repeat.map(|r| Some(r)) };
+
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|task_id| {
@@ -785,6 +938,12 @@ pub fn run() -> Result<(), String> {
                             priority,
                             is_all_day,
                             time_zone: time_zone.clone(),
+                            content: content.clone(),
+                            desc: desc.clone(),
+                            tags: tags_field.clone(),
+                            items: items_field.clone(),
+                            reminders: reminders_field.clone(),
+                            repeat_flag: repeat_flag.clone(),
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => BulkResult {
@@ -880,10 +1039,24 @@ pub fn run() -> Result<(), String> {
                 let id = crate::api::project::resolve_id(&name)?;
                 crate::api::project::get_by_id(&id)
             }
-            ProjectCommands::Add { name } => crate::api::project::create(&name),
-            ProjectCommands::Edit { project, name } => {
+            ProjectCommands::Add { name, color, view_mode, kind } => {
+                let fields = crate::api::project::ProjectFields {
+                    name: Some(name),
+                    color,
+                    view_mode,
+                    kind,
+                };
+                crate::api::project::create(&fields)
+            }
+            ProjectCommands::Edit { project, name, color, view_mode, kind } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::project::update(&project_id, name.as_deref())
+                let fields = crate::api::project::ProjectFields {
+                    name,
+                    color,
+                    view_mode,
+                    kind,
+                };
+                crate::api::project::update(&project_id, &fields)
             }
             ProjectCommands::Delete { project, force } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
