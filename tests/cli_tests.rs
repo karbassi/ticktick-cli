@@ -583,3 +583,164 @@ fn edit_duration_conflicts_with_clear_due() {
         .failure()
         .code(2);
 }
+
+// -- Task new fields (content, desc, tags, items, reminders, repeat) ----------
+
+#[test]
+fn add_dry_run_with_content_and_desc() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Test", "--content", "Some notes", "--desc", "A description"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["content"], "Some notes");
+    assert_eq!(parsed["desc"], "A description");
+}
+
+#[test]
+fn add_dry_run_with_tags() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Test", "--tag", "urgent", "--tag", "work"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    let tags = parsed["tags"].as_array().expect("tags should be an array");
+    assert_eq!(tags.len(), 2);
+    assert_eq!(tags[0], "urgent");
+    assert_eq!(tags[1], "work");
+}
+
+#[test]
+fn add_dry_run_with_items() {
+    let output = cmd()
+        .args(["task", "add", "--dry-run", "Test", "--item", "Step 1", "--item", "Step 2"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    let items = parsed["items"].as_array().expect("items should be an array");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["title"], "Step 1");
+    assert_eq!(items[0]["status"], 0);
+    assert_eq!(items[1]["title"], "Step 2");
+    assert_eq!(items[1]["status"], 0);
+}
+
+#[test]
+fn add_dry_run_with_reminder_and_repeat() {
+    let output = cmd()
+        .args([
+            "task", "add", "--dry-run", "Test",
+            "--reminder", "TRIGGER:P0DT9H0M0S",
+            "--repeat", "RRULE:FREQ=DAILY;INTERVAL=1",
+        ])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    let reminders = parsed["reminders"].as_array().expect("reminders should be an array");
+    assert_eq!(reminders.len(), 1);
+    assert_eq!(reminders[0], "TRIGGER:P0DT9H0M0S");
+    assert_eq!(parsed["repeatFlag"], "RRULE:FREQ=DAILY;INTERVAL=1");
+}
+
+#[test]
+fn add_dry_run_with_all_new_fields() {
+    let output = cmd()
+        .args([
+            "task", "add", "--dry-run", "Full task",
+            "--content", "Notes here",
+            "--desc", "Description here",
+            "--tag", "tag1",
+            "--item", "Sub 1",
+            "--reminder", "TRIGGER:PT0S",
+            "--repeat", "RRULE:FREQ=WEEKLY;INTERVAL=1",
+        ])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(parsed["content"], "Notes here");
+    assert_eq!(parsed["desc"], "Description here");
+    assert_eq!(parsed["tags"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["items"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["reminders"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["repeatFlag"], "RRULE:FREQ=WEEKLY;INTERVAL=1");
+}
+
+#[test]
+fn edit_clear_content_conflicts_with_content() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--content", "foo", "--clear-content"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn edit_clear_tags_conflicts_with_tag() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--tag", "foo", "--clear-tags"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn edit_clear_reminders_conflicts_with_reminder() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--reminder", "TRIGGER:PT0S", "--clear-reminders"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn edit_clear_repeat_conflicts_with_repeat() {
+    cmd()
+        .args(["task", "edit", "proj", "id1", "--repeat", "RRULE:FREQ=DAILY;INTERVAL=1", "--clear-repeat"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+// -- Project field flags --
+
+#[test]
+fn project_add_help_shows_new_flags() {
+    let output = cmd()
+        .args(["project", "add", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for flag in ["--color", "--view-mode", "--kind"] {
+        assert!(
+            stdout.contains(flag),
+            "project add --help should contain '{flag}'"
+        );
+    }
+}
+
+#[test]
+fn project_edit_help_shows_new_flags() {
+    let output = cmd()
+        .args(["project", "edit", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for flag in ["--color", "--view-mode", "--kind"] {
+        assert!(
+            stdout.contains(flag),
+            "project edit --help should contain '{flag}'"
+        );
+    }
+}

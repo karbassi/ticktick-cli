@@ -1,5 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Default, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChecklistItem {
+    pub title: String,
+    pub status: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_all_day: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<i32>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -399,6 +412,12 @@ pub struct TaskFields {
     pub priority: Option<i32>,
     pub is_all_day: Option<bool>,
     pub time_zone: Option<String>,
+    pub content: Option<Option<String>>,
+    pub desc: Option<Option<String>>,
+    pub tags: Option<Vec<String>>,
+    pub items: Option<Vec<ChecklistItem>>,
+    pub reminders: Option<Vec<String>>,
+    pub repeat_flag: Option<Option<String>>,
 }
 
 impl TaskFields {
@@ -435,6 +454,34 @@ impl TaskFields {
         }
         if let Some(ref tz) = self.time_zone {
             body["timeZone"] = serde_json::Value::String(tz.clone());
+        }
+        match &self.content {
+            Some(Some(c)) => { body["content"] = serde_json::Value::String(c.clone()); }
+            Some(None) => { body["content"] = serde_json::Value::Null; }
+            None => {}
+        }
+        match &self.desc {
+            Some(Some(d)) => { body["desc"] = serde_json::Value::String(d.clone()); }
+            Some(None) => { body["desc"] = serde_json::Value::Null; }
+            None => {}
+        }
+        if let Some(ref tags) = self.tags {
+            body["tags"] = serde_json::Value::Array(
+                tags.iter().map(|t| serde_json::Value::String(t.clone())).collect(),
+            );
+        }
+        if let Some(ref items) = self.items {
+            body["items"] = serde_json::to_value(items).unwrap();
+        }
+        if let Some(ref reminders) = self.reminders {
+            body["reminders"] = serde_json::Value::Array(
+                reminders.iter().map(|r| serde_json::Value::String(r.clone())).collect(),
+            );
+        }
+        match &self.repeat_flag {
+            Some(Some(rf)) => { body["repeatFlag"] = serde_json::Value::String(rf.clone()); }
+            Some(None) => { body["repeatFlag"] = serde_json::Value::Null; }
+            None => {}
         }
     }
 }
