@@ -1,4 +1,15 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+unsafe extern "C" {
+    fn tzset();
+}
+
+/// Serializes access to the TZ environment variable.
+/// `utc_offset_for_tz` temporarily mutates TZ, so concurrent callers
+/// (e.g. parallel tests) must be serialized.
+static TZ_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +134,128 @@ pub fn add_days(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
 }
 
 // ---------------------------------------------------------------------------
+// Local timezone helpers (via libc)
+// ---------------------------------------------------------------------------
+
+/// Raw mktime + tm_gmtoff computation. Caller must hold TZ_LOCK if the
+/// TZ env var might be in a modified state.
+fn compute_utc_offset(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
+    use std::mem::MaybeUninit;
+
+    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
+    tm.tm_year = year - 1900;
+    tm.tm_mon = month as i32 - 1;
+    tm.tm_mday = day as i32;
+    tm.tm_hour = hour as i32;
+    tm.tm_min = minute as i32;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1; // let mktime figure out DST
+
+    unsafe { libc::mktime(&mut tm) };
+    tm.tm_gmtoff
+}
+
+/// Returns the UTC offset in seconds for the given date/time in the
+/// system's local timezone. Acquires TZ_LOCK to guard against concurrent
+/// modifications from `utc_offset_for_tz`.
+fn local_utc_offset_secs(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
+    let _guard = TZ_LOCK.lock().unwrap();
+    compute_utc_offset(year, month, day, hour, minute)
+}
+
+/// Returns the UTC offset in seconds for a given IANA timezone name
+/// (e.g. "America/Chicago") at the specified date/time.
+/// Temporarily sets the TZ environment variable, computes the offset,
+/// then restores the previous TZ value.
+pub fn utc_offset_for_tz(
+    tz: &str,
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+) -> i64 {
+    use std::ffi::CString;
+
+    let _guard = TZ_LOCK.lock().unwrap();
+
+    let tz_cstr = CString::new(tz).unwrap();
+    let tz_key = c"TZ".as_ptr();
+
+    // Save current TZ
+    let old_tz = std::env::var("TZ").ok();
+
+    unsafe {
+        libc::setenv(tz_key, tz_cstr.as_ptr(), 1);
+        tzset();
+    }
+
+    let offset = compute_utc_offset(year, month, day, hour, minute);
+
+    // Restore previous TZ
+    unsafe {
+        match &old_tz {
+            Some(prev) => {
+                let prev_cstr = CString::new(prev.as_str()).unwrap();
+                libc::setenv(tz_key, prev_cstr.as_ptr(), 1);
+            }
+            None => {
+                libc::unsetenv(tz_key);
+            }
+        }
+        tzset();
+    }
+
+    offset
+}
+
+/// Formats a UTC offset in seconds as `+HHMM` / `-HHMM`.
+fn format_offset(offset_secs: i64) -> String {
+    let sign = if offset_secs < 0 { '-' } else { '+' };
+    let abs = offset_secs.unsigned_abs();
+    let hours = abs / 3600;
+    let minutes = (abs % 3600) / 60;
+    format!("{sign}{hours:02}{minutes:02}")
+}
+
+/// Returns the local IANA timezone name (e.g. "America/Chicago").
+/// Reads from TZ env var first, then falls back to /etc/localtime symlink.
+pub fn local_iana_timezone() -> Option<String> {
+    // Check TZ env var
+    if let Ok(tz) = std::env::var("TZ") {
+        let tz = tz.strip_prefix(':').unwrap_or(&tz);
+        if !tz.is_empty() {
+            return Some(tz.to_string());
+        }
+    }
+
+    // macOS/Linux: /etc/localtime is a symlink into zoneinfo
+    if let Ok(target) = std::fs::read_link("/etc/localtime") {
+        let target = target.to_string_lossy().to_string();
+        if let Some(idx) = target.find("zoneinfo/") {
+            return Some(target[idx + 9..].to_string());
+        }
+    }
+
+    None
+}
+
+/// Returns today's local date as (year, month, day).
+fn local_today() -> (i32, u32, u32) {
+    use std::mem::MaybeUninit;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as libc::time_t;
+
+    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
+    unsafe { libc::localtime_r(&now, &mut tm) };
+
+    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
+}
+
+// ---------------------------------------------------------------------------
 // ParsedDateTime
 // ---------------------------------------------------------------------------
 
@@ -139,11 +272,19 @@ impl ParsedDateTime {
         self.time.is_none()
     }
 
-    pub fn to_api_string(&self) -> String {
+    /// Format as a TickTick API datetime string with UTC offset.
+    ///
+    /// If `tz` is Some, computes the offset for that IANA timezone.
+    /// If `tz` is None, uses the local system timezone.
+    pub fn to_api_string(&self, tz: Option<&str>) -> String {
         let (hour, minute) = self.time.unwrap_or((0, 0));
+        let offset = match tz {
+            Some(tz_name) => utc_offset_for_tz(tz_name, self.year, self.month, self.day, hour, minute),
+            None => local_utc_offset_secs(self.year, self.month, self.day, hour, minute),
+        };
         format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:00.000+0000",
-            self.year, self.month, self.day, hour, minute
+            "{:04}-{:02}-{:02}T{:02}:{:02}:00.000{}",
+            self.year, self.month, self.day, hour, minute, format_offset(offset)
         )
     }
 
@@ -270,38 +411,11 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
 ///   - `"YYYY-MM-DD"`      -> that date, no time
 ///   - `"YYYY-MM-DDTHH:MM"` -> that date + time
 pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let epoch_days = || -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            / 86400
-    };
-
-    fn epoch_days_to_date(days: u64) -> (i32, u32, u32) {
-        let total_days = days as i64;
-        let y = (10000 * total_days + 14780) / 3652425;
-        let doy = total_days - (365 * y + y / 4 - y / 100 + y / 400);
-        let (y, doy) = if doy < 0 {
-            let y = y - 1;
-            (y, total_days - (365 * y + y / 4 - y / 100 + y / 400))
-        } else {
-            (y, doy)
-        };
-        let mi = (100 * doy + 52) / 3060;
-        let month = if mi < 10 { mi + 3 } else { mi - 9 };
-        let year = y + (if month <= 2 { 1 } else { 0 });
-        let day = doy - (mi * 306 + 5) / 10 + 1;
-        (year as i32, month as u32, day as u32)
-    }
-
     let trimmed = input.trim().to_lowercase();
 
     match trimmed.as_str() {
         "today" => {
-            let (year, month, day) = epoch_days_to_date(epoch_days());
+            let (year, month, day) = local_today();
             Ok(ParsedDateTime {
                 year,
                 month,
@@ -310,7 +424,8 @@ pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
             })
         }
         "tomorrow" => {
-            let (year, month, day) = epoch_days_to_date(epoch_days() + 1);
+            let (year, month, day) = local_today();
+            let (year, month, day) = add_days(year, month, day);
             Ok(ParsedDateTime {
                 year,
                 month,
@@ -834,25 +949,68 @@ mod tests {
     // -- ParsedDateTime::to_api_string ----------------------------------------
 
     #[test]
-    fn to_api_string_date_only() {
+    fn to_api_string_date_only_local() {
         let dt = ParsedDateTime {
             year: 2026,
             month: 2,
             day: 16,
             time: None,
         };
-        assert_eq!(dt.to_api_string(), "2026-02-16T00:00:00.000+0000");
+        let s = dt.to_api_string(None);
+        assert!(s.starts_with("2026-02-16T00:00:00.000"));
+        // Offset depends on local timezone; verify format
+        let offset = &s["2026-02-16T00:00:00.000".len()..];
+        assert!(
+            offset.len() == 5 && (offset.starts_with('+') || offset.starts_with('-')),
+            "expected +HHMM or -HHMM offset, got: {offset}"
+        );
     }
 
     #[test]
-    fn to_api_string_datetime() {
+    fn to_api_string_datetime_local() {
         let dt = ParsedDateTime {
             year: 2026,
             month: 2,
             day: 16,
             time: Some((14, 30)),
         };
-        assert_eq!(dt.to_api_string(), "2026-02-16T14:30:00.000+0000");
+        let s = dt.to_api_string(None);
+        assert!(s.starts_with("2026-02-16T14:30:00.000"));
+        let offset = &s["2026-02-16T14:30:00.000".len()..];
+        assert!(
+            offset.len() == 5 && (offset.starts_with('+') || offset.starts_with('-')),
+            "expected +HHMM or -HHMM offset, got: {offset}"
+        );
+    }
+
+    #[test]
+    fn to_api_string_explicit_timezone() {
+        let dt = ParsedDateTime {
+            year: 2026,
+            month: 7,
+            day: 15,
+            time: Some((14, 0)),
+        };
+        // UTC should always be +0000
+        assert_eq!(
+            dt.to_api_string(Some("UTC")),
+            "2026-07-15T14:00:00.000+0000"
+        );
+    }
+
+    #[test]
+    fn local_utc_offset_format() {
+        // Verify format_offset produces valid +HHMM / -HHMM strings
+        assert_eq!(format_offset(0), "+0000");
+        assert_eq!(format_offset(-21600), "-0600"); // CST (Chicago winter)
+        assert_eq!(format_offset(19800), "+0530"); // IST (India)
+        assert_eq!(format_offset(-18000), "-0500"); // EST / CDT
+    }
+
+    #[test]
+    fn utc_offset_for_known_timezone() {
+        // UTC should always be 0
+        assert_eq!(utc_offset_for_tz("UTC", 2026, 6, 15, 12, 0), 0);
     }
 
     // -- ParsedDateTime::is_all_day -------------------------------------------

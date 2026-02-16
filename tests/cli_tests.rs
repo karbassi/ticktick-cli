@@ -6,6 +6,21 @@ fn cmd() -> Command {
     cargo_bin_cmd!("ticktick-cli")
 }
 
+/// Assert a TickTick API datetime string has the expected date/time prefix
+/// and a valid `+HHMM` or `-HHMM` offset suffix.
+fn assert_api_datetime(value: &serde_json::Value, expected_prefix: &str) {
+    let s = value.as_str().unwrap_or_else(|| panic!("expected string, got: {value}"));
+    assert!(
+        s.starts_with(expected_prefix),
+        "expected datetime starting with '{expected_prefix}', got: {s}"
+    );
+    let offset = &s[expected_prefix.len()..];
+    assert!(
+        offset.len() == 5 && (offset.starts_with('+') || offset.starts_with('-')),
+        "expected +HHMM or -HHMM offset suffix, got: '{offset}' in '{s}'"
+    );
+}
+
 #[test]
 fn help_exits_zero() {
     cmd().arg("--help").assert().success();
@@ -369,7 +384,7 @@ fn add_dry_run_with_start_date_only() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
     assert_eq!(parsed["title"], "Meeting");
-    assert_eq!(parsed["startDate"], "2026-03-15T00:00:00.000+0000");
+    assert_api_datetime(&parsed["startDate"], "2026-03-15T00:00:00.000");
     assert_eq!(parsed["isAllDay"], true);
     assert!(parsed.get("dueDate").is_none() || parsed["dueDate"].is_null());
 }
@@ -383,7 +398,7 @@ fn add_dry_run_with_start_datetime() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["startDate"], "2026-03-15T14:00:00.000+0000");
+    assert_api_datetime(&parsed["startDate"], "2026-03-15T14:00:00.000");
     assert_eq!(parsed["isAllDay"], false);
 }
 
@@ -396,8 +411,8 @@ fn add_dry_run_with_duration() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["startDate"], "2026-03-15T14:00:00.000+0000");
-    assert_eq!(parsed["dueDate"], "2026-03-15T16:00:00.000+0000");
+    assert_api_datetime(&parsed["startDate"], "2026-03-15T14:00:00.000");
+    assert_api_datetime(&parsed["dueDate"], "2026-03-15T16:00:00.000");
     assert_eq!(parsed["isAllDay"], false);
 }
 
@@ -410,8 +425,8 @@ fn add_dry_run_duration_day_overflow() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["startDate"], "2026-03-15T23:00:00.000+0000");
-    assert_eq!(parsed["dueDate"], "2026-03-16T01:00:00.000+0000");
+    assert_api_datetime(&parsed["startDate"], "2026-03-15T23:00:00.000");
+    assert_api_datetime(&parsed["dueDate"], "2026-03-16T01:00:00.000");
 }
 
 #[test]
@@ -423,7 +438,7 @@ fn add_dry_run_duration_month_overflow() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["dueDate"], "2026-02-01T01:00:00.000+0000");
+    assert_api_datetime(&parsed["dueDate"], "2026-02-01T01:00:00.000");
 }
 
 #[test]
@@ -435,7 +450,7 @@ fn add_dry_run_duration_leap_year() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["dueDate"], "2024-02-29T00:30:00.000+0000");
+    assert_api_datetime(&parsed["dueDate"], "2024-02-29T00:30:00.000");
 }
 
 #[test]
@@ -485,7 +500,7 @@ fn add_dry_run_due_datetime() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    assert_eq!(parsed["dueDate"], "2026-03-15T17:00:00.000+0000");
+    assert_api_datetime(&parsed["dueDate"], "2026-03-15T17:00:00.000");
     assert_eq!(parsed["isAllDay"], false);
 }
 

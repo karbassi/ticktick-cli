@@ -9,7 +9,7 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 - Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
 - Full task management: create, edit, complete, delete with bulk operations
 - Task details: content, description, tags, checklist items, reminders, recurrence
-- Timeblocking: start/due dates, durations, timezones, all-day events
+- Timeblocking: start/due dates, durations, all-day events, local timezone with account mismatch detection
 - Project options: color, view mode (list/kanban/timeline), kind (task/note)
 - Shell completions (bash, zsh, fish)
 
@@ -106,7 +106,7 @@ All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept mul
 | `-s`, `--start` | `add`, `edit` | Start date/time |
 | `--duration` | `add`, `edit` | Duration (e.g. `1h`, `30m`, `1h30m`). Computes due = start + duration |
 | `--all-day` | `add`, `edit` | Force all-day event |
-| `--timezone`, `--tz` | `add`, `edit` | IANA timezone (e.g. `America/New_York`) |
+| `--timezone`, `--tz` | `add`, `edit` | IANA timezone override (e.g. `America/New_York`) |
 | `-P`, `--priority` | `add`, `edit` | Priority: `none`, `low`, `medium`, `high` |
 | `-t`, `--title` | `edit` | New title (single task only) |
 | `--content` | `add`, `edit` | Task content/notes |
@@ -236,6 +236,20 @@ ticktick-cli project list
 Exit code is 0 if all operations succeed, 1 if any fail.
 
 Interactive messages (login prompts, delete confirmations) go to stderr as plain text and won't interfere with piped JSON.
+
+### Timezone handling
+
+All datetime values (`--due`, `--start`) use your **local system timezone** by default. When you type `--start 2026-03-15T14:00`, it means 2pm in your local time, not UTC.
+
+- **Local timezone** is detected from `TZ` env var or `/etc/localtime`
+- **Account timezone** is learned from the first task create/edit response and stored in config
+- **Mismatch prompt**: if your local timezone differs from your TickTick account timezone (e.g. you're traveling), the CLI asks which to use:
+  ```
+  Local timezone (America/New_York) differs from TickTick account (America/Chicago).
+  Use which timezone? [l]ocal / [a]ccount (default: local):
+  ```
+- **Non-interactive mode** (pipes, CI) defaults to local without prompting
+- **`--tz`** overrides both the UTC offset and the TickTick display timezone
 
 ## Configuration
 

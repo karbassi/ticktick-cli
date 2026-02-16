@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0]
+
+### Fixed
+- Datetime values (`--due`, `--start`) now use the local system timezone offset instead of hardcoding UTC (`+0000`)
+- `today` and `tomorrow` now resolve to the local date instead of the UTC date
+
+### Added
+- Automatic account timezone detection: after the first task create/edit, the CLI stores the TickTick account timezone in config
+- Timezone mismatch prompt: when the local system timezone differs from the stored account timezone, the CLI asks which to use (defaults to local in non-interactive mode)
+- `--tz` now also controls the UTC offset used in datetime strings (previously only set the `timeZone` display field)
+
 ## [0.8.0]
 
 ### Added
