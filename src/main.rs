@@ -15,7 +15,9 @@ fn main() -> ExitCode {
     match cli::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            output::error(&e);
+            if !e.is_empty() {
+                output::error(&e);
+            }
             ExitCode::FAILURE
         }
     }

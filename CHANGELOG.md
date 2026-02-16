@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+- Bulk operations for `task add`, `task edit`, `task complete`, and `task delete` — pass multiple positional args to operate on several tasks at once
+- `--stdin` flag on all four task mutation commands — read titles or task IDs from stdin (one per line) for pipeline-friendly workflows
+- Bulk output format: single item returns the same JSON as before (backward compatible); multiple items return a JSON array of `{id, status, data?, error?}` objects
+- Partial failure support: if some operations succeed and others fail, all results are printed and the exit code is non-zero
+
+### Changed
+- `task add` positional argument is now `titles` (accepts one or more)
+- `task edit`, `task complete`, `task delete` positional argument is now `task_ids` (accepts one or more)
+- `task edit --title` is validated at runtime to require exactly one task ID
+- `task delete` confirmation prompt now shows the count of tasks being deleted
+- `task delete --stdin` requires `--force` (non-interactive context)
+
 ## [0.6.0]
 
 ### Changed

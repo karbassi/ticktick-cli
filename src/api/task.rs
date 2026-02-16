@@ -1,4 +1,3 @@
-use crate::config;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -27,43 +26,32 @@ pub struct Task {
     pub tags: Vec<String>,
 }
 
-pub fn get_by_id(project_id: &str, task_id: &str) -> Result<(), String> {
-    let token = config::get_access_token()?;
+pub fn get_by_id(token: &str, project_id: &str, task_id: &str) -> Result<Task, String> {
+    let resp = super::get(&format!("/project/{project_id}/task/{task_id}"), token)?;
 
-    let resp = super::get(&format!("/project/{project_id}/task/{task_id}"), &token)?;
-
-    let task: Task = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse task: {e}"))?;
-
-    crate::output::success(&task);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))
 }
 
-pub fn list_by_project(project_id: Option<&str>) -> Result<(), String> {
-    let token = config::get_access_token()?;
-
-    let tasks = if let Some(pid) = project_id {
-        let resp = super::get(&format!("/project/{pid}/data"), &token)?;
+pub fn list_by_project(token: &str, project_id: Option<&str>) -> Result<Vec<Task>, String> {
+    if let Some(pid) = project_id {
+        let resp = super::get(&format!("/project/{pid}/data"), token)?;
         let data: ProjectData = resp
             .into_json()
             .map_err(|e| format!("failed to parse project data: {e}"))?;
-        data.tasks
+        Ok(data.tasks)
     } else {
         let projects = super::project::get_all()?;
         let mut all_tasks = Vec::new();
         for project in &projects {
-            if let Ok(resp) = super::get(&format!("/project/{}/data", project.id), &token)
+            if let Ok(resp) = super::get(&format!("/project/{}/data", project.id), token)
                 && let Ok(data) = resp.into_json::<ProjectData>()
             {
                 all_tasks.extend(data.tasks);
             }
         }
-        all_tasks
-    };
-
-    crate::output::success(&tasks);
-    Ok(())
+        Ok(all_tasks)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,12 +130,12 @@ pub fn parse_due_date(input: &str) -> Result<String, String> {
 }
 
 pub fn create(
+    token: &str,
     title: &str,
     project_id: Option<&str>,
     due_date: Option<&str>,
     priority: Option<i32>,
-    dry_run: bool,
-) -> Result<(), String> {
+) -> Result<Task, String> {
     let mut body = serde_json::json!({
         "title": title
     });
@@ -164,38 +152,26 @@ pub fn create(
         body["priority"] = serde_json::Value::Number(p.into());
     }
 
-    if dry_run {
-        body["dryRun"] = serde_json::Value::Bool(true);
-        crate::output::success(&body);
-        return Ok(());
-    }
+    let resp = super::post("/task", token, &body)?;
 
-    let token = config::get_access_token()?;
-
-    let resp = super::post("/task", &token, &body)?;
-
-    let task: Task = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse task: {e}"))?;
-
-    crate::output::success(&task);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))
 }
 
+#[derive(Clone)]
 pub enum DueDate {
     Set(String),
     Clear,
 }
 
 pub fn update(
+    token: &str,
     project_id: &str,
     task_id: &str,
     title: Option<&str>,
     due_date: Option<DueDate>,
     priority: Option<i32>,
-) -> Result<(), String> {
-    let token = config::get_access_token()?;
-
+) -> Result<Task, String> {
     let mut body = serde_json::json!({
         "taskId": task_id,
         "projectId": project_id,
@@ -219,56 +195,23 @@ pub fn update(
         body["priority"] = serde_json::Value::Number(p.into());
     }
 
-    let resp = super::post(&format!("/task/{task_id}"), &token, &body)?;
+    let resp = super::post(&format!("/task/{task_id}"), token, &body)?;
 
-    let task: Task = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse task: {e}"))?;
-
-    crate::output::success(&task);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse task: {e}"))
 }
 
-pub fn complete(project_id: &str, task_id: &str) -> Result<(), String> {
-    let token = config::get_access_token()?;
-
+pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
     super::post_empty(
         &format!("/project/{project_id}/task/{task_id}/complete"),
-        &token,
+        token,
     )?;
 
-    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
 
-pub fn delete(project_id: &str, task_id: &str, force: bool) -> Result<(), String> {
-    use std::io::IsTerminal;
+pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
+    super::delete(&format!("/project/{project_id}/task/{task_id}"), token)?;
 
-    let token = config::get_access_token()?;
-
-    if !force {
-        let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
-
-        if is_ci || !std::io::stdin().is_terminal() {
-            return Err(
-                "refusing to delete without confirmation in non-interactive mode\n\n  hint: Use --force to skip confirmation"
-                    .to_string(),
-            );
-        }
-
-        eprint!("Are you sure you want to delete this task? [y/N] ");
-        let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .map_err(|e| format!("failed to read input: {e}"))?;
-        if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-            eprintln!("Cancelled.");
-            return Ok(());
-        }
-    }
-
-    super::delete(&format!("/project/{project_id}/task/{task_id}"), &token)?;
-
-    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
