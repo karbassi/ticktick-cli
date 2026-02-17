@@ -649,6 +649,20 @@ pub fn update(
         .map_err(|e| format!("failed to parse task: {e}"))
 }
 
+pub fn move_task(
+    token: &str,
+    _source_project_id: &str,
+    task_id: &str,
+    dest_project_id: &str,
+) -> Result<Task, String> {
+    let body = serde_json::json!({
+        "taskId": task_id,
+        "projectId": dest_project_id,
+    });
+    super::post(&format!("/task/{task_id}"), token, &body)?;
+    get_by_id(token, dest_project_id, task_id)
+}
+
 pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
     super::post_empty(
         &format!("/project/{project_id}/task/{task_id}/complete"),

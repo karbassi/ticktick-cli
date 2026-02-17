@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `task move` no longer fails with a JSON parse error when moving tasks between projects (the TickTick API returns an empty response body for moves)
+
 ## [0.11.0]
 
 ### Added
