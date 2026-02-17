@@ -66,10 +66,54 @@ pub fn get_all() -> Result<Vec<Project>, String> {
         .map_err(|e| format!("failed to parse projects: {e}"))
 }
 
+/// Discover the inbox project ID.
+///
+/// 1. Returns the cached value from config if available.
+/// 2. Otherwise, probes by creating a temporary task (with no projectId),
+///    extracts the inbox ID from the response, deletes the task, and caches the ID.
+pub fn get_inbox_id() -> Result<String, String> {
+    if let Some(id) = config::get_inbox_project_id() {
+        return Ok(id);
+    }
+
+    // Probe: create a temporary task with no project
+    let token = config::get_access_token()?;
+    let body = serde_json::json!({ "title": "__inbox_probe__" });
+    let resp = super::post("/task", &token, &body)?;
+    let task: crate::api::task::Task = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse probe task: {e}"))?;
+
+    let inbox_id = task
+        .project_id
+        .ok_or_else(|| "probe task has no projectId".to_string())?;
+
+    // Clean up the probe task
+    let _ = super::delete(&format!("/project/{inbox_id}/task/{}", task.id), &token);
+
+    // Cache for future use
+    let _ = config::save_inbox_project_id(&inbox_id);
+
+    Ok(inbox_id)
+}
+
 /// Resolve a project name or ID to an actual project ID.
 /// If the input looks like a hex ID (24+ chars), use it directly.
 /// Otherwise, search by name (case-insensitive).
 pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
+    // "inbox" (case-insensitive) → discover/use inbox ID
+    if name_or_id.eq_ignore_ascii_case("inbox") {
+        return get_inbox_id();
+    }
+
+    // Already an inbox ID (e.g. inbox112708464)
+    if name_or_id.starts_with("inbox")
+        && name_or_id[5..].chars().all(|c| c.is_ascii_digit())
+        && name_or_id.len() > 5
+    {
+        return Ok(name_or_id.to_string());
+    }
+
     // If it looks like an ID (long hex string), use it directly
     if name_or_id.len() >= 20 && name_or_id.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(name_or_id.to_string());

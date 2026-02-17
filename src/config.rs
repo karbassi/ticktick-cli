@@ -8,6 +8,8 @@ pub struct Config {
     pub refresh_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inbox_project_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -201,6 +203,16 @@ pub fn get_account_timezone() -> Option<String> {
 pub fn save_account_timezone(tz: &str) -> Result<(), String> {
     let mut config = load();
     config.account_timezone = Some(tz.to_string());
+    save(&config)
+}
+
+pub fn get_inbox_project_id() -> Option<String> {
+    load().inbox_project_id
+}
+
+pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
+    let mut config = load();
+    config.inbox_project_id = Some(id.to_string());
     save(&config)
 }
 

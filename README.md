@@ -6,6 +6,7 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 
 - **JSON-first** — every command outputs structured JSON, no flags needed
 - OAuth authentication flow with automatic token refresh
+- Inbox support: use `inbox` as a project name in any task command
 - Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
 - Full task management: create, edit, complete, delete with bulk operations
 - Task details: content, description, tags, checklist items, reminders, recurrence
@@ -133,7 +134,7 @@ All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept mul
 | `--view-mode` | `add`, `edit` | View mode: `list`, `kanban`, `timeline` |
 | `--kind` | `add`, `edit` | Project kind: `TASK`, `NOTE` |
 
-**Note:** Project can be specified by name (case-insensitive, partial match supported) or ID.
+**Note:** Project can be specified by name (case-insensitive, partial match supported), ID, or `inbox` for the inbox project.
 
 Run `ticktick-cli --help` for a list of commands, or `ticktick-cli <command> --help` for detailed usage and examples.
 
@@ -155,6 +156,9 @@ ticktick-cli project list | jq '.[].name'
 # List tasks in a project (by name)
 ticktick-cli task list Work
 ticktick-cli task list Personal
+
+# List inbox tasks
+ticktick-cli task list inbox
 
 # Create a task (goes to inbox)
 ticktick-cli task add "Buy groceries"
@@ -193,6 +197,9 @@ ticktick-cli project add "Sprint Board" --color "#FF0000" --view-mode kanban --k
 # Complete a task
 ticktick-cli task complete Work abc123def456
 ticktick-cli task done Work abc123def456    # alias
+
+# Complete an inbox task
+ticktick-cli task complete inbox abc123def456
 
 # Complete multiple tasks
 ticktick-cli task complete Personal id1 id2 id3

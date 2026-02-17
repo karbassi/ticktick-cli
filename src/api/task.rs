@@ -78,6 +78,13 @@ pub fn list_by_project(token: &str, project_id: Option<&str>) -> Result<Vec<Task
                 all_tasks.extend(data.tasks);
             }
         }
+        // Also include inbox tasks if we know the inbox ID
+        if let Some(inbox_id) = crate::config::get_inbox_project_id()
+            && let Ok(resp) = super::get(&format!("/project/{inbox_id}/data"), token)
+            && let Ok(data) = resp.into_json::<ProjectData>()
+        {
+            all_tasks.extend(data.tasks);
+        }
         Ok(all_tasks)
     }
 }
