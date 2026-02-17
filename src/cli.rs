@@ -53,7 +53,7 @@ Examples:
   ticktick-cli task list Personal                 # List tasks in Personal project
   ticktick-cli task add 'Buy milk'                # Add task to inbox
   ticktick-cli task add 'Review PR' -p Work       # Add task to Work project
-  ticktick-cli task add 'Submit report' -d 2025-03-01  # Add with due date
+  ticktick-cli task add 'Submit report' -d 2026-03-01  # Add with due date
   ticktick-cli task complete Personal abc123      # Complete a task
   ticktick-cli task delete Personal abc123        # Delete a task
 ")]
@@ -196,7 +196,7 @@ Examples:
   ticktick-cli task add 'Task 1' 'Task 2' 'Task 3'  # Add multiple tasks
   ticktick-cli task add 'Review pull request' -p Work
   ticktick-cli task add 'Call mom' --project Personal
-  ticktick-cli task add 'Submit report' --due 2025-03-01
+  ticktick-cli task add 'Submit report' --due 2026-03-01
   ticktick-cli task add 'Call dentist' -d tomorrow
   ticktick-cli task add 'Urgent fix' --priority high
   ticktick-cli task add 'Focus block' --start 2026-02-16T14:00 --duration 2h
@@ -232,7 +232,7 @@ Examples:
         #[arg(long)]
         all_day: bool,
 
-        /// IANA timezone (e.g. America/New_York)
+        /// IANA timezone override (e.g. America/New_York). Controls both the UTC offset and display timezone. Defaults to local system timezone.
         #[arg(long = "timezone", visible_alias = "tz")]
         timezone: Option<String>,
 
@@ -326,7 +326,7 @@ Examples:
         #[arg(long)]
         all_day: bool,
 
-        /// IANA timezone (e.g. America/New_York)
+        /// IANA timezone override (e.g. America/New_York). Controls both the UTC offset and display timezone. Defaults to local system timezone.
         #[arg(long = "timezone", visible_alias = "tz")]
         timezone: Option<String>,
 
