@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0]
+
+### Added
+- `task move` (`mv`) command to move one or more tasks between projects
+
 ## [0.10.0]
 
 ### Added

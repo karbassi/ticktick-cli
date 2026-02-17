@@ -56,6 +56,7 @@ Examples:
   ticktick-cli task add 'Submit report' -d 2026-03-01  # Add with due date
   ticktick-cli task complete Personal abc123      # Complete a task
   ticktick-cli task delete Personal abc123        # Delete a task
+  ticktick-cli task move inbox abc123 --to Work   # Move a task to Work project
 ")]
 pub struct Cli {
     #[command(subcommand)]
@@ -435,6 +436,37 @@ Examples:
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
+
+        /// Read task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
+    },
+
+    /// Move one or more tasks to a different project
+    ///
+    /// Moves tasks from one project to another by updating their project ID.
+    /// The source project and destination project can be specified by name or ID.
+    ///
+    /// To find task IDs, run 'ticktick-cli task list <project>' first.
+    #[command(visible_alias = "mv")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task move Personal abc123 --to Work
+  ticktick-cli task move inbox id1 id2 id3 --to 'Work Projects'
+  ticktick-cli task mv inbox abc123 -t Work
+  ticktick-cli task list inbox | jq -r '.[].id' | ticktick-cli task move inbox --stdin --to Work
+")]
+    Move {
+        /// Source project name or ID containing the tasks
+        project: String,
+
+        /// Task IDs (find via 'ticktick-cli task list')
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        task_ids: Vec<String>,
+
+        /// Destination project name or ID
+        #[arg(short = 't', long = "to")]
+        to: String,
 
         /// Read task IDs from stdin (one per line)
         #[arg(long)]
@@ -1115,6 +1147,47 @@ pub fn run() -> Result<(), String> {
                                 data: None,
                                 error: None,
                             },
+                            Err(e) => BulkResult {
+                                id: task_id.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+            TaskCommands::Move {
+                project,
+                task_ids,
+                to,
+                stdin,
+            } => {
+                let inputs = collect_inputs(task_ids, stdin)?;
+                let token = crate::config::get_access_token()?;
+                let source_project_id = crate::api::project::resolve_id(&project)?;
+                let dest_project_id = crate::api::project::resolve_id(&to)?;
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|task_id| {
+                        let fields = crate::api::task::TaskFields {
+                            project_id: Some(dest_project_id.clone()),
+                            ..Default::default()
+                        };
+                        match crate::api::task::update(&token, &source_project_id, task_id, &fields) {
+                            Ok(task) => {
+                                detect_account_timezone(&task);
+                                detect_inbox_id(&task);
+                                BulkResult {
+                                    id: task_id.clone(),
+                                    status: "ok".into(),
+                                    data: Some(serde_json::to_value(&task).unwrap_or_default()),
+                                    error: None,
+                                }
+                            }
                             Err(e) => BulkResult {
                                 id: task_id.clone(),
                                 status: "error".into(),
