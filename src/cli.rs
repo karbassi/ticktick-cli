@@ -1173,11 +1173,7 @@ pub fn run() -> Result<(), String> {
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|task_id| {
-                        let fields = crate::api::task::TaskFields {
-                            project_id: Some(dest_project_id.clone()),
-                            ..Default::default()
-                        };
-                        match crate::api::task::update(&token, &source_project_id, task_id, &fields) {
+                        match crate::api::task::move_task(&token, &source_project_id, task_id, &dest_project_id) {
                             Ok(task) => {
                                 detect_account_timezone(&task);
                                 detect_inbox_id(&task);
