@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0]
+
+### Added
+- Inbox support: use `inbox` as a project name in all task commands (`task list inbox`, `task get inbox <id>`, `task complete inbox <id>`, `task delete inbox <id>`)
+- `task list` (no project filter) now includes inbox tasks when the inbox ID is known
+- Automatic inbox ID detection: after the first task create/edit that lands in the inbox, the CLI stores the inbox project ID in config
+- Inbox ID discovery: if the inbox ID is not cached, `task list inbox` probes by creating and deleting a temporary task
+
 ## [0.9.0]
 
 ### Fixed

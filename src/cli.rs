@@ -761,6 +761,19 @@ fn resolve_timeblock(
     Ok((resolved_due, resolved_start, is_all_day, timezone))
 }
 
+/// After a task create/update, detect the inbox project ID from the response
+/// and store it in config if not already known.
+fn detect_inbox_id(task: &crate::api::task::Task) {
+    if crate::config::get_inbox_project_id().is_some() {
+        return;
+    }
+    if let Some(ref pid) = task.project_id
+        && pid.starts_with("inbox")
+    {
+        let _ = crate::config::save_inbox_project_id(pid);
+    }
+}
+
 /// After a task create/update, detect the TickTick account timezone from the
 /// response and store it in config if not already known.
 fn detect_account_timezone(task: &crate::api::task::Task) {
@@ -917,6 +930,7 @@ pub fn run() -> Result<(), String> {
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => {
                                 detect_account_timezone(&task);
+                                detect_inbox_id(&task);
                                 BulkResult {
                                     id: title.clone(),
                                     status: "ok".into(),
@@ -1025,6 +1039,7 @@ pub fn run() -> Result<(), String> {
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => {
                                 detect_account_timezone(&task);
+                                detect_inbox_id(&task);
                                 BulkResult {
                                     id: task_id.clone(),
                                     status: "ok".into(),
