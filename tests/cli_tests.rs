@@ -68,7 +68,7 @@ fn top_level_subcommand_help_exits_zero() {
 
 #[test]
 fn task_subcommand_help_exits_zero() {
-    for subcmd in ["list", "get", "add", "edit", "complete", "delete"] {
+    for subcmd in ["list", "get", "add", "edit", "complete", "delete", "move"] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
 }
@@ -93,6 +93,11 @@ fn complete_missing_args_exits_two() {
 #[test]
 fn delete_missing_args_exits_two() {
     cmd().args(["task", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn move_missing_args_exits_two() {
+    cmd().args(["task", "move"]).assert().failure().code(2);
 }
 
 #[test]
@@ -272,6 +277,7 @@ fn usage_lists_subcommands() {
         "task add",
         "task complete",
         "task delete",
+        "task move",
         "project list",
         "project add",
         "project delete",

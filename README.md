@@ -8,7 +8,7 @@ A command-line interface for [TickTick](https://ticktick.com) task management, b
 - OAuth authentication flow with automatic token refresh
 - Inbox support: use `inbox` as a project name in any task command
 - Smart project name resolution (case-insensitive, partial match, "Did you mean?" suggestions)
-- Full task management: create, edit, complete, delete with bulk operations
+- Full task management: create, edit, complete, delete, move with bulk operations
 - Task details: content, description, tags, checklist items, reminders, recurrence
 - Timeblocking: start/due dates, durations, all-day events, local timezone with account mismatch detection
 - Project options: color, view mode (list/kanban/timeline), kind (task/note)
@@ -87,6 +87,7 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task edit <project> <task_ids...>` | `task update` | Edit one or more tasks |
 | `task complete <project> <task_ids...>` | `task done` | Mark one or more tasks as complete |
 | `task delete <project> <task_ids...>` | `task rm` | Delete one or more tasks |
+| `task move <project> <task_ids...> --to <dest>` | `task mv` | Move one or more tasks to a different project |
 | `project list` | | List all projects |
 | `project get <name>` | | Get project details by name or ID |
 | `project add <name>` | | Create a new project |
@@ -96,7 +97,7 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
 
-All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept multiple positional arguments and a `--stdin` flag to read items from a pipe (one per line).
+All five task mutation commands (`add`, `edit`, `complete`, `delete`, `move`) accept multiple positional arguments and a `--stdin` flag to read items from a pipe (one per line).
 
 #### Task flags
 
@@ -109,6 +110,7 @@ All four task mutation commands (`add`, `edit`, `complete`, `delete`) accept mul
 | `--all-day` | `add`, `edit` | Force all-day event |
 | `--timezone`, `--tz` | `add`, `edit` | IANA timezone override (e.g. `America/New_York`) |
 | `-P`, `--priority` | `add`, `edit` | Priority: `none`, `low`, `medium`, `high` |
+| `-t`, `--to` | `move` | Destination project |
 | `-t`, `--title` | `edit` | New title (single task only) |
 | `--content` | `add`, `edit` | Task content/notes |
 | `--desc` | `add`, `edit` | Task description |
@@ -204,6 +206,10 @@ ticktick-cli task complete inbox abc123def456
 # Complete multiple tasks
 ticktick-cli task complete Personal id1 id2 id3
 
+# Move a task to another project
+ticktick-cli task move inbox abc123 --to Work
+ticktick-cli task mv inbox abc123 -t Work     # alias
+
 # Delete a task
 ticktick-cli task delete Personal abc123def456
 ticktick-cli task rm Personal abc123def456    # alias
@@ -296,7 +302,7 @@ This CLI implements the complete [TickTick OpenAPI specification](https://tickti
 | `GET /project/{id}/data` | `task list <project>` |
 | `GET /project/{pid}/task/{tid}` | `task get <project> <tid>` |
 | `POST /task` | `task add <title>` |
-| `POST /task/{tid}` | `task edit <project> <tid>` |
+| `POST /task/{tid}` | `task edit <project> <tid>`, `task move <project> <tid> --to <dest>` |
 | `POST /project/{pid}/task/{tid}/complete` | `task complete <project> <tid>` |
 | `DELETE /project/{pid}/task/{tid}` | `task delete <project> <tid>` |
 
