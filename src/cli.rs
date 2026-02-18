@@ -122,6 +122,38 @@ Examples:
     #[command(subcommand)]
     Habit(HabitCommands),
 
+    /// Manage saved filters (smart views)
+    #[command(subcommand)]
+    Filter(FilterCommands),
+
+    /// View calendar accounts and events (read-only)
+    #[command(subcommand)]
+    Calendar(CalendarCommands),
+
+    /// Focus/pomodoro timer control and statistics
+    #[command(subcommand)]
+    Focus(FocusCommands),
+
+    /// Show user profile and account status
+    ///
+    /// Displays the user's profile information merged with account status.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli profile
+")]
+    Profile,
+
+    /// Show user preference settings
+    ///
+    /// Displays the user's preference settings (including web-specific settings).
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli settings
+")]
+    Settings,
+
     /// Dump full account state from v2 batch/check endpoint
     ///
     /// Fetches the complete account state (projects, tasks, tags, habits, etc.)
@@ -572,6 +604,16 @@ Examples:
         #[arg(long)]
         stdin: bool,
     },
+
+    /// List tasks in the trash
+    ///
+    /// Shows tasks that have been deleted but not yet permanently removed.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task trash
+")]
+    Trash,
 }
 
 #[derive(Subcommand)]
@@ -638,6 +680,60 @@ Examples:
 
         /// New tag name
         new: String,
+    },
+
+    /// Edit a tag's properties
+    ///
+    /// Update properties of an existing tag such as color, parent, or sort settings.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "update")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag edit work --color '#4A90E2'
+  ticktick-cli tag edit child-tag --parent parent-tag
+  ticktick-cli tag edit child-tag --clear-parent
+  ticktick-cli tag edit work --sort-type dueDate
+")]
+    Edit {
+        /// Tag name to edit
+        name: String,
+
+        /// Set tag color (hex string, e.g. '#4A90E2')
+        #[arg(long)]
+        color: Option<String>,
+
+        /// Set parent tag (for nesting)
+        #[arg(long, conflicts_with = "clear_parent")]
+        parent: Option<String>,
+
+        /// Remove parent tag (un-nest)
+        #[arg(long)]
+        clear_parent: bool,
+
+        /// Set sort order (integer)
+        #[arg(long)]
+        sort_order: Option<i64>,
+
+        /// Set sort type (e.g. project, dueDate, tag)
+        #[arg(long)]
+        sort_type: Option<String>,
+    },
+
+    /// Merge a tag into another tag
+    ///
+    /// All tasks tagged with the source tag are re-tagged with the target tag,
+    /// and the source tag is deleted.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag merge old-tag new-tag
+")]
+    Merge {
+        /// Source tag name (will be deleted)
+        source: String,
+
+        /// Target tag name (tasks will be re-tagged with this)
+        target: String,
     },
 }
 
@@ -876,6 +972,70 @@ Examples:
         #[arg(num_args = 1.., required = true)]
         habits: Vec<String>,
     },
+
+    /// Manage habit sections (grouping)
+    #[command(subcommand)]
+    Section(HabitSectionCommands),
+}
+
+#[derive(Subcommand)]
+enum HabitSectionCommands {
+    /// List all habit sections
+    ///
+    /// Lists all habit sections (groups) from your TickTick account.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit section list
+")]
+    List,
+
+    /// Create a new habit section
+    ///
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "new")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit section add 'Morning Routine'
+")]
+    Add {
+        /// Section name
+        name: String,
+    },
+
+    /// Delete one or more habit sections
+    ///
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit section delete 'Old Section' --force
+")]
+    Delete {
+        /// Section names or IDs to delete
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Rename a habit section
+    ///
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit section rename 'Old Name' --name 'New Name'
+")]
+    Rename {
+        /// Section name or ID
+        section: String,
+
+        /// New section name
+        #[arg(long)]
+        name: String,
+    },
 }
 
 /// Habit type
@@ -894,6 +1054,241 @@ impl HabitType {
             HabitType::Real => "Real",
         }
     }
+}
+
+#[derive(Subcommand)]
+enum FilterCommands {
+    /// List all saved filters
+    ///
+    /// Lists all saved filters (smart views) from your TickTick account.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli filter list
+")]
+    List,
+
+    /// Create a new filter
+    ///
+    /// Creates a saved filter with a name and rule.
+    /// The rule is a JSON string defining the filter conditions.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "new")]
+    #[command(after_long_help = r#"
+Examples:
+  ticktick-cli filter add 'High Priority' --rule '{"and":[{"conditionName":"priority","or":[5],"conditionType":1}],"type":0,"version":1}'
+  ticktick-cli filter add 'Overdue' --rule '{"and":[{"conditionName":"dueDate","or":["overdue"],"conditionType":1}],"type":0,"version":1}' --sort-type dueDate
+"#)]
+    Add {
+        /// Filter name
+        name: String,
+
+        /// Filter rule (JSON string)
+        #[arg(long)]
+        rule: String,
+
+        /// Sort type (e.g. dueDate, project, priority)
+        #[arg(long)]
+        sort_type: Option<String>,
+    },
+
+    /// Edit an existing filter
+    ///
+    /// Update properties of a saved filter.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "update")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli filter edit 'High Priority' --name 'Very High Priority'
+  ticktick-cli filter edit myfilter --rule '{...}' --sort-type priority
+")]
+    Edit {
+        /// Filter name or ID
+        filter: String,
+
+        /// New filter name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// New filter rule (JSON string)
+        #[arg(long)]
+        rule: Option<String>,
+
+        /// New sort type (e.g. dueDate, project, priority)
+        #[arg(long)]
+        sort_type: Option<String>,
+    },
+
+    /// Delete one or more filters
+    ///
+    /// Permanently deletes saved filters.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli filter delete 'Old Filter' --force
+  ticktick-cli filter delete filter1 filter2 --force
+")]
+    Delete {
+        /// Filter names or IDs to delete
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CalendarCommands {
+    /// List connected calendar accounts
+    ///
+    /// Lists third-party calendar accounts (Google, Outlook, etc.) connected to TickTick.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli calendar list
+")]
+    List,
+
+    /// Query calendar events by date range
+    ///
+    /// Fetches events from all connected calendars within a date range.
+    /// Defaults to 7 days ago through 7 days ahead if no range specified.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli calendar events
+  ticktick-cli calendar events --from 2026-02-01 --to 2026-03-01
+")]
+    Events {
+        /// Start date (YYYY-MM-DD, default: 7 days ago)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End date (YYYY-MM-DD, default: 7 days ahead)
+        #[arg(long)]
+        to: Option<String>,
+    },
+}
+
+/// Focus timer mode
+#[derive(Clone, Copy, ValueEnum)]
+pub enum FocusMode {
+    /// Pomodoro timer (default)
+    Pomo,
+    /// Stopwatch (count up)
+    Stopwatch,
+}
+
+#[derive(Subcommand)]
+enum FocusCommands {
+    /// Show current timer state
+    ///
+    /// Returns the current focus/pomodoro timer status.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus status
+")]
+    Status,
+
+    /// Show focus statistics (today/total)
+    ///
+    /// Returns pomodoro statistics including today's count and all-time totals.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus stats
+")]
+    Stats,
+
+    /// Show focus session log
+    ///
+    /// Returns focus session history for a date range.
+    /// Defaults to the last 30 days if no range specified.
+    /// Dates are YYYY-MM-DD format, converted to epoch milliseconds internally.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus log
+  ticktick-cli focus log --from 2026-02-01 --to 2026-02-18
+")]
+    Log {
+        /// Start date (YYYY-MM-DD, default: 30 days ago)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End date (YYYY-MM-DD, default: today)
+        #[arg(long)]
+        to: Option<String>,
+    },
+
+    /// Show full focus session timeline
+    ///
+    /// Returns the complete focus session timeline.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus timeline
+")]
+    Timeline,
+
+    /// Start a focus session
+    ///
+    /// Starts a new pomodoro or stopwatch session. Optionally associate with a task.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus start
+  ticktick-cli focus start --mode pomo --duration 25
+  ticktick-cli focus start --mode stopwatch
+  ticktick-cli focus start --task abc123
+")]
+    Start {
+        /// Task ID to associate with the session
+        #[arg(long)]
+        task: Option<String>,
+
+        /// Timer mode (pomo or stopwatch, default: pomo)
+        #[arg(long, default_value = "pomo")]
+        mode: FocusMode,
+
+        /// Duration in minutes (pomodoro only, default: 25)
+        #[arg(long, default_value = "25")]
+        duration: u32,
+    },
+
+    /// Pause the current focus session
+    ///
+    /// Pauses the currently running focus timer.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus pause
+")]
+    Pause,
+
+    /// Resume a paused focus session
+    ///
+    /// Resumes a previously paused focus timer.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus resume
+")]
+    Resume,
+
+    /// Stop the current focus session
+    ///
+    /// Stops and saves the current focus session.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli focus stop
+")]
+    Stop,
 }
 
 #[derive(Subcommand)]
@@ -1154,6 +1549,33 @@ fn days_to_ymd(days: u64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
+}
+
+/// Parse a YYYY-MM-DD date string to epoch milliseconds (UTC midnight).
+fn date_to_epoch_ms(date: &str) -> Result<i64, String> {
+    let parts: Vec<&str> = date.split('-').collect();
+    if parts.len() != 3 {
+        return Err(format!("invalid date format '{date}', expected YYYY-MM-DD"));
+    }
+    let y: i64 = parts[0]
+        .parse()
+        .map_err(|_| format!("invalid year in '{date}'"))?;
+    let m: i64 = parts[1]
+        .parse()
+        .map_err(|_| format!("invalid month in '{date}'"))?;
+    let d: i64 = parts[2]
+        .parse()
+        .map_err(|_| format!("invalid day in '{date}'"))?;
+
+    // Inverse of the civil days algorithm — compute days since epoch
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let doy = (153 * (m as u64) + 2) / 5 + (d as u64) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe as i64 - 719468;
+
+    Ok(days * 86400 * 1000)
 }
 
 type TimeblockResult = (
@@ -1850,6 +2272,11 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TaskCommands::Trash => {
+                let tasks = crate::api::v2::list_trash()?;
+                crate::output::success(&tasks);
+                Ok(())
+            }
         },
         Commands::Tag(subcmd) => match subcmd {
             TagCommands::List => {
@@ -1887,12 +2314,44 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TagCommands::Edit {
+                name,
+                color,
+                parent,
+                clear_parent,
+                sort_order,
+                sort_type,
+            } => {
+                let parent_field = if clear_parent {
+                    Some(None)
+                } else {
+                    parent.map(Some)
+                };
+                let fields = crate::api::tag::TagFields {
+                    color,
+                    parent: parent_field,
+                    sort_order,
+                    sort_type,
+                };
+                let result = crate::api::tag::update(&name, &fields)?;
+                crate::output::success(&result);
+                Ok(())
+            }
             TagCommands::Rename { old, new } => {
                 crate::api::tag::rename(&old, &new)?;
                 crate::output::success(&serde_json::json!({
                     "status": "ok",
                     "oldName": old,
                     "newName": new,
+                }));
+                Ok(())
+            }
+            TagCommands::Merge { source, target } => {
+                crate::api::tag::merge(&source, &target)?;
+                crate::output::success(&serde_json::json!({
+                    "status": "ok",
+                    "source": source,
+                    "target": target,
                 }));
                 Ok(())
             }
@@ -2104,6 +2563,132 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            HabitCommands::Section(subcmd) => match subcmd {
+                HabitSectionCommands::List => {
+                    let sections = crate::api::habit::list_sections()?;
+                    crate::output::success(&sections);
+                    Ok(())
+                }
+                HabitSectionCommands::Add { name } => {
+                    let result = crate::api::habit::create_section(&name)?;
+                    crate::output::success(&result);
+                    Ok(())
+                }
+                HabitSectionCommands::Delete { names, force } => {
+                    if !force {
+                        confirm_destructive(names.len(), "habit section")?;
+                    }
+
+                    let results: Vec<BulkResult> = names
+                        .iter()
+                        .map(|name| match crate::api::habit::resolve_section_id(name) {
+                            Ok((id, _name)) => {
+                                match crate::api::habit::delete_sections(std::slice::from_ref(&id))
+                                {
+                                    Ok(()) => BulkResult {
+                                        id: name.clone(),
+                                        status: "ok".into(),
+                                        data: None,
+                                        error: None,
+                                    },
+                                    Err(e) => BulkResult {
+                                        id: name.clone(),
+                                        status: "error".into(),
+                                        data: None,
+                                        error: Some(e),
+                                    },
+                                }
+                            }
+                            Err(e) => BulkResult {
+                                id: name.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        })
+                        .collect();
+
+                    output_results(&results)
+                }
+                HabitSectionCommands::Rename { section, name } => {
+                    let (id, _old_name) = crate::api::habit::resolve_section_id(&section)?;
+                    let result = crate::api::habit::rename_section(&id, &name)?;
+                    crate::output::success(&result);
+                    Ok(())
+                }
+            },
+        },
+        Commands::Filter(subcmd) => match subcmd {
+            FilterCommands::List => {
+                let filters = crate::api::filter::list()?;
+                crate::output::success(&filters);
+                Ok(())
+            }
+            FilterCommands::Add {
+                name,
+                rule,
+                sort_type,
+            } => {
+                let fields = crate::api::filter::FilterFields {
+                    name: Some(name),
+                    rule: Some(rule),
+                    sort_type,
+                };
+                let result = crate::api::filter::create(&fields)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FilterCommands::Edit {
+                filter,
+                name,
+                rule,
+                sort_type,
+            } => {
+                let (id, etag) = crate::api::filter::resolve_id(&filter)?;
+                let fields = crate::api::filter::FilterFields {
+                    name,
+                    rule,
+                    sort_type,
+                };
+                let result = crate::api::filter::update(&id, &etag, &fields)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FilterCommands::Delete { names, force } => {
+                if !force {
+                    confirm_destructive(names.len(), "filter")?;
+                }
+
+                let results: Vec<BulkResult> = names
+                    .iter()
+                    .map(|name| match crate::api::filter::resolve_id(name) {
+                        Ok((id, _etag)) => {
+                            match crate::api::filter::delete(std::slice::from_ref(&id)) {
+                                Ok(()) => BulkResult {
+                                    id: name.clone(),
+                                    status: "ok".into(),
+                                    data: None,
+                                    error: None,
+                                },
+                                Err(e) => BulkResult {
+                                    id: name.clone(),
+                                    status: "error".into(),
+                                    data: None,
+                                    error: Some(e),
+                                },
+                            }
+                        }
+                        Err(e) => BulkResult {
+                            id: name.clone(),
+                            status: "error".into(),
+                            data: None,
+                            error: Some(e),
+                        },
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
         },
         Commands::Project(subcmd) => match subcmd {
             ProjectCommands::List => crate::api::project::list(),
@@ -2152,6 +2737,191 @@ pub fn run() -> Result<(), String> {
                 crate::api::project::delete(&project_id, force)
             }
         },
+        Commands::Calendar(subcmd) => match subcmd {
+            CalendarCommands::List => {
+                let accounts = crate::api::calendar::list_accounts()?;
+                crate::output::success(&accounts);
+                Ok(())
+            }
+            CalendarCommands::Events { from, to } => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let begin = if let Some(f) = from {
+                    format!("{f}T00:00:00.000+0000")
+                } else {
+                    let days = now_secs / 86400 - 7;
+                    let (y, m, d) = days_to_ymd(days);
+                    format!("{y:04}-{m:02}-{d:02}T00:00:00.000+0000")
+                };
+
+                let end = if let Some(t) = to {
+                    format!("{t}T00:00:00.000+0000")
+                } else {
+                    let days = now_secs / 86400 + 7;
+                    let (y, m, d) = days_to_ymd(days);
+                    format!("{y:04}-{m:02}-{d:02}T00:00:00.000+0000")
+                };
+
+                let events = crate::api::calendar::query_events(&begin, &end)?;
+                crate::output::success(&events);
+                Ok(())
+            }
+        },
+        Commands::Focus(subcmd) => match subcmd {
+            FocusCommands::Status => {
+                let status = crate::api::focus::get_timer_status()?;
+                crate::output::success(&status);
+                Ok(())
+            }
+            FocusCommands::Stats => {
+                let stats = crate::api::focus::get_stats()?;
+                crate::output::success(&stats);
+                Ok(())
+            }
+            FocusCommands::Log { from, to } => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let from_ms = if let Some(f) = from {
+                    date_to_epoch_ms(&f)?
+                } else {
+                    // 30 days ago
+                    ((now_secs - 30 * 86400) as i64) * 1000
+                };
+
+                let to_ms = if let Some(t) = to {
+                    date_to_epoch_ms(&t)? + 86400 * 1000 // end of day
+                } else {
+                    (now_secs as i64) * 1000
+                };
+
+                let log = crate::api::focus::get_log(from_ms, to_ms)?;
+                crate::output::success(&log);
+                Ok(())
+            }
+            FocusCommands::Timeline => {
+                let timeline = crate::api::focus::get_timeline()?;
+                crate::output::success(&timeline);
+                Ok(())
+            }
+            FocusCommands::Start {
+                task,
+                mode,
+                duration,
+            } => {
+                let session_id = crate::api::focus::generate_id();
+                let now = crate::api::focus::now_iso();
+
+                let (focus_type, duration_ms) = match mode {
+                    FocusMode::Pomo => (0, (duration as i64) * 60 * 1000),
+                    FocusMode::Stopwatch => (1, 0),
+                };
+
+                let mut op = serde_json::json!({
+                    "op": "start",
+                    "sid": session_id,
+                    "type": focus_type,
+                    "startTime": now,
+                });
+
+                if focus_type == 0 {
+                    op["duration"] = serde_json::json!(duration_ms);
+                }
+
+                if let Some(ref tid) = task {
+                    op["taskId"] = serde_json::json!(tid);
+                }
+
+                let result = crate::api::focus::focus_op(&[op])?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FocusCommands::Pause => {
+                let status = crate::api::focus::get_timer_status()?;
+                let sid = status["sid"]
+                    .as_str()
+                    .ok_or("no active focus session found")?;
+
+                let now = crate::api::focus::now_iso();
+                let op = serde_json::json!({
+                    "op": "pause",
+                    "sid": sid,
+                    "pauseTime": now,
+                });
+
+                let result = crate::api::focus::focus_op(&[op])?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FocusCommands::Resume => {
+                let status = crate::api::focus::get_timer_status()?;
+                let sid = status["sid"]
+                    .as_str()
+                    .ok_or("no active focus session found")?;
+
+                let now = crate::api::focus::now_iso();
+                let op = serde_json::json!({
+                    "op": "resume",
+                    "sid": sid,
+                    "resumeTime": now,
+                });
+
+                let result = crate::api::focus::focus_op(&[op])?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FocusCommands::Stop => {
+                let status = crate::api::focus::get_timer_status()?;
+                let sid = status["sid"]
+                    .as_str()
+                    .ok_or("no active focus session found")?;
+
+                let now = crate::api::focus::now_iso();
+                let ops = vec![
+                    serde_json::json!({
+                        "op": "drop",
+                        "sid": sid,
+                        "endTime": now,
+                    }),
+                    serde_json::json!({
+                        "op": "exit",
+                        "sid": sid,
+                    }),
+                ];
+
+                let result = crate::api::focus::focus_op(&ops)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+        },
+        Commands::Profile => {
+            let mut profile = crate::api::v2::get_profile()?;
+            let status = crate::api::v2::get_status()?;
+            // Merge status into profile object
+            if let (Some(profile_obj), Some(status_obj)) =
+                (profile.as_object_mut(), status.as_object())
+            {
+                for (k, v) in status_obj {
+                    profile_obj.entry(k.clone()).or_insert(v.clone());
+                }
+            }
+            crate::output::success(&profile);
+            Ok(())
+        }
+        Commands::Settings => {
+            let settings = crate::api::v2::get_settings()?;
+            crate::output::success(&settings);
+            Ok(())
+        }
         Commands::Sync => {
             let data = crate::api::v2::batch_check()?;
             crate::output::success(&data);
@@ -2176,26 +2946,27 @@ pub fn run() -> Result<(), String> {
 
 fn print_usage() {
     let cmd = Cli::command();
+    print_subcommands("", &cmd);
+}
+
+fn print_subcommands(prefix: &str, cmd: &clap::Command) {
     for sub in cmd.get_subcommands() {
         let name = sub.get_name();
         if name == "usage" || name == "help" {
             continue;
         }
 
+        let full_name = if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix} {name}")
+        };
+
         let nested: Vec<_> = sub.get_subcommands().collect();
         if nested.is_empty() {
-            // Top-level command with no subcommands
-            print_command(name, sub);
+            print_command(&full_name, sub);
         } else {
-            // Nested subcommand group
-            for nested_sub in sub.get_subcommands() {
-                let nested_name = nested_sub.get_name();
-                if nested_name == "help" {
-                    continue;
-                }
-                let full_name = format!("{name} {nested_name}");
-                print_command(&full_name, nested_sub);
-            }
+            print_subcommands(&full_name, sub);
         }
     }
 }

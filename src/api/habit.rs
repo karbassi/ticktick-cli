@@ -133,12 +133,102 @@ pub fn list() -> Result<Vec<Habit>, String> {
 }
 
 /// List all habit sections.
-#[allow(dead_code)]
 pub fn list_sections() -> Result<Vec<HabitSection>, String> {
     let token = v2::get_session_token()?;
     let resp = v2::v2_get("/habitSections", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse habit sections: {e}"))
+}
+
+/// Create a habit section.
+pub fn create_section(name: &str) -> Result<serde_json::Value, String> {
+    let token = v2::get_session_token()?;
+    let body = serde_json::json!({
+        "add": [{ "name": name }],
+    });
+    let resp = v2::v2_post("/habitSections/batch", &token, &body)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse section create response: {e}"))
+}
+
+/// Delete habit sections by IDs.
+pub fn delete_sections(ids: &[String]) -> Result<(), String> {
+    let token = v2::get_session_token()?;
+    let body = serde_json::json!({ "delete": ids });
+    v2::v2_post("/habitSections/batch", &token, &body)?;
+    Ok(())
+}
+
+/// Rename a habit section.
+pub fn rename_section(id: &str, name: &str) -> Result<serde_json::Value, String> {
+    let token = v2::get_session_token()?;
+    let body = serde_json::json!({
+        "update": [{ "id": id, "name": name }],
+    });
+    let resp = v2::v2_post("/habitSections/batch", &token, &body)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse section rename response: {e}"))
+}
+
+/// Resolve a habit section name or ID to (id, name).
+pub fn resolve_section_id(name_or_id: &str) -> Result<(String, String), String> {
+    let sections = list_sections()?;
+
+    // If it looks like an ID (long hex string), find by ID
+    if name_or_id.len() >= 20
+        && name_or_id.chars().all(|c| c.is_ascii_hexdigit())
+        && let Some(s) = sections.iter().find(|s| s.id == name_or_id)
+    {
+        return Ok((s.id.clone(), s.name.clone()));
+    }
+
+    let search = name_or_id.to_lowercase();
+
+    // Exact match (case-insensitive)
+    if let Some(s) = sections.iter().find(|s| s.name.to_lowercase() == search) {
+        return Ok((s.id.clone(), s.name.clone()));
+    }
+
+    // Contains match
+    let matches: Vec<_> = sections
+        .iter()
+        .filter(|s| s.name.to_lowercase().contains(&search))
+        .collect();
+
+    match matches.len() {
+        0 => {
+            let mut msg = format!("no habit section found matching '{name_or_id}'");
+
+            let closest = sections
+                .iter()
+                .map(|s| {
+                    (
+                        s.name.as_str(),
+                        strsim::levenshtein(&search, &s.name.to_lowercase()),
+                    )
+                })
+                .min_by_key(|(_, d)| *d);
+
+            if let Some((name, dist)) = closest
+                && dist <= 3
+            {
+                msg.push_str(&format!("\n\n  Did you mean '{name}'?"));
+            }
+
+            msg.push_str(
+                "\n\n  hint: Run 'ticktick-cli habit section list' to see available sections",
+            );
+            Err(msg)
+        }
+        1 => Ok((matches[0].id.clone(), matches[0].name.clone())),
+        _ => {
+            let names: Vec<_> = matches.iter().map(|s| s.name.as_str()).collect();
+            Err(format!(
+                "multiple sections match '{name_or_id}': {}\n\n  hint: Use a more specific name or the full section ID",
+                names.join(", ")
+            ))
+        }
+    }
 }
 
 /// Create a habit.
