@@ -1067,9 +1067,3 @@ When no operation is needed, send an empty `opList` to poll for current state:
 { "lastPoint": 1755701054962, "opList": [] }
 ```
 
----
-
-## HAR File
-
-The full HAR capture is at `ticktick.har` (430 requests, 325 with response bodies).
-It contains session cookies — do not share publicly.
