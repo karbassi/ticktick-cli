@@ -773,8 +773,12 @@ fn resolve_timeblock(
         )
     } else {
         (
-            parsed_due.as_ref().map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
-            parsed_start.as_ref().map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
+            parsed_due
+                .as_ref()
+                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
+            parsed_start
+                .as_ref()
+                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
         )
     };
 
@@ -845,8 +849,7 @@ pub fn run() -> Result<(), String> {
                 let project_id = project
                     .map(|s| crate::api::project::resolve_id(&s))
                     .transpose()?;
-                let tasks =
-                    crate::api::task::list_by_project(&token, project_id.as_deref())?;
+                let tasks = crate::api::task::list_by_project(&token, project_id.as_deref())?;
                 crate::output::success(&tasks);
                 Ok(())
             }
@@ -898,13 +901,22 @@ pub fn run() -> Result<(), String> {
                 let items_field = if items.is_empty() {
                     None
                 } else {
-                    Some(items.into_iter().map(|t| crate::api::task::ChecklistItem {
-                        title: t,
-                        status: 0,
-                        ..Default::default()
-                    }).collect())
+                    Some(
+                        items
+                            .into_iter()
+                            .map(|t| crate::api::task::ChecklistItem {
+                                title: t,
+                                status: 0,
+                                ..Default::default()
+                            })
+                            .collect(),
+                    )
                 };
-                let reminders_field = if reminders.is_empty() { None } else { Some(reminders) };
+                let reminders_field = if reminders.is_empty() {
+                    None
+                } else {
+                    Some(reminders)
+                };
                 let repeat_flag = repeat.map(Some);
 
                 if dry_run {
@@ -1019,14 +1031,15 @@ pub fn run() -> Result<(), String> {
 
                 let has_datetime = due.is_some() || start.is_some();
                 let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
-                let (mut resolved_due, mut resolved_start, is_all_day, time_zone) = resolve_timeblock(
-                    due.as_deref(),
-                    start.as_deref(),
-                    duration.as_deref(),
-                    all_day,
-                    tz_field,
-                    tz_for_offset.as_deref(),
-                )?;
+                let (mut resolved_due, mut resolved_start, is_all_day, time_zone) =
+                    resolve_timeblock(
+                        due.as_deref(),
+                        start.as_deref(),
+                        duration.as_deref(),
+                        all_day,
+                        tz_field,
+                        tz_for_offset.as_deref(),
+                    )?;
 
                 if clear_due {
                     resolved_due = Some(crate::api::task::DateField::Clear);
@@ -1035,20 +1048,49 @@ pub fn run() -> Result<(), String> {
                     resolved_start = Some(crate::api::task::DateField::Clear);
                 }
 
-                let content = if clear_content { Some(None) } else { content.map(Some) };
-                let desc = if clear_desc { Some(None) } else { desc.map(Some) };
-                let tags_field = if clear_tags { Some(vec![]) } else if tags.is_empty() { None } else { Some(tags) };
+                let content = if clear_content {
+                    Some(None)
+                } else {
+                    content.map(Some)
+                };
+                let desc = if clear_desc {
+                    Some(None)
+                } else {
+                    desc.map(Some)
+                };
+                let tags_field = if clear_tags {
+                    Some(vec![])
+                } else if tags.is_empty() {
+                    None
+                } else {
+                    Some(tags)
+                };
                 let items_field = if items.is_empty() {
                     None
                 } else {
-                    Some(items.into_iter().map(|t| crate::api::task::ChecklistItem {
-                        title: t,
-                        status: 0,
-                        ..Default::default()
-                    }).collect())
+                    Some(
+                        items
+                            .into_iter()
+                            .map(|t| crate::api::task::ChecklistItem {
+                                title: t,
+                                status: 0,
+                                ..Default::default()
+                            })
+                            .collect(),
+                    )
                 };
-                let reminders_field = if clear_reminders { Some(vec![]) } else if reminders.is_empty() { None } else { Some(reminders) };
-                let repeat_flag = if clear_repeat { Some(None) } else { repeat.map(Some) };
+                let reminders_field = if clear_reminders {
+                    Some(vec![])
+                } else if reminders.is_empty() {
+                    None
+                } else {
+                    Some(reminders)
+                };
+                let repeat_flag = if clear_repeat {
+                    Some(None)
+                } else {
+                    repeat.map(Some)
+                };
 
                 let results: Vec<BulkResult> = inputs
                     .iter()
@@ -1102,8 +1144,8 @@ pub fn run() -> Result<(), String> {
 
                 let results: Vec<BulkResult> = inputs
                     .iter()
-                    .map(|task_id| {
-                        match crate::api::task::complete(&token, &project_id, task_id) {
+                    .map(
+                        |task_id| match crate::api::task::complete(&token, &project_id, task_id) {
                             Ok(()) => BulkResult {
                                 id: task_id.clone(),
                                 status: "ok".into(),
@@ -1116,8 +1158,8 @@ pub fn run() -> Result<(), String> {
                                 data: None,
                                 error: Some(e),
                             },
-                        }
-                    })
+                        },
+                    )
                     .collect();
 
                 output_results(&results)
@@ -1139,8 +1181,8 @@ pub fn run() -> Result<(), String> {
 
                 let results: Vec<BulkResult> = inputs
                     .iter()
-                    .map(|task_id| {
-                        match crate::api::task::delete(&token, &project_id, task_id) {
+                    .map(
+                        |task_id| match crate::api::task::delete(&token, &project_id, task_id) {
                             Ok(()) => BulkResult {
                                 id: task_id.clone(),
                                 status: "ok".into(),
@@ -1153,8 +1195,8 @@ pub fn run() -> Result<(), String> {
                                 data: None,
                                 error: Some(e),
                             },
-                        }
-                    })
+                        },
+                    )
                     .collect();
 
                 output_results(&results)
@@ -1173,7 +1215,12 @@ pub fn run() -> Result<(), String> {
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|task_id| {
-                        match crate::api::task::move_task(&token, &source_project_id, task_id, &dest_project_id) {
+                        match crate::api::task::move_task(
+                            &token,
+                            &source_project_id,
+                            task_id,
+                            &dest_project_id,
+                        ) {
                             Ok(task) => {
                                 detect_account_timezone(&task);
                                 detect_inbox_id(&task);
@@ -1203,7 +1250,12 @@ pub fn run() -> Result<(), String> {
                 let id = crate::api::project::resolve_id(&name)?;
                 crate::api::project::get_by_id(&id)
             }
-            ProjectCommands::Add { name, color, view_mode, kind } => {
+            ProjectCommands::Add {
+                name,
+                color,
+                view_mode,
+                kind,
+            } => {
                 let fields = crate::api::project::ProjectFields {
                     name: Some(name),
                     color,
@@ -1212,7 +1264,13 @@ pub fn run() -> Result<(), String> {
                 };
                 crate::api::project::create(&fields)
             }
-            ProjectCommands::Edit { project, name, color, view_mode, kind } => {
+            ProjectCommands::Edit {
+                project,
+                name,
+                color,
+                view_mode,
+                kind,
+            } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 let fields = crate::api::project::ProjectFields {
                     name,

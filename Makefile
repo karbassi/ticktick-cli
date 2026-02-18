@@ -1,6 +1,11 @@
-.PHONY: release check
+.PHONY: release check fix
 
 VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+
+fix:
+	cargo fmt
+	cargo clippy --fix --allow-dirty --allow-staged
+	cargo test
 
 check:
 	cargo fmt -- --check

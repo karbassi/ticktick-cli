@@ -1,4 +1,4 @@
-use assert_cmd::{cargo::cargo_bin_cmd, Command};
+use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use predicates::prelude::*;
 use std::fs;
 
@@ -9,7 +9,9 @@ fn cmd() -> Command {
 /// Assert a TickTick API datetime string has the expected date/time prefix
 /// and a valid `+HHMM` or `-HHMM` offset suffix.
 fn assert_api_datetime(value: &serde_json::Value, expected_prefix: &str) {
-    let s = value.as_str().unwrap_or_else(|| panic!("expected string, got: {value}"));
+    let s = value
+        .as_str()
+        .unwrap_or_else(|| panic!("expected string, got: {value}"));
     assert!(
         s.starts_with(expected_prefix),
         "expected datetime starting with '{expected_prefix}', got: {s}"
@@ -349,11 +351,19 @@ fn add_stdin_dry_run() {
 fn edit_title_with_multiple_ids_exits_one() {
     cmd()
         .args([
-            "task", "edit", "someproject", "id1", "id2", "--title", "New",
+            "task",
+            "edit",
+            "someproject",
+            "id1",
+            "id2",
+            "--title",
+            "New",
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("--title can only be used with a single task ID"));
+        .stderr(predicate::str::contains(
+            "--title can only be used with a single task ID",
+        ));
 }
 
 #[test]
@@ -383,7 +393,14 @@ fn output_is_always_json() {
 #[test]
 fn add_dry_run_with_start_date_only() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Meeting", "--start", "2026-03-15"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Meeting",
+            "--start",
+            "2026-03-15",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -398,7 +415,14 @@ fn add_dry_run_with_start_date_only() {
 #[test]
 fn add_dry_run_with_start_datetime() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Focus", "--start", "2026-03-15T14:00"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Focus",
+            "--start",
+            "2026-03-15T14:00",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -411,7 +435,16 @@ fn add_dry_run_with_start_datetime() {
 #[test]
 fn add_dry_run_with_duration() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Block", "--start", "2026-03-15T14:00", "--duration", "2h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Block",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "2h",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -425,7 +458,16 @@ fn add_dry_run_with_duration() {
 #[test]
 fn add_dry_run_duration_day_overflow() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Late", "--start", "2026-03-15T23:00", "--duration", "2h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Late",
+            "--start",
+            "2026-03-15T23:00",
+            "--duration",
+            "2h",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -438,7 +480,16 @@ fn add_dry_run_duration_day_overflow() {
 #[test]
 fn add_dry_run_duration_month_overflow() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "End of month", "--start", "2026-01-31T23:00", "--duration", "2h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "End of month",
+            "--start",
+            "2026-01-31T23:00",
+            "--duration",
+            "2h",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -450,7 +501,16 @@ fn add_dry_run_duration_month_overflow() {
 #[test]
 fn add_dry_run_duration_leap_year() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Leap", "--start", "2024-02-28T23:30", "--duration", "1h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Leap",
+            "--start",
+            "2024-02-28T23:30",
+            "--duration",
+            "1h",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -462,7 +522,16 @@ fn add_dry_run_duration_leap_year() {
 #[test]
 fn add_dry_run_with_timezone() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "TZ test", "--start", "2026-03-15T14:00", "--timezone", "America/New_York"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "TZ test",
+            "--start",
+            "2026-03-15T14:00",
+            "--timezone",
+            "America/New_York",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -474,7 +543,16 @@ fn add_dry_run_with_timezone() {
 #[test]
 fn add_dry_run_with_tz_alias() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "TZ alias", "--start", "2026-03-15T14:00", "--tz", "Europe/London"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "TZ alias",
+            "--start",
+            "2026-03-15T14:00",
+            "--tz",
+            "Europe/London",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -486,7 +564,15 @@ fn add_dry_run_with_tz_alias() {
 #[test]
 fn add_dry_run_all_day_override() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "All day", "--start", "2026-03-15T14:00", "--all-day"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "All day",
+            "--start",
+            "2026-03-15T14:00",
+            "--all-day",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -500,7 +586,14 @@ fn add_dry_run_all_day_override() {
 fn add_dry_run_due_datetime() {
     // --due with a time component should set isAllDay: false
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Timed", "--due", "2026-03-15T17:00"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Timed",
+            "--due",
+            "2026-03-15T17:00",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -513,7 +606,14 @@ fn add_dry_run_due_datetime() {
 #[test]
 fn add_dry_run_due_date_only_is_all_day() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Day task", "--due", "2026-03-15"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Day task",
+            "--due",
+            "2026-03-15",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -540,7 +640,16 @@ fn add_duration_without_start_fails() {
 fn add_duration_with_date_only_start_fails() {
     // --start date-only + --duration is an error
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15", "--duration", "1h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Bad",
+            "--start",
+            "2026-03-15",
+            "--duration",
+            "1h",
+        ])
         .output()
         .expect("failed to run");
     assert!(!output.status.success());
@@ -552,7 +661,18 @@ fn add_duration_with_date_only_start_fails() {
 fn add_duration_conflicts_with_due() {
     // clap conflicts_with should reject this
     cmd()
-        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "1h", "--due", "2026-03-15"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Bad",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "1h",
+            "--due",
+            "2026-03-15",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -561,7 +681,16 @@ fn add_duration_conflicts_with_due() {
 #[test]
 fn add_invalid_duration_format() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "abc"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Bad",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "abc",
+        ])
         .output()
         .expect("failed to run");
     assert!(!output.status.success());
@@ -570,7 +699,16 @@ fn add_invalid_duration_format() {
 #[test]
 fn add_zero_duration_fails() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Bad", "--start", "2026-03-15T14:00", "--duration", "0h"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Bad",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "0h",
+        ])
         .output()
         .expect("failed to run");
     assert!(!output.status.success());
@@ -581,7 +719,15 @@ fn add_zero_duration_fails() {
 #[test]
 fn edit_start_conflicts_with_clear_start() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15", "--clear-start"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--start",
+            "2026-03-15",
+            "--clear-start",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -590,7 +736,18 @@ fn edit_start_conflicts_with_clear_start() {
 #[test]
 fn edit_duration_conflicts_with_due() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15T14:00", "--duration", "1h", "--due", "2026-03-15"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "1h",
+            "--due",
+            "2026-03-15",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -599,7 +756,17 @@ fn edit_duration_conflicts_with_due() {
 #[test]
 fn edit_duration_conflicts_with_clear_due() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--start", "2026-03-15T14:00", "--duration", "1h", "--clear-due"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--start",
+            "2026-03-15T14:00",
+            "--duration",
+            "1h",
+            "--clear-due",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -610,7 +777,16 @@ fn edit_duration_conflicts_with_clear_due() {
 #[test]
 fn add_dry_run_with_content_and_desc() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Test", "--content", "Some notes", "--desc", "A description"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Test",
+            "--content",
+            "Some notes",
+            "--desc",
+            "A description",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -623,7 +799,16 @@ fn add_dry_run_with_content_and_desc() {
 #[test]
 fn add_dry_run_with_tags() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Test", "--tag", "urgent", "--tag", "work"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Test",
+            "--tag",
+            "urgent",
+            "--tag",
+            "work",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
@@ -638,13 +823,24 @@ fn add_dry_run_with_tags() {
 #[test]
 fn add_dry_run_with_items() {
     let output = cmd()
-        .args(["task", "add", "--dry-run", "Test", "--item", "Step 1", "--item", "Step 2"])
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "Test",
+            "--item",
+            "Step 1",
+            "--item",
+            "Step 2",
+        ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    let items = parsed["items"].as_array().expect("items should be an array");
+    let items = parsed["items"]
+        .as_array()
+        .expect("items should be an array");
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["title"], "Step 1");
     assert_eq!(items[0]["status"], 0);
@@ -656,16 +852,23 @@ fn add_dry_run_with_items() {
 fn add_dry_run_with_reminder_and_repeat() {
     let output = cmd()
         .args([
-            "task", "add", "--dry-run", "Test",
-            "--reminder", "TRIGGER:P0DT9H0M0S",
-            "--repeat", "RRULE:FREQ=DAILY;INTERVAL=1",
+            "task",
+            "add",
+            "--dry-run",
+            "Test",
+            "--reminder",
+            "TRIGGER:P0DT9H0M0S",
+            "--repeat",
+            "RRULE:FREQ=DAILY;INTERVAL=1",
         ])
         .output()
         .expect("failed to run");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
-    let reminders = parsed["reminders"].as_array().expect("reminders should be an array");
+    let reminders = parsed["reminders"]
+        .as_array()
+        .expect("reminders should be an array");
     assert_eq!(reminders.len(), 1);
     assert_eq!(reminders[0], "TRIGGER:P0DT9H0M0S");
     assert_eq!(parsed["repeatFlag"], "RRULE:FREQ=DAILY;INTERVAL=1");
@@ -675,13 +878,22 @@ fn add_dry_run_with_reminder_and_repeat() {
 fn add_dry_run_with_all_new_fields() {
     let output = cmd()
         .args([
-            "task", "add", "--dry-run", "Full task",
-            "--content", "Notes here",
-            "--desc", "Description here",
-            "--tag", "tag1",
-            "--item", "Sub 1",
-            "--reminder", "TRIGGER:PT0S",
-            "--repeat", "RRULE:FREQ=WEEKLY;INTERVAL=1",
+            "task",
+            "add",
+            "--dry-run",
+            "Full task",
+            "--content",
+            "Notes here",
+            "--desc",
+            "Description here",
+            "--tag",
+            "tag1",
+            "--item",
+            "Sub 1",
+            "--reminder",
+            "TRIGGER:PT0S",
+            "--repeat",
+            "RRULE:FREQ=WEEKLY;INTERVAL=1",
         ])
         .output()
         .expect("failed to run");
@@ -699,7 +911,15 @@ fn add_dry_run_with_all_new_fields() {
 #[test]
 fn edit_clear_content_conflicts_with_content() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--content", "foo", "--clear-content"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--content",
+            "foo",
+            "--clear-content",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -708,7 +928,15 @@ fn edit_clear_content_conflicts_with_content() {
 #[test]
 fn edit_clear_tags_conflicts_with_tag() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--tag", "foo", "--clear-tags"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--tag",
+            "foo",
+            "--clear-tags",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -717,7 +945,15 @@ fn edit_clear_tags_conflicts_with_tag() {
 #[test]
 fn edit_clear_reminders_conflicts_with_reminder() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--reminder", "TRIGGER:PT0S", "--clear-reminders"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--reminder",
+            "TRIGGER:PT0S",
+            "--clear-reminders",
+        ])
         .assert()
         .failure()
         .code(2);
@@ -726,7 +962,15 @@ fn edit_clear_reminders_conflicts_with_reminder() {
 #[test]
 fn edit_clear_repeat_conflicts_with_repeat() {
     cmd()
-        .args(["task", "edit", "proj", "id1", "--repeat", "RRULE:FREQ=DAILY;INTERVAL=1", "--clear-repeat"])
+        .args([
+            "task",
+            "edit",
+            "proj",
+            "id1",
+            "--repeat",
+            "RRULE:FREQ=DAILY;INTERVAL=1",
+            "--clear-repeat",
+        ])
         .assert()
         .failure()
         .code(2);
