@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `task move` now uses TickTick's internal v2 API to move tasks between projects, preserving task ID, history, subtasks, comments, and creation date (previously used delete + recreate which lost this data)
+- `task move` now sends a single batch API request for multiple tasks instead of one request per task
+- `task move` requires `TICKTICK_USERNAME` and `TICKTICK_PASSWORD` in `.env` for v2 session auth
+
 ## [0.11.2]
 
 ### Fixed

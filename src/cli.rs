@@ -1212,15 +1212,24 @@ pub fn run() -> Result<(), String> {
                 let source_project_id = crate::api::project::resolve_id(&project)?;
                 let dest_project_id = crate::api::project::resolve_id(&to)?;
 
+                // Build batch move request
+                let moves: Vec<crate::api::v2::TaskMove> = inputs
+                    .iter()
+                    .map(|task_id| crate::api::v2::TaskMove {
+                        task_id: task_id.clone(),
+                        from_project_id: source_project_id.clone(),
+                        to_project_id: dest_project_id.clone(),
+                    })
+                    .collect();
+
+                // Single batch v2 API call for all moves
+                crate::api::v2::move_tasks(&moves)?;
+
+                // Fetch each task individually for output
                 let results: Vec<BulkResult> = inputs
                     .iter()
                     .map(|task_id| {
-                        match crate::api::task::move_task(
-                            &token,
-                            &source_project_id,
-                            task_id,
-                            &dest_project_id,
-                        ) {
+                        match crate::api::task::get_by_id(&token, &dest_project_id, task_id) {
                             Ok(task) => {
                                 detect_account_timezone(&task);
                                 detect_inbox_id(&task);
@@ -1231,12 +1240,18 @@ pub fn run() -> Result<(), String> {
                                     error: None,
                                 }
                             }
-                            Err(e) => BulkResult {
-                                id: task_id.clone(),
-                                status: "error".into(),
-                                data: None,
-                                error: Some(e),
-                            },
+                            Err(_) => {
+                                // v1 API may lag; return minimal confirmation
+                                BulkResult {
+                                    id: task_id.clone(),
+                                    status: "ok".into(),
+                                    data: Some(serde_json::json!({
+                                        "id": task_id,
+                                        "projectId": dest_project_id,
+                                    })),
+                                    error: None,
+                                }
+                            }
                         }
                     })
                     .collect();

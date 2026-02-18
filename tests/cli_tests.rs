@@ -976,6 +976,22 @@ fn edit_clear_repeat_conflicts_with_repeat() {
         .code(2);
 }
 
+// -- Move help --
+
+#[test]
+fn move_help_shows_to_flag() {
+    let output = cmd()
+        .args(["task", "move", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--to"),
+        "task move --help should mention --to flag"
+    );
+}
+
 // -- Project field flags --
 
 #[test]

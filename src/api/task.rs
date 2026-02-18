@@ -24,7 +24,7 @@ pub struct ChecklistItem {
     pub sort_order: Option<i32>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Task {
@@ -676,28 +676,6 @@ pub fn update(
 
     resp.into_json()
         .map_err(|e| format!("failed to parse task: {e}"))
-}
-
-pub fn move_task(
-    token: &str,
-    _source_project_id: &str,
-    task_id: &str,
-    dest_project_id: &str,
-) -> Result<Task, String> {
-    let body = serde_json::json!({
-        "taskId": task_id,
-        "projectId": dest_project_id,
-    });
-    super::post(&format!("/task/{task_id}"), token, &body)?;
-
-    // The individual task GET endpoint may return an empty body for
-    // recently-moved tasks. Use the project data endpoint instead,
-    // which is the documented way to retrieve tasks.
-    let tasks = list_by_project(token, Some(dest_project_id))?;
-    tasks
-        .into_iter()
-        .find(|t| t.id == task_id)
-        .ok_or_else(|| format!("task {task_id} not found in destination project after move"))
 }
 
 pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
