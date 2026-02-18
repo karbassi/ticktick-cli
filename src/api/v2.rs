@@ -317,6 +317,53 @@ pub fn set_task_parents(parents: &[TaskParent]) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// User profile / settings
+// ---------------------------------------------------------------------------
+
+/// Get the user's profile.
+pub fn get_profile() -> Result<serde_json::Value, String> {
+    let token = get_session_token()?;
+    let resp = v2_get("/user/profile", &token)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse profile response: {e}"))
+}
+
+/// Get the user's status (subscription, points, etc.).
+pub fn get_status() -> Result<serde_json::Value, String> {
+    let token = get_session_token()?;
+    let resp = v2_get("/user/status", &token)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse status response: {e}"))
+}
+
+/// Get user preference settings.
+pub fn get_settings() -> Result<serde_json::Value, String> {
+    let token = get_session_token()?;
+    let resp = v2_get("/user/preferences/settings?includeWeb=true", &token)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse settings response: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// Trash
+// ---------------------------------------------------------------------------
+
+/// List tasks in the trash.
+pub fn list_trash() -> Result<Vec<serde_json::Value>, String> {
+    let token = get_session_token()?;
+    let resp = v2_get("/project/all/trash/page", &token)?;
+    let data: serde_json::Value = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse trash response: {e}"))?;
+    let tasks = data
+        .get("tasks")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(tasks)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

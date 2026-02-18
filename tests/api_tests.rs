@@ -610,6 +610,103 @@ fn test_v2_tag_rename() {
 
 #[test]
 #[ignore]
+fn test_v2_tag_update() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let tag_name = "cli-test-update";
+
+    // Create
+    let body = serde_json::json!({ "add": [{ "label": tag_name, "name": tag_name }] });
+    ureq::post(&format!("{V2_BASE_URL}/batch/tag"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 tag create failed");
+
+    // Update color
+    let body = serde_json::json!({ "update": [{ "name": tag_name, "color": "#FF0000" }] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/tag"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 tag update failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Tag updated");
+
+    // Clean up
+    let _ = ureq::delete(&format!("{V2_BASE_URL}/tag?name={tag_name}"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call();
+    println!("Tag deleted (cleanup)");
+}
+
+#[test]
+#[ignore]
+fn test_v2_tag_merge() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let source = "cli-test-merge-source";
+    let target = "cli-test-merge-target";
+
+    // Create both tags
+    let body = serde_json::json!({ "add": [
+        { "label": source, "name": source },
+        { "label": target, "name": target },
+    ] });
+    ureq::post(&format!("{V2_BASE_URL}/batch/tag"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 tag create failed");
+
+    // Merge source into target
+    let merge_body = serde_json::json!({ "name": source, "newName": target });
+    let resp = ureq::put(&format!("{V2_BASE_URL}/tag/merge"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(merge_body)
+        .expect("v2 tag merge failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Tags merged");
+
+    // Verify source is gone
+    let resp = ureq::get(&format!("{V2_BASE_URL}/tags"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 tag list failed");
+
+    let tags: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let source_found = tags.iter().any(|t| t["name"].as_str() == Some(source));
+    assert!(!source_found, "Source tag should be deleted after merge");
+    println!("Source tag confirmed deleted");
+
+    // Clean up target
+    let _ = ureq::delete(&format!("{V2_BASE_URL}/tag?name={target}"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call();
+    println!("Target tag deleted (cleanup)");
+}
+
+#[test]
+#[ignore]
 fn test_v2_set_task_parent() {
     let token = get_token();
     let (username, password) = load_v2_credentials();
@@ -703,6 +800,124 @@ fn test_v2_set_task_parent() {
         .set("Authorization", &format!("Bearer {token}"))
         .call();
     println!("Tasks deleted (cleanup)");
+}
+
+// ---------------------------------------------------------------------------
+// Calendar
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_calendar_accounts() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/calendar/third/accounts"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 calendar accounts failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Calendar accounts: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+}
+
+#[test]
+#[ignore]
+fn test_v2_calendar_events() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let body = serde_json::json!({
+        "begin": "2026-02-11T00:00:00.000+0000",
+        "end": "2026-02-25T00:00:00.000+0000",
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/calendar/bind/events/all"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 calendar events failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Calendar events: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Profile / Settings
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_profile() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/user/profile"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 profile failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_object(), "Profile should be an object");
+    println!("Profile: {}", serde_json::to_string_pretty(&body).unwrap());
+}
+
+#[test]
+#[ignore]
+fn test_v2_settings() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!(
+        "{V2_BASE_URL}/user/preferences/settings?includeWeb=true"
+    ))
+    .set("User-Agent", "Mozilla/5.0")
+    .set("x-device", &x_device)
+    .set("Cookie", &format!("t={session_token}"))
+    .call()
+    .expect("v2 settings failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_object(), "Settings should be an object");
+    println!("Settings: {}", serde_json::to_string_pretty(&body).unwrap());
+}
+
+// ---------------------------------------------------------------------------
+// Trash
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_list_trash() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/project/all/trash/page"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 trash list failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_object(), "Response should be an object");
+    println!("Trash: {}", serde_json::to_string_pretty(&body).unwrap());
 }
 
 // ---------------------------------------------------------------------------
@@ -961,6 +1176,70 @@ fn test_v2_assign_project_to_folder() {
 }
 
 // ---------------------------------------------------------------------------
+// Filters
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_filter_create_and_delete() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let filter_name = "cli-test-filter";
+    let rule =
+        r#"{"and":[{"conditionName":"priority","or":[5],"conditionType":1}],"type":0,"version":1}"#;
+
+    // Create
+    let body = serde_json::json!({
+        "add": [{
+            "name": filter_name,
+            "rule": rule,
+            "sortType": "dueDate",
+        }]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/filter"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 filter create failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Filter created");
+
+    // Find the filter ID via batch/check
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let filters = data["filters"].as_array().expect("should have filters");
+    let filter = filters
+        .iter()
+        .find(|f| f["name"].as_str() == Some(filter_name))
+        .expect("Created filter should appear in batch/check");
+    let filter_id = filter["id"].as_str().unwrap();
+    println!("Filter ID: {filter_id}");
+
+    // Delete
+    let body = serde_json::json!({ "delete": [filter_id] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/filter"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 filter delete failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Filter deleted");
+}
+
+// ---------------------------------------------------------------------------
 // Habits
 // ---------------------------------------------------------------------------
 
@@ -1198,4 +1477,142 @@ fn test_v2_habit_archive() {
         .set("Content-Type", "application/json")
         .send_json(body);
     println!("Habit deleted (cleanup)");
+}
+
+// ---------------------------------------------------------------------------
+// Habit Sections
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_habit_section_crud() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let section_name = "cli-test-section";
+
+    // Create
+    let body = serde_json::json!({ "add": [{ "name": section_name }] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habitSections/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit section create failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Section created");
+
+    // List to find ID
+    let resp = ureq::get(&format!("{V2_BASE_URL}/habitSections"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 habit sections list failed");
+
+    let sections: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let section = sections
+        .iter()
+        .find(|s| s["name"].as_str() == Some(section_name))
+        .expect("Created section should appear in listing");
+    let section_id = section["id"].as_str().unwrap();
+    println!("Section ID: {section_id}");
+
+    // Rename
+    let new_name = "cli-test-section-renamed";
+    let body = serde_json::json!({ "update": [{ "id": section_id, "name": new_name }] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habitSections/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit section rename failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Section renamed");
+
+    // Delete
+    let body = serde_json::json!({ "delete": [section_id] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habitSections/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit section delete failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Section deleted");
+}
+
+// ---------------------------------------------------------------------------
+// Focus / Pomodoro (read-only)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_focus_timer_status() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/timer"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 timer status failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Timer status: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+}
+
+#[test]
+#[ignore]
+fn test_v2_focus_stats() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!(
+        "{V2_BASE_URL}/pomodoros/statistics/generalForDesktop"
+    ))
+    .set("User-Agent", "Mozilla/5.0")
+    .set("x-device", &x_device)
+    .set("Cookie", &format!("t={session_token}"))
+    .call()
+    .expect("v2 focus stats failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Focus stats: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+}
+
+#[test]
+#[ignore]
+fn test_v2_focus_timeline() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/pomodoros/timeline"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 focus timeline failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Focus timeline: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
 }
