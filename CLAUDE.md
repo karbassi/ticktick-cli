@@ -14,8 +14,11 @@ src/
     mod.rs       — HTTP helpers (get, post, post_empty, delete) with auto token refresh
     auth.rs      — OAuth flow
     project.rs   — project CRUD + fuzzy name resolution (case-insensitive, partial match)
+    project_group.rs — project folder/group CRUD via v2 API (list, create, delete, rename, resolve)
     task.rs      — task CRUD, date/time parsing, duration parsing
-    v2.rs        — v2 API session auth (cookie-based), batch task move endpoint
+    tag.rs       — tag CRUD via v2 API (list, create, delete, rename)
+    habit.rs     — habit CRUD, check-in, query, sections via v2 API
+    v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put/delete), batch check, batch task move, completed tasks, subtask parent batch
   config.rs      — XDG config storage, .env loading, v2 session/device management
   output.rs      — JSON output helpers (success to stdout, errors to stderr)
 tests/

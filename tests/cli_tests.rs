@@ -63,14 +63,27 @@ fn unknown_flag_exits_two() {
 
 #[test]
 fn top_level_subcommand_help_exits_zero() {
-    for subcmd in ["login", "logout", "task", "project", "init", "completions"] {
+    for subcmd in [
+        "login",
+        "logout",
+        "task",
+        "project",
+        "tag",
+        "folder",
+        "habit",
+        "sync",
+        "init",
+        "completions",
+    ] {
         cmd().args([subcmd, "--help"]).assert().success();
     }
 }
 
 #[test]
 fn task_subcommand_help_exits_zero() {
-    for subcmd in ["list", "get", "add", "edit", "complete", "delete", "move"] {
+    for subcmd in [
+        "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent",
+    ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
 }
@@ -280,9 +293,27 @@ fn usage_lists_subcommands() {
         "task complete",
         "task delete",
         "task move",
+        "task subtask",
+        "task unparent",
+        "tag list",
+        "tag add",
+        "tag delete",
+        "tag rename",
+        "folder list",
+        "folder add",
+        "folder delete",
+        "folder rename",
+        "habit list",
+        "habit add",
+        "habit delete",
+        "habit edit",
+        "habit checkin",
+        "habit log",
+        "habit archive",
         "project list",
         "project add",
         "project delete",
+        "sync",
         "init",
         "completions",
     ] {
@@ -1024,4 +1055,230 @@ fn project_edit_help_shows_new_flags() {
             "project edit --help should contain '{flag}'"
         );
     }
+}
+
+// -- Completed tasks --
+
+#[test]
+fn task_list_completed_flag_accepted() {
+    // --completed should not be a usage error (exit code 2)
+    cmd()
+        .args(["task", "list", "--completed"])
+        .assert()
+        .code(predicate::ne(2));
+}
+
+#[test]
+fn task_list_completed_with_limit_and_dates() {
+    // All completed-related flags should be accepted without usage errors
+    cmd()
+        .args([
+            "task",
+            "list",
+            "--completed",
+            "--limit",
+            "100",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-02-01",
+        ])
+        .assert()
+        .code(predicate::ne(2));
+}
+
+// -- Tag commands --
+
+#[test]
+fn tag_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "rename"] {
+        cmd().args(["tag", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn tag_add_missing_name_exits_two() {
+    cmd().args(["tag", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn tag_delete_missing_name_exits_two() {
+    cmd().args(["tag", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn tag_rename_missing_args_exits_two() {
+    cmd().args(["tag", "rename"]).assert().failure().code(2);
+    cmd()
+        .args(["tag", "rename", "only-one"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn tag_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["tag", "delete", "sometag"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+// -- Subtask / Unparent commands --
+
+#[test]
+fn subtask_help_exits_zero() {
+    cmd().args(["task", "subtask", "--help"]).assert().success();
+}
+
+#[test]
+fn unparent_help_exits_zero() {
+    cmd()
+        .args(["task", "unparent", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn subtask_missing_args_exits_two() {
+    cmd().args(["task", "subtask"]).assert().failure().code(2);
+    cmd()
+        .args(["task", "subtask", "proj"])
+        .assert()
+        .failure()
+        .code(2);
+    cmd()
+        .args(["task", "subtask", "proj", "parent"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn unparent_missing_args_exits_two() {
+    cmd().args(["task", "unparent"]).assert().failure().code(2);
+    cmd()
+        .args(["task", "unparent", "proj"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+// -- Sync command --
+
+#[test]
+fn sync_help_exits_zero() {
+    cmd().args(["sync", "--help"]).assert().success();
+}
+
+// -- Folder commands --
+
+#[test]
+fn folder_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "rename"] {
+        cmd().args(["folder", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn folder_add_missing_name_exits_two() {
+    cmd().args(["folder", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn folder_delete_missing_name_exits_two() {
+    cmd().args(["folder", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn folder_rename_missing_args_exits_two() {
+    cmd().args(["folder", "rename"]).assert().failure().code(2);
+    cmd()
+        .args(["folder", "rename", "only-one"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn folder_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["folder", "delete", "somefolder"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+// -- Habit commands --
+
+#[test]
+fn habit_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "edit", "checkin", "log", "archive"] {
+        cmd().args(["habit", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn habit_add_missing_name_exits_two() {
+    cmd().args(["habit", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_delete_missing_name_exits_two() {
+    cmd().args(["habit", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["habit", "delete", "somehabit"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+#[test]
+fn habit_checkin_missing_habit_exits_two() {
+    cmd().args(["habit", "checkin"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_log_missing_habit_exits_two() {
+    cmd().args(["habit", "log"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_archive_missing_habit_exits_two() {
+    cmd().args(["habit", "archive"]).assert().failure().code(2);
+}
+
+// -- Project --folder flag --
+
+#[test]
+fn project_add_help_shows_folder_flag() {
+    let output = cmd()
+        .args(["project", "add", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--folder"),
+        "project add --help should contain '--folder'"
+    );
+}
+
+#[test]
+fn project_edit_help_shows_folder_flag() {
+    let output = cmd()
+        .args(["project", "edit", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--folder"),
+        "project edit --help should contain '--folder'"
+    );
 }
