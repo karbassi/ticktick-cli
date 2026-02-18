@@ -2,8 +2,7 @@ use std::fs;
 
 struct EnvConfig {
     access_token: Option<String>,
-    v2_username: Option<String>,
-    v2_password: Option<String>,
+    v2_session_token: Option<String>,
 }
 
 fn load_env() -> EnvConfig {
@@ -12,8 +11,7 @@ fn load_env() -> EnvConfig {
     let mut client_id = None;
     let mut client_secret = None;
     let mut access_token = None;
-    let mut v2_username = None;
-    let mut v2_password = None;
+    let mut v2_session_token = None;
 
     for line in content.lines() {
         let line = line.trim();
@@ -26,8 +24,7 @@ fn load_env() -> EnvConfig {
                 "TICKTICK_CLIENT_ID" => client_id = Some(value.to_string()),
                 "TICKTICK_CLIENT_SECRET" => client_secret = Some(value.to_string()),
                 "TICKTICK_ACCESS_TOKEN" => access_token = Some(value.to_string()),
-                "TICKTICK_USERNAME" => v2_username = Some(value.to_string()),
-                "TICKTICK_PASSWORD" => v2_password = Some(value.to_string()),
+                "TICKTICK_V2_SESSION_TOKEN" => v2_session_token = Some(value.to_string()),
                 _ => {}
             }
         }
@@ -40,8 +37,7 @@ fn load_env() -> EnvConfig {
 
     EnvConfig {
         access_token,
-        v2_username,
-        v2_password,
+        v2_session_token,
     }
 }
 
@@ -51,15 +47,16 @@ fn get_token() -> String {
         .expect("TICKTICK_ACCESS_TOKEN not found in .env - required for API tests")
 }
 
-fn load_v2_credentials() -> (String, String) {
+fn get_v2_session() -> (String, String) {
     let env = load_env();
-    let username = env
-        .v2_username
-        .expect("TICKTICK_USERNAME not found in .env - required for v2 API tests");
-    let password = env
-        .v2_password
-        .expect("TICKTICK_PASSWORD not found in .env - required for v2 API tests");
-    (username, password)
+    let token = env
+        .v2_session_token
+        .expect("TICKTICK_V2_SESSION_TOKEN not found in .env - required for v2 API tests");
+    let device_id = "6490test00000000000000";
+    let x_device = format!(
+        r#"{{"platform":"web","os":"macOS 10.15.7","device":"Chrome 130.0.0.0","name":"","version":6490,"id":"{device_id}","channel":"website","campaign":"","websocket":""}}"#
+    );
+    (token, x_device)
 }
 
 const BASE_URL: &str = "https://api.ticktick.com/open/v1";
@@ -95,12 +92,19 @@ fn test_get_project_by_id() {
 
     let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
 
-    if projects.is_empty() {
-        println!("No projects found, skipping test");
-        return;
-    }
+    // Skip inbox projects (id starts with "inbox") — the v1 GET /project/{id} endpoint
+    // returns no `name` field for the inbox. This is a v1 API quirk only; the inbox works
+    // fine everywhere else (task CRUD, project listing, etc.).
+    let project = projects
+        .iter()
+        .find(|p| p["id"].as_str().is_some_and(|id| !id.starts_with("inbox")));
 
-    let project_id = projects[0]["id"].as_str().expect("Project should have id");
+    let Some(project) = project else {
+        println!("No non-inbox projects found, skipping test");
+        return;
+    };
+
+    let project_id = project["id"].as_str().unwrap();
     println!("Testing with project ID: {project_id}");
 
     let resp = ureq::get(&format!("{BASE_URL}/project/{project_id}"))
@@ -265,105 +269,13 @@ fn test_complete_task() {
     println!("Task deleted (cleanup)");
 }
 
-#[test]
-#[ignore]
-fn test_move_task_between_projects() {
-    let token = get_token();
-
-    // Get at least two projects
-    let resp = ureq::get(&format!("{BASE_URL}/project"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()
-        .expect("API request failed");
-
-    let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
-
-    if projects.len() < 2 {
-        println!("Need at least 2 projects to test move, skipping");
-        return;
-    }
-
-    let source_id = projects[0]["id"].as_str().expect("Project should have id");
-    let dest_id = projects[1]["id"].as_str().expect("Project should have id");
-    println!("Moving task from project {source_id} to {dest_id}");
-
-    // Create a task in the source project
-    let task_body = serde_json::json!({
-        "title": "Test move task",
-        "projectId": source_id
-    });
-
-    let resp = ureq::post(&format!("{BASE_URL}/task"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Content-Type", "application/json")
-        .send_json(task_body)
-        .expect("Create task failed");
-
-    let created_task: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
-    let task_id = created_task["id"].as_str().unwrap();
-    println!("Created task: {task_id}");
-
-    // Move the task by updating its projectId
-    let move_body = serde_json::json!({
-        "taskId": task_id,
-        "projectId": dest_id,
-    });
-
-    let resp = ureq::post(&format!("{BASE_URL}/task/{task_id}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Content-Type", "application/json")
-        .send_json(move_body)
-        .expect("Move task failed");
-
-    assert_eq!(resp.status(), 200);
-    println!("Move POST returned status 200");
-
-    // Verify the task appears in the destination project data
-    let resp = ureq::get(&format!("{BASE_URL}/project/{dest_id}/data"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()
-        .expect("Get project data failed");
-
-    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
-    let tasks = data["tasks"].as_array().expect("tasks should be an array");
-    let found = tasks.iter().any(|t| t["id"].as_str() == Some(task_id));
-    assert!(
-        found,
-        "Moved task should appear in destination project data"
-    );
-    println!("Task found in destination project");
-
-    // Also verify the individual task GET endpoint behavior (may return empty body)
-    let individual_resp = ureq::get(&format!("{BASE_URL}/project/{dest_id}/task/{task_id}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call();
-
-    match individual_resp {
-        Ok(resp) => {
-            let body = resp.into_string().unwrap_or_default();
-            if body.is_empty() {
-                println!("Individual GET returned empty body (confirming API behavior)");
-            } else {
-                println!("Individual GET returned: {body}");
-            }
-        }
-        Err(e) => println!("Individual GET failed: {e} (confirming API behavior)"),
-    }
-
-    // Clean up
-    let _ = ureq::delete(&format!("{BASE_URL}/project/{dest_id}/task/{task_id}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call();
-    println!("Task deleted (cleanup)");
-}
-
 const V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
 
 #[test]
 #[ignore]
 fn test_v2_move_task_between_projects() {
     let token = get_token();
-    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = get_v2_session();
 
     // Get at least two projects
     let resp = ureq::get(&format!("{BASE_URL}/project"))
@@ -397,30 +309,6 @@ fn test_v2_move_task_between_projects() {
     let created_task: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
     let task_id = created_task["id"].as_str().unwrap();
     println!("Created task: {task_id}");
-
-    // Sign in to v2 API
-    let device_id = "6490test00000000000000";
-    let x_device = format!(
-        r#"{{"platform":"web","os":"macOS 10.15.7","device":"Chrome 130.0.0.0","name":"","version":6490,"id":"{device_id}","channel":"website","campaign":"","websocket":""}}"#
-    );
-
-    let signon_body = serde_json::json!({
-        "username": username,
-        "password": password,
-    });
-
-    let resp = ureq::post(&format!("{V2_BASE_URL}/user/signon?wc=true&remember=true"))
-        .set("User-Agent", "Mozilla/5.0")
-        .set("x-device", &x_device)
-        .set("Content-Type", "application/json")
-        .send_json(signon_body)
-        .expect("v2 signon failed");
-
-    let signon_resp: serde_json::Value = resp.into_json().expect("Failed to parse signon JSON");
-    let session_token = signon_resp["token"]
-        .as_str()
-        .expect("Missing token in signon response");
-    println!("v2 session authenticated");
 
     // Move via v2 batch endpoint
     let move_body = serde_json::json!([{
@@ -470,41 +358,14 @@ fn test_v2_move_task_between_projects() {
     println!("Task deleted (cleanup)");
 }
 
-fn v2_session(username: &str, password: &str) -> (String, String) {
-    let device_id = "6490test00000000000000";
-    let x_device = format!(
-        r#"{{"platform":"web","os":"macOS 10.15.7","device":"Chrome 130.0.0.0","name":"","version":6490,"id":"{device_id}","channel":"website","campaign":"","websocket":""}}"#
-    );
-
-    let signon_body = serde_json::json!({
-        "username": username,
-        "password": password,
-    });
-
-    let resp = ureq::post(&format!("{V2_BASE_URL}/user/signon?wc=true&remember=true"))
-        .set("User-Agent", "Mozilla/5.0")
-        .set("x-device", &x_device)
-        .set("Content-Type", "application/json")
-        .send_json(signon_body)
-        .expect("v2 signon failed");
-
-    let signon_resp: serde_json::Value = resp.into_json().expect("Failed to parse signon JSON");
-    let token = signon_resp["token"]
-        .as_str()
-        .expect("Missing token in signon response")
-        .to_string();
-
-    (token, x_device)
-}
-
 #[test]
 #[ignore]
 fn test_v2_list_completed_tasks() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
+    // Note: from/to date params cause 500 errors on v2 session API, use limit only
     let resp = ureq::get(&format!(
-        "{V2_BASE_URL}/project/all/completedInAll/?from=2020-01-01%2B00%3A00%3A00&to=2030-01-01%2B00%3A00%3A00&limit=10"
+        "{V2_BASE_URL}/project/all/completedInAll/?limit=10"
     ))
     .set("User-Agent", "Mozilla/5.0")
     .set("x-device", &x_device)
@@ -524,8 +385,7 @@ fn test_v2_list_completed_tasks() {
 #[test]
 #[ignore]
 fn test_v2_tag_create_and_delete() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let tag_name = "cli-test-tag";
 
@@ -570,8 +430,7 @@ fn test_v2_tag_create_and_delete() {
 #[test]
 #[ignore]
 fn test_v2_tag_rename() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let old_name = "cli-test-rename-old";
     let new_name = "cli-test-rename-new";
@@ -611,8 +470,7 @@ fn test_v2_tag_rename() {
 #[test]
 #[ignore]
 fn test_v2_tag_update() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let tag_name = "cli-test-update";
 
@@ -651,8 +509,7 @@ fn test_v2_tag_update() {
 #[test]
 #[ignore]
 fn test_v2_tag_merge() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let source = "cli-test-merge-source";
     let target = "cli-test-merge-target";
@@ -709,8 +566,7 @@ fn test_v2_tag_merge() {
 #[ignore]
 fn test_v2_set_task_parent() {
     let token = get_token();
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     // Get a project
     let resp = ureq::get(&format!("{BASE_URL}/project"))
@@ -809,8 +665,7 @@ fn test_v2_set_task_parent() {
 #[test]
 #[ignore]
 fn test_v2_calendar_accounts() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/calendar/third/accounts"))
         .set("User-Agent", "Mozilla/5.0")
@@ -830,8 +685,7 @@ fn test_v2_calendar_accounts() {
 #[test]
 #[ignore]
 fn test_v2_calendar_events() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let body = serde_json::json!({
         "begin": "2026-02-11T00:00:00.000+0000",
@@ -860,8 +714,7 @@ fn test_v2_calendar_events() {
 #[test]
 #[ignore]
 fn test_v2_profile() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/user/profile"))
         .set("User-Agent", "Mozilla/5.0")
@@ -879,8 +732,7 @@ fn test_v2_profile() {
 #[test]
 #[ignore]
 fn test_v2_settings() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!(
         "{V2_BASE_URL}/user/preferences/settings?includeWeb=true"
@@ -904,8 +756,7 @@ fn test_v2_settings() {
 #[test]
 #[ignore]
 fn test_v2_list_trash() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/project/all/trash/page"))
         .set("User-Agent", "Mozilla/5.0")
@@ -927,8 +778,7 @@ fn test_v2_list_trash() {
 #[test]
 #[ignore]
 fn test_v2_batch_check() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
         .set("User-Agent", "Mozilla/5.0")
@@ -957,8 +807,7 @@ fn test_v2_batch_check() {
 #[test]
 #[ignore]
 fn test_v2_project_group_create_and_delete() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let folder_name = "cli-test-folder";
 
@@ -1013,8 +862,7 @@ fn test_v2_project_group_create_and_delete() {
 #[test]
 #[ignore]
 fn test_v2_project_group_rename() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let old_name = "cli-test-rename-folder";
     let new_name = "cli-test-renamed-folder";
@@ -1077,9 +925,7 @@ fn test_v2_project_group_rename() {
 #[test]
 #[ignore]
 fn test_v2_assign_project_to_folder() {
-    let token = get_token();
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     // Create a folder
     let folder_name = "cli-test-assign-folder";
@@ -1094,7 +940,7 @@ fn test_v2_assign_project_to_folder() {
         .send_json(body)
         .expect("v2 project group create failed");
 
-    // Get folder ID
+    // Get folder ID and projects from batch/check
     let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
         .set("User-Agent", "Mozilla/5.0")
         .set("x-device", &x_device)
@@ -1111,12 +957,7 @@ fn test_v2_assign_project_to_folder() {
     let folder_id = folder["id"].as_str().unwrap();
 
     // Get a project to assign
-    let resp = ureq::get(&format!("{BASE_URL}/project"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()
-        .expect("API request failed");
-
-    let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let projects = data["projectProfiles"].as_array().unwrap();
     if projects.is_empty() {
         println!("No projects found, skipping test");
         // Clean up folder
@@ -1133,19 +974,37 @@ fn test_v2_assign_project_to_folder() {
     let project_id = projects[0]["id"].as_str().unwrap();
     let original_group = projects[0]["groupId"].as_str().map(String::from);
 
-    // Assign project to folder via v1 API
+    // Assign project to folder via v2 batch/project
     let body = serde_json::json!({
-        "id": project_id,
-        "groupId": folder_id,
+        "update": [{
+            "id": project_id,
+            "groupId": folder_id,
+        }]
     });
-    let resp = ureq::post(&format!("{BASE_URL}/project/{project_id}"))
-        .set("Authorization", &format!("Bearer {token}"))
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/project"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
         .set("Content-Type", "application/json")
         .send_json(body)
-        .expect("Project update failed");
+        .expect("v2 batch project update failed");
 
     assert_eq!(resp.status(), 200);
-    let updated: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+
+    // Verify via v2 batch/check
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let projects = data["projectProfiles"].as_array().unwrap();
+    let updated = projects
+        .iter()
+        .find(|p| p["id"].as_str() == Some(project_id))
+        .expect("Project should exist in batch check");
     assert_eq!(
         updated["groupId"].as_str(),
         Some(folder_id),
@@ -1153,14 +1012,21 @@ fn test_v2_assign_project_to_folder() {
     );
     println!("Project assigned to folder");
 
-    // Restore original group
-    let restore_group = original_group.as_deref().unwrap_or("NONE");
+    // Restore original group via v2
+    let restore_group: serde_json::Value = match original_group.as_deref() {
+        Some(gid) => serde_json::json!(gid),
+        None => serde_json::Value::Null,
+    };
     let body = serde_json::json!({
-        "id": project_id,
-        "groupId": restore_group,
+        "update": [{
+            "id": project_id,
+            "groupId": restore_group,
+        }]
     });
-    let _ = ureq::post(&format!("{BASE_URL}/project/{project_id}"))
-        .set("Authorization", &format!("Bearer {token}"))
+    let _ = ureq::post(&format!("{V2_BASE_URL}/batch/project"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
         .set("Content-Type", "application/json")
         .send_json(body);
 
@@ -1182,8 +1048,7 @@ fn test_v2_assign_project_to_folder() {
 #[test]
 #[ignore]
 fn test_v2_filter_create_and_delete() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let filter_name = "cli-test-filter";
     let rule =
@@ -1246,8 +1111,7 @@ fn test_v2_filter_create_and_delete() {
 #[test]
 #[ignore]
 fn test_v2_list_habits() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/habits"))
         .set("User-Agent", "Mozilla/5.0")
@@ -1265,8 +1129,7 @@ fn test_v2_list_habits() {
 #[test]
 #[ignore]
 fn test_v2_habit_create_and_delete() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let habit_name = "cli-test-habit";
 
@@ -1322,8 +1185,7 @@ fn test_v2_habit_create_and_delete() {
 #[test]
 #[ignore]
 fn test_v2_habit_checkin_and_query() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let habit_name = "cli-test-checkin";
 
@@ -1412,8 +1274,7 @@ fn test_v2_habit_checkin_and_query() {
 #[test]
 #[ignore]
 fn test_v2_habit_archive() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let habit_name = "cli-test-archive";
 
@@ -1449,12 +1310,12 @@ fn test_v2_habit_archive() {
     let habit_id = habit["id"].as_str().unwrap();
     let etag = habit["etag"].as_str().unwrap_or("");
 
-    // Archive (set status to 2)
+    // Archive (set status to 1)
     let body = serde_json::json!({
         "update": [{
             "id": habit_id,
             "etag": etag,
-            "status": 2,
+            "status": 1,
         }]
     });
     let resp = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
@@ -1486,8 +1347,7 @@ fn test_v2_habit_archive() {
 #[test]
 #[ignore]
 fn test_v2_habit_section_crud() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let section_name = "cli-test-section";
 
@@ -1555,8 +1415,7 @@ fn test_v2_habit_section_crud() {
 #[test]
 #[ignore]
 fn test_v2_focus_timer_status() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/timer"))
         .set("User-Agent", "Mozilla/5.0")
@@ -1576,8 +1435,7 @@ fn test_v2_focus_timer_status() {
 #[test]
 #[ignore]
 fn test_v2_focus_stats() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!(
         "{V2_BASE_URL}/pomodoros/statistics/generalForDesktop"
@@ -1599,8 +1457,7 @@ fn test_v2_focus_stats() {
 #[test]
 #[ignore]
 fn test_v2_focus_timeline() {
-    let (username, password) = load_v2_credentials();
-    let (session_token, x_device) = v2_session(&username, &password);
+    let (session_token, x_device) = get_v2_session();
 
     let resp = ureq::get(&format!("{V2_BASE_URL}/pomodoros/timeline"))
         .set("User-Agent", "Mozilla/5.0")

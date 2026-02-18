@@ -21,8 +21,6 @@ pub struct Env {
     pub client_id: String,
     pub client_secret: String,
     pub access_token: Option<String>,
-    pub v2_username: Option<String>,
-    pub v2_password: Option<String>,
 }
 
 fn config_dir() -> PathBuf {
@@ -63,8 +61,6 @@ pub fn load_env() -> Result<Env, String> {
     let mut client_id = std::env::var("TICKTICK_CLIENT_ID").ok();
     let mut client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok();
     let mut access_token = std::env::var("TICKTICK_ACCESS_TOKEN").ok();
-    let mut v2_username = std::env::var("TICKTICK_USERNAME").ok();
-    let mut v2_password = std::env::var("TICKTICK_PASSWORD").ok();
 
     // Fall back to .env file for any missing values
     if (client_id.is_none() || client_secret.is_none())
@@ -87,12 +83,6 @@ pub fn load_env() -> Result<Env, String> {
                     "TICKTICK_ACCESS_TOKEN" if access_token.is_none() => {
                         access_token = Some(value.to_string())
                     }
-                    "TICKTICK_USERNAME" if v2_username.is_none() => {
-                        v2_username = Some(value.to_string())
-                    }
-                    "TICKTICK_PASSWORD" if v2_password.is_none() => {
-                        v2_password = Some(value.to_string())
-                    }
                     _ => {}
                 }
             }
@@ -107,8 +97,6 @@ pub fn load_env() -> Result<Env, String> {
             "TICKTICK_CLIENT_SECRET not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
         access_token,
-        v2_username,
-        v2_password,
     })
 }
 
@@ -178,10 +166,6 @@ TICKTICK_CLIENT_SECRET=
 
 # Optional: OAuth callback port (default: 8080)
 # TICKTICK_OAUTH_PORT=8080
-
-# Optional: TickTick account credentials for v2 API features (task move)
-# TICKTICK_USERNAME=
-# TICKTICK_PASSWORD=
 ";
 
 pub fn init(local: bool, force: bool) -> Result<(), String> {
@@ -250,17 +234,6 @@ pub fn logout() -> Result<(), String> {
 // v2 API helpers
 // ---------------------------------------------------------------------------
 
-pub fn get_v2_credentials() -> Result<(String, String), String> {
-    let env = load_env()?;
-    let username = env.v2_username.ok_or(
-        "TICKTICK_USERNAME not set\n\n  hint: Set TICKTICK_USERNAME and TICKTICK_PASSWORD in your .env file for v2 API features (task move)"
-    )?;
-    let password = env.v2_password.ok_or(
-        "TICKTICK_PASSWORD not set\n\n  hint: Set TICKTICK_USERNAME and TICKTICK_PASSWORD in your .env file for v2 API features (task move)"
-    )?;
-    Ok((username, password))
-}
-
 /// Generate a device ID in the format used by the TickTick web client:
 /// "6490" prefix + 20 random hex characters.
 pub fn generate_device_id() -> String {
@@ -299,18 +272,6 @@ pub fn get_or_create_device_id() -> String {
 
 pub fn get_v2_session_token() -> Option<String> {
     load().v2_session_token
-}
-
-pub fn save_v2_session_token(token: &str) -> Result<(), String> {
-    let mut config = load();
-    config.v2_session_token = Some(token.to_string());
-    save(&config)
-}
-
-pub fn clear_v2_session_token() -> Result<(), String> {
-    let mut config = load();
-    config.v2_session_token = None;
-    save(&config)
 }
 
 // ---------------------------------------------------------------------------

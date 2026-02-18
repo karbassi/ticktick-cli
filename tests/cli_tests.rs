@@ -123,7 +123,18 @@ fn move_missing_args_exits_two() {
 #[test]
 fn unauthenticated_commands_fail_with_hint() {
     for args in [vec!["project", "list"], vec!["task", "list"]] {
-        let output = cmd().args(&args).output().expect("failed to run");
+        // Run in a temp dir with no .env so credentials aren't found
+        let tmp = tempfile::tempdir().expect("failed to create temp dir");
+        let output = cmd()
+            .args(&args)
+            .current_dir(tmp.path())
+            .env_remove("TICKTICK_CLIENT_ID")
+            .env_remove("TICKTICK_CLIENT_SECRET")
+            .env_remove("TICKTICK_ACCESS_TOKEN")
+            .env_remove("XDG_CONFIG_HOME")
+            .env("HOME", tmp.path())
+            .output()
+            .expect("failed to run");
         if !output.status.success() {
             let stderr = String::from_utf8(output.stderr).unwrap();
             let parsed: serde_json::Value =
@@ -1097,20 +1108,10 @@ fn task_list_completed_flag_accepted() {
 }
 
 #[test]
-fn task_list_completed_with_limit_and_dates() {
-    // All completed-related flags should be accepted without usage errors
+fn task_list_completed_with_limit() {
+    // Completed-related flags should be accepted without usage errors
     cmd()
-        .args([
-            "task",
-            "list",
-            "--completed",
-            "--limit",
-            "100",
-            "--from",
-            "2026-01-01",
-            "--to",
-            "2026-02-01",
-        ])
+        .args(["task", "list", "--completed", "--limit", "100"])
         .assert()
         .code(predicate::ne(2));
 }

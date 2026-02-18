@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `task list --completed` — list completed tasks using v2 API (default: last 30 days)
-- `--limit`, `--from`, `--to` flags on `task list --completed` to control the query window
+- `task list --completed` — list completed tasks using v2 API
+- `--limit` flag on `task list --completed` to cap the number of results (default: 50)
 - `task subtask <project> <parent_id> <child_ids...>` — set tasks as subtasks of a parent task via v2 API
 - `task unparent <project> <task_ids...>` — remove subtask relationships (make tasks top-level) via v1 API
 - `task trash` — list tasks in the trash via v2 API
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `habit edit <habit>` — update habit properties (`--name`, `--color`, `--goal`, `--unit`, `--section`, `--repeat`)
 - `habit checkin <habit>` — record a habit check-in with optional `--date` and `--value`
 - `habit log <habits...>` — query habit check-in history with optional `--after` date filter
-- `habit archive <habits...>` — archive habits (set status to 2)
+- `habit archive <habits...>` — archive habits (set status to 1)
 - `focus status` — show current focus/pomodoro timer state via v2 API
 - `focus stats` — show focus statistics (today/total) via v2 API
 - `focus log [--from --to]` — show focus session history (default: last 30 days)
@@ -52,7 +52,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `task move` now uses TickTick's internal v2 API to move tasks between projects, preserving task ID, history, subtasks, comments, and creation date (previously used delete + recreate which lost this data)
 - `task move` now sends a single batch API request for multiple tasks instead of one request per task
-- `task move` requires `TICKTICK_USERNAME` and `TICKTICK_PASSWORD` in `.env` for v2 session auth
+- `task move` requires a v2 session token (set `v2_session_token` in config.json)
+- v2 API authentication now uses a browser session token (`t` cookie) instead of username/password signon (TickTick added captcha to the signon endpoint)
+
+### Removed
+- `--from` and `--to` flags on `task list --completed` (the v2 API returns HTTP 500 when date params are included; use `--limit` to control results)
+- Username/password signon for v2 API — replaced with browser session token
+
+### Fixed
+- `habit archive` now correctly sets status to 1 (archived) instead of 2
 
 ## [0.11.2]
 

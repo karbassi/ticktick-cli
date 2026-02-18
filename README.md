@@ -93,6 +93,43 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `project add <name>` | | Create a new project |
 | `project edit <project>` | | Edit a project |
 | `project delete <project>` | `project rm` | Delete a project |
+| `task list --completed [--limit]` | | List completed tasks (v2) |
+| `task subtask <project> <parent> <ids...>` | | Set tasks as subtasks |
+| `task unparent <project> <ids...>` | | Remove subtask relationships |
+| `task trash` | | List tasks in trash |
+| `tag list` | | List all tags |
+| `tag add <names...>` | | Create tags |
+| `tag delete <names...>` | `tag rm` | Delete tags |
+| `tag rename <old> <new>` | | Rename a tag |
+| `tag edit <name>` | | Update tag properties |
+| `tag merge <source> <target>` | | Merge two tags |
+| `folder list` | | List project folders |
+| `folder add <name>` | | Create a folder |
+| `folder delete <names...>` | `folder rm` | Delete folders |
+| `folder rename <folder> --name <new>` | | Rename a folder |
+| `filter list` | | List saved filters |
+| `filter add <name> --rule <json>` | | Create a filter |
+| `filter edit <filter>` | | Update a filter |
+| `filter delete <names...>` | `filter rm` | Delete filters |
+| `habit list` | | List all habits |
+| `habit add <name>` | | Create a habit |
+| `habit delete <names...>` | `habit rm` | Delete habits |
+| `habit edit <habit>` | | Update a habit |
+| `habit checkin <habit>` | | Record a check-in |
+| `habit log <habits...>` | | Query check-in history |
+| `habit archive <habits...>` | | Archive habits |
+| `habit section list/add/delete/rename` | | Manage habit sections |
+| `calendar list` | | List calendar accounts |
+| `calendar events [--from] [--to]` | | Query calendar events |
+| `focus status` | | Show focus timer state |
+| `focus stats` | | Show focus statistics |
+| `focus log [--from] [--to]` | | Show focus session history |
+| `focus timeline` | | Show focus timeline |
+| `focus start [--task] [--mode] [--duration]` | | Start a focus session |
+| `focus pause` / `resume` / `stop` | | Control focus session |
+| `profile` | | Show user profile |
+| `settings` | | Show user settings |
+| `sync` | | Dump full account state |
 | `init [--local]` | | Generate `.env` template |
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
@@ -135,6 +172,7 @@ All five task mutation commands (`add`, `edit`, `complete`, `delete`, `move`) ac
 | `--color` | `add`, `edit` | Project color (hex, e.g. `#FF0000`) |
 | `--view-mode` | `add`, `edit` | View mode: `list`, `kanban`, `timeline` |
 | `--kind` | `add`, `edit` | Project kind: `TASK`, `NOTE` |
+| `--folder` | `add`, `edit` | Assign project to a folder (`--folder none` to remove) |
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported), ID, or `inbox` for the inbox project.
 
@@ -264,6 +302,25 @@ All datetime values (`--due`, `--start`) use your **local system timezone** by d
 - **Non-interactive mode** (pipes, CI) defaults to local without prompting
 - **`--tz`** overrides both the UTC offset and the TickTick display timezone
 
+### v2 API authentication
+
+Many commands (tags, habits, filters, folders, focus, calendar, completed tasks, task move) use TickTick's internal v2 API which requires a session token:
+
+1. Log in at [ticktick.com](https://ticktick.com) in your browser
+2. Open DevTools → Network tab
+3. Click any request to `api.ticktick.com`
+4. Copy the `t=...` value from the `Cookie` header
+5. Add it to your config:
+
+```json
+// ~/.config/ticktick-cli/config.json
+{
+  "v2_session_token": "paste-token-here"
+}
+```
+
+When the token expires, you'll see a "v2 session expired" error with instructions to refresh it.
+
 ## Configuration
 
 Credentials are stored in `$XDG_CONFIG_HOME/ticktick-cli/config.json` (defaults to `~/.config/ticktick-cli/config.json`) after authentication.
@@ -290,21 +347,33 @@ cargo build --release # Release build
 
 ## API Coverage
 
-This CLI implements the complete [TickTick OpenAPI specification](https://ticktick.com/openapi.yaml):
+### v1 Open API (OAuth)
 
-| Endpoint | CLI Command |
-|----------|-------------|
-| `GET /project` | `project list` |
-| `GET /project/{id}` | `project get <id>` |
-| `POST /project` | `project add <name>` |
-| `POST /project/{id}` | `project edit <id>` |
-| `DELETE /project/{id}` | `project delete <id>` |
-| `GET /project/{id}/data` | `task list <project>` |
-| `GET /project/{pid}/task/{tid}` | `task get <project> <tid>` |
-| `POST /task` | `task add <title>` |
-| `POST /task/{tid}` | `task edit <project> <tid>`, `task move <project> <tid> --to <dest>` |
-| `POST /project/{pid}/task/{tid}/complete` | `task complete <project> <tid>` |
-| `DELETE /project/{pid}/task/{tid}` | `task delete <project> <tid>` |
+Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick.com/docs/openapi.md):
+
+| Area | Create | Read | Update | Delete |
+|------|--------|------|--------|--------|
+| **Tasks** | `task add` | `task list`, `task get` | `task edit` | `task delete` |
+| **Projects** | `project add` | `project list`, `project get` | `project edit` | `project delete` |
+| **Completion** | `task complete` | — | — | — |
+
+### v2 Internal API (session token)
+
+| Area | Create | Read | Update | Delete |
+|------|--------|------|--------|--------|
+| **Tags** | `tag add` | `tag list` | `tag edit`, `tag rename`, `tag merge` | `tag delete` |
+| **Folders** | `folder add` | `folder list` | `folder rename` | `folder delete` |
+| **Filters** | `filter add` | `filter list` | `filter edit` | `filter delete` |
+| **Habits** | `habit add` | `habit list`, `habit log` | `habit edit`, `habit checkin`, `habit archive` | `habit delete` |
+| **Habit Sections** | `habit section add` | `habit section list` | `habit section rename` | `habit section delete` |
+| **Focus** | `focus start` | `focus status`, `focus stats`, `focus log`, `focus timeline` | `focus pause`, `focus resume`, `focus stop` | — |
+| **Calendar** | — | `calendar list`, `calendar events` | — | — |
+| **Task Ops** | — | `task list --completed`, `task trash` | `task move`, `task subtask`, `task unparent` | — |
+| **Account** | — | `profile`, `settings`, `sync` | — | — |
+
+### Known Limitations
+
+See [LIMITATIONS.md](LIMITATIONS.md) for features not yet implemented, with links to tracking issues.
 
 ## License
 
