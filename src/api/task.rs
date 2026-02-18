@@ -174,14 +174,7 @@ fn local_utc_offset_secs(year: i32, month: u32, day: u32, hour: u32, minute: u32
 /// (e.g. "America/Chicago") at the specified date/time.
 /// Temporarily sets the TZ environment variable, computes the offset,
 /// then restores the previous TZ value.
-pub fn utc_offset_for_tz(
-    tz: &str,
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-) -> i64 {
+pub fn utc_offset_for_tz(tz: &str, year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
     use std::ffi::CString;
 
     let _guard = TZ_LOCK.lock().unwrap();
@@ -286,19 +279,26 @@ impl ParsedDateTime {
     pub fn to_api_string(&self, tz: Option<&str>) -> String {
         let (hour, minute) = self.time.unwrap_or((0, 0));
         let offset = match tz {
-            Some(tz_name) => utc_offset_for_tz(tz_name, self.year, self.month, self.day, hour, minute),
+            Some(tz_name) => {
+                utc_offset_for_tz(tz_name, self.year, self.month, self.day, hour, minute)
+            }
             None => local_utc_offset_secs(self.year, self.month, self.day, hour, minute),
         };
         format!(
             "{:04}-{:02}-{:02}T{:02}:{:02}:00.000{}",
-            self.year, self.month, self.day, hour, minute, format_offset(offset)
+            self.year,
+            self.month,
+            self.day,
+            hour,
+            minute,
+            format_offset(offset)
         )
     }
 
     pub fn add_duration(&self, duration: &Duration) -> Result<ParsedDateTime, String> {
-        let (hour, minute) = self
-            .time
-            .ok_or_else(|| "cannot add duration to an all-day date (no time component)".to_string())?;
+        let (hour, minute) = self.time.ok_or_else(|| {
+            "cannot add duration to an all-day date (no time component)".to_string()
+        })?;
 
         let total_minutes = (hour * 60 + minute) + (duration.hours * 60 + duration.minutes);
         let extra_days = total_minutes / (24 * 60);
@@ -343,7 +343,9 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
 
     // Reject anything that contains a minus sign.
     if s.contains('-') {
-        return Err(format!("invalid duration '{input}': negative durations are not allowed"));
+        return Err(format!(
+            "invalid duration '{input}': negative durations are not allowed"
+        ));
     }
 
     let mut hours: Option<u32> = None;
@@ -355,10 +357,14 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
             num_buf.push(ch);
         } else if ch == 'h' {
             if num_buf.is_empty() {
-                return Err(format!("invalid duration '{input}': expected a number before 'h'"));
+                return Err(format!(
+                    "invalid duration '{input}': expected a number before 'h'"
+                ));
             }
             if hours.is_some() {
-                return Err(format!("invalid duration '{input}': duplicate 'h' component"));
+                return Err(format!(
+                    "invalid duration '{input}': duplicate 'h' component"
+                ));
             }
             hours = Some(
                 num_buf
@@ -368,10 +374,14 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
             num_buf.clear();
         } else if ch == 'm' {
             if num_buf.is_empty() {
-                return Err(format!("invalid duration '{input}': expected a number before 'm'"));
+                return Err(format!(
+                    "invalid duration '{input}': expected a number before 'm'"
+                ));
             }
             if minutes.is_some() {
-                return Err(format!("invalid duration '{input}': duplicate 'm' component"));
+                return Err(format!(
+                    "invalid duration '{input}': duplicate 'm' component"
+                ));
             }
             minutes = Some(
                 num_buf
@@ -380,7 +390,9 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
             );
             num_buf.clear();
         } else {
-            return Err(format!("invalid duration '{input}': unexpected character '{ch}'"));
+            return Err(format!(
+                "invalid duration '{input}': unexpected character '{ch}'"
+            ));
         }
     }
 
@@ -397,7 +409,9 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
     let m = minutes.unwrap_or(0);
 
     if h == 0 && m == 0 {
-        return Err(format!("invalid duration '{input}': duration must be greater than zero"));
+        return Err(format!(
+            "invalid duration '{input}': duration must be greater than zero"
+        ));
     }
 
     Ok(Duration {
@@ -494,9 +508,7 @@ fn parse_date_part(s: &str, original: &str) -> Result<(i32, u32, u32), String> {
 fn parse_time_part(s: &str, original: &str) -> Result<(u32, u32), String> {
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 2 {
-        return Err(format!(
-            "invalid time in '{original}': expected HH:MM"
-        ));
+        return Err(format!("invalid time in '{original}': expected HH:MM"));
     }
     let hour: u32 = parts[0]
         .parse()
@@ -578,18 +590,28 @@ impl TaskFields {
             body["timeZone"] = serde_json::Value::String(tz.clone());
         }
         match &self.content {
-            Some(Some(c)) => { body["content"] = serde_json::Value::String(c.clone()); }
-            Some(None) => { body["content"] = serde_json::Value::Null; }
+            Some(Some(c)) => {
+                body["content"] = serde_json::Value::String(c.clone());
+            }
+            Some(None) => {
+                body["content"] = serde_json::Value::Null;
+            }
             None => {}
         }
         match &self.desc {
-            Some(Some(d)) => { body["desc"] = serde_json::Value::String(d.clone()); }
-            Some(None) => { body["desc"] = serde_json::Value::Null; }
+            Some(Some(d)) => {
+                body["desc"] = serde_json::Value::String(d.clone());
+            }
+            Some(None) => {
+                body["desc"] = serde_json::Value::Null;
+            }
             None => {}
         }
         if let Some(ref tags) = self.tags {
             body["tags"] = serde_json::Value::Array(
-                tags.iter().map(|t| serde_json::Value::String(t.clone())).collect(),
+                tags.iter()
+                    .map(|t| serde_json::Value::String(t.clone()))
+                    .collect(),
             );
         }
         if let Some(ref items) = self.items {
@@ -597,12 +619,19 @@ impl TaskFields {
         }
         if let Some(ref reminders) = self.reminders {
             body["reminders"] = serde_json::Value::Array(
-                reminders.iter().map(|r| serde_json::Value::String(r.clone())).collect(),
+                reminders
+                    .iter()
+                    .map(|r| serde_json::Value::String(r.clone()))
+                    .collect(),
             );
         }
         match &self.repeat_flag {
-            Some(Some(rf)) => { body["repeatFlag"] = serde_json::Value::String(rf.clone()); }
-            Some(None) => { body["repeatFlag"] = serde_json::Value::Null; }
+            Some(Some(rf)) => {
+                body["repeatFlag"] = serde_json::Value::String(rf.clone());
+            }
+            Some(None) => {
+                body["repeatFlag"] = serde_json::Value::Null;
+            }
             None => {}
         }
     }
@@ -660,7 +689,15 @@ pub fn move_task(
         "projectId": dest_project_id,
     });
     super::post(&format!("/task/{task_id}"), token, &body)?;
-    get_by_id(token, dest_project_id, task_id)
+
+    // The individual task GET endpoint may return an empty body for
+    // recently-moved tasks. Use the project data endpoint instead,
+    // which is the documented way to retrieve tasks.
+    let tasks = list_by_project(token, Some(dest_project_id))?;
+    tasks
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .ok_or_else(|| format!("task {task_id} not found in destination project after move"))
 }
 
 pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {

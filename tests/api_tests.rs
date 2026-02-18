@@ -237,3 +237,95 @@ fn test_complete_task() {
 
     println!("Task deleted (cleanup)");
 }
+
+#[test]
+#[ignore]
+fn test_move_task_between_projects() {
+    let token = get_token();
+
+    // Get at least two projects
+    let resp = ureq::get(&format!("{BASE_URL}/project"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("API request failed");
+
+    let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+
+    if projects.len() < 2 {
+        println!("Need at least 2 projects to test move, skipping");
+        return;
+    }
+
+    let source_id = projects[0]["id"].as_str().expect("Project should have id");
+    let dest_id = projects[1]["id"].as_str().expect("Project should have id");
+    println!("Moving task from project {source_id} to {dest_id}");
+
+    // Create a task in the source project
+    let task_body = serde_json::json!({
+        "title": "Test move task",
+        "projectId": source_id
+    });
+
+    let resp = ureq::post(&format!("{BASE_URL}/task"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(task_body)
+        .expect("Create task failed");
+
+    let created_task: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let task_id = created_task["id"].as_str().unwrap();
+    println!("Created task: {task_id}");
+
+    // Move the task by updating its projectId
+    let move_body = serde_json::json!({
+        "taskId": task_id,
+        "projectId": dest_id,
+    });
+
+    let resp = ureq::post(&format!("{BASE_URL}/task/{task_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(move_body)
+        .expect("Move task failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Move POST returned status 200");
+
+    // Verify the task appears in the destination project data
+    let resp = ureq::get(&format!("{BASE_URL}/project/{dest_id}/data"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("Get project data failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let tasks = data["tasks"].as_array().expect("tasks should be an array");
+    let found = tasks.iter().any(|t| t["id"].as_str() == Some(task_id));
+    assert!(
+        found,
+        "Moved task should appear in destination project data"
+    );
+    println!("Task found in destination project");
+
+    // Also verify the individual task GET endpoint behavior (may return empty body)
+    let individual_resp = ureq::get(&format!("{BASE_URL}/project/{dest_id}/task/{task_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call();
+
+    match individual_resp {
+        Ok(resp) => {
+            let body = resp.into_string().unwrap_or_default();
+            if body.is_empty() {
+                println!("Individual GET returned empty body (confirming API behavior)");
+            } else {
+                println!("Individual GET returned: {body}");
+            }
+        }
+        Err(e) => println!("Individual GET failed: {e} (confirming API behavior)"),
+    }
+
+    // Clean up
+    let _ = ureq::delete(&format!("{BASE_URL}/project/{dest_id}/task/{task_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call();
+    println!("Task deleted (cleanup)");
+}
