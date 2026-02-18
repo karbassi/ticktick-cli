@@ -12,63 +12,39 @@ pub fn x_device_header(device_id: &str) -> String {
     )
 }
 
-/// Sign in to the TickTick v2 API and return the session token.
-fn signon(username: &str, password: &str) -> Result<String, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}/user/signon?wc=true&remember=true");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> POST {url}");
-    }
-
-    let body = serde_json::json!({
-        "username": username,
-        "password": password,
-    });
-
-    let resp = ureq::post(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Content-Type", "application/json")
-        .send_json(body)
-        .map_err(|e| format!("v2 sign-in failed: {e}"))?;
-
-    let json: serde_json::Value = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse v2 sign-in response: {e}"))?;
-
-    let token = json["token"]
-        .as_str()
-        .ok_or_else(|| "v2 sign-in response missing token".to_string())?;
-
-    config::save_v2_session_token(token)?;
-    eprintln!("v2 session authenticated");
-
-    Ok(token.to_string())
-}
-
-/// Get a v2 session token, using cached token or signing in.
+/// Get the cached v2 session token.
+///
+/// The session token is obtained by copying the `t` cookie from
+/// a logged-in TickTick web session and setting `v2_session_token`
+/// in config.json.
 pub fn get_session_token() -> Result<String, String> {
-    if let Some(token) = config::get_v2_session_token() {
-        return Ok(token);
-    }
-    let (username, password) = config::get_v2_credentials()?;
-    signon(&username, &password)
-}
-
-/// Clear cached token and re-sign in.
-fn refresh_session() -> Result<String, String> {
-    let _ = config::clear_v2_session_token();
-    let (username, password) = config::get_v2_credentials()?;
-    signon(&username, &password)
+    config::get_v2_session_token().ok_or_else(|| {
+        "v2 session token not set\n\n  \
+         hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
+         (Network tab → any request to api.ticktick.com → Cookie header), \
+         then add \"v2_session_token\": \"<token>\" to ~/.config/ticktick-cli/config.json"
+            .to_string()
+    })
 }
 
 // ---------------------------------------------------------------------------
 // v2 HTTP helpers
 // ---------------------------------------------------------------------------
 
+/// Format a v2 API error, with a helpful hint on 401.
+fn v2_error(e: &ureq::Error) -> String {
+    if matches!(e, ureq::Error::Status(401, _)) {
+        "v2 session expired\n\n  \
+         hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
+         (Network tab → any request to api.ticktick.com → Cookie header), \
+         then update \"v2_session_token\" in ~/.config/ticktick-cli/config.json"
+            .to_string()
+    } else {
+        format!("v2 API request failed: {e}")
+    }
+}
+
 /// Make a POST request to the v2 API with session auth.
-/// Retries once on 401 by refreshing the session.
 pub fn v2_post(
     endpoint: &str,
     token: &str,
@@ -81,31 +57,16 @@ pub fn v2_post(
         eprintln!("> POST {url}");
     }
 
-    let result = ureq::post(&url)
+    ureq::post(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
         .set("Content-Type", "application/json")
-        .send_json(body.clone());
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(ureq::Error::Status(401, _)) => {
-            let new_token = refresh_session()?;
-            ureq::post(&url)
-                .set("User-Agent", USER_AGENT)
-                .set("x-device", &x_device_header(&device_id))
-                .set("Cookie", &format!("t={new_token}"))
-                .set("Content-Type", "application/json")
-                .send_json(body.clone())
-                .map_err(|e| format!("v2 API request failed after re-auth: {e}"))
-        }
-        Err(e) => Err(format!("v2 API request failed: {e}")),
-    }
+        .send_json(body.clone())
+        .map_err(|e| v2_error(&e))
 }
 
 /// Make a GET request to the v2 API with session auth.
-/// Retries once on 401 by refreshing the session.
 pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     let device_id = config::get_or_create_device_id();
     let url = format!("{V2_BASE_URL}{endpoint}");
@@ -114,29 +75,15 @@ pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         eprintln!("> GET {url}");
     }
 
-    let result = ureq::get(&url)
+    ureq::get(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
-        .call();
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(ureq::Error::Status(401, _)) => {
-            let new_token = refresh_session()?;
-            ureq::get(&url)
-                .set("User-Agent", USER_AGENT)
-                .set("x-device", &x_device_header(&device_id))
-                .set("Cookie", &format!("t={new_token}"))
-                .call()
-                .map_err(|e| format!("v2 API request failed after re-auth: {e}"))
-        }
-        Err(e) => Err(format!("v2 API request failed: {e}")),
-    }
+        .call()
+        .map_err(|e| v2_error(&e))
 }
 
 /// Make a DELETE request to the v2 API with session auth.
-/// Retries once on 401 by refreshing the session.
 pub fn v2_delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     let device_id = config::get_or_create_device_id();
     let url = format!("{V2_BASE_URL}{endpoint}");
@@ -145,29 +92,15 @@ pub fn v2_delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> 
         eprintln!("> DELETE {url}");
     }
 
-    let result = ureq::delete(&url)
+    ureq::delete(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
-        .call();
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(ureq::Error::Status(401, _)) => {
-            let new_token = refresh_session()?;
-            ureq::delete(&url)
-                .set("User-Agent", USER_AGENT)
-                .set("x-device", &x_device_header(&device_id))
-                .set("Cookie", &format!("t={new_token}"))
-                .call()
-                .map_err(|e| format!("v2 API request failed after re-auth: {e}"))
-        }
-        Err(e) => Err(format!("v2 API request failed: {e}")),
-    }
+        .call()
+        .map_err(|e| v2_error(&e))
 }
 
 /// Make a PUT request to the v2 API with session auth.
-/// Retries once on 401 by refreshing the session.
 pub fn v2_put(
     endpoint: &str,
     token: &str,
@@ -180,27 +113,13 @@ pub fn v2_put(
         eprintln!("> PUT {url}");
     }
 
-    let result = ureq::put(&url)
+    ureq::put(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
         .set("Content-Type", "application/json")
-        .send_json(body.clone());
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(ureq::Error::Status(401, _)) => {
-            let new_token = refresh_session()?;
-            ureq::put(&url)
-                .set("User-Agent", USER_AGENT)
-                .set("x-device", &x_device_header(&device_id))
-                .set("Cookie", &format!("t={new_token}"))
-                .set("Content-Type", "application/json")
-                .send_json(body.clone())
-                .map_err(|e| format!("v2 API request failed after re-auth: {e}"))
-        }
-        Err(e) => Err(format!("v2 API request failed: {e}")),
-    }
+        .send_json(body.clone())
+        .map_err(|e| v2_error(&e))
 }
 
 /// Minimal percent-encoding for URL query parameters.
@@ -269,18 +188,13 @@ pub fn move_tasks(moves: &[TaskMove]) -> Result<(), String> {
 
 /// List completed tasks across all projects.
 ///
-/// `from` and `to` are ISO date strings (e.g. "2026-01-18+00:00:00").
 /// `limit` caps the number of results.
-pub fn list_completed_in_all(
-    from: &str,
-    to: &str,
-    limit: u32,
-) -> Result<Vec<serde_json::Value>, String> {
+///
+/// Note: the `from`/`to` date query parameters are intentionally omitted —
+/// they cause HTTP 500 errors on the v2 session API.
+pub fn list_completed_in_all(limit: u32) -> Result<Vec<serde_json::Value>, String> {
     let token = get_session_token()?;
-    let from_enc = url_encode(from);
-    let to_enc = url_encode(to);
-    let endpoint =
-        format!("/project/all/completedInAll/?from={from_enc}&to={to_enc}&limit={limit}");
+    let endpoint = format!("/project/all/completedInAll/?limit={limit}");
     let resp = v2_get(&endpoint, &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse completed tasks: {e}"))

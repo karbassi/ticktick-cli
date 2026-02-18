@@ -137,7 +137,7 @@ Examples:
     /// Show user profile and account status
     ///
     /// Displays the user's profile information merged with account status.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli profile
@@ -147,7 +147,7 @@ Examples:
     /// Show user preference settings
     ///
     /// Displays the user's preference settings (including web-specific settings).
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli settings
@@ -158,7 +158,7 @@ Examples:
     ///
     /// Fetches the complete account state (projects, tasks, tags, habits, etc.)
     /// from the TickTick v2 API and outputs raw JSON to stdout.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     ///
     /// Pipe to jq for filtering: ticktick-cli sync | jq '.inboxId'
     #[command(after_long_help = "\
@@ -214,7 +214,6 @@ enum TaskCommands {
     /// only tasks from that project are shown. Otherwise, all tasks are listed.
     ///
     /// Use --completed to list completed tasks instead of active ones.
-    /// Completed tasks default to the last 30 days; use --from/--to to adjust.
     ///
     /// Each task displays:
     ///   - Task title and ID (used for complete/delete commands)
@@ -224,9 +223,9 @@ Examples:
   ticktick-cli task list                    # List all tasks
   ticktick-cli task list Personal           # List tasks in Personal project
   ticktick-cli task list 'Work Projects'    # List tasks in project with spaces
-  ticktick-cli task list --completed        # List completed tasks (last 30 days)
+  ticktick-cli task list --completed        # List completed tasks
   ticktick-cli task list Personal --completed  # Completed tasks in project
-  ticktick-cli task list --completed --limit 100 --from 2026-01-01 --to 2026-02-01
+  ticktick-cli task list --completed --limit 100
 ")]
     List {
         /// Filter by project name or ID
@@ -239,14 +238,6 @@ Examples:
         /// Maximum number of completed tasks to return (default: 50)
         #[arg(long, default_value = "50")]
         limit: u32,
-
-        /// Start date for completed tasks query (YYYY-MM-DD, default: 30 days ago)
-        #[arg(long)]
-        from: Option<String>,
-
-        /// End date for completed tasks query (YYYY-MM-DD, default: today)
-        #[arg(long)]
-        to: Option<String>,
     },
 
     /// Get details for a specific task by project and task ID
@@ -559,7 +550,7 @@ Examples:
     /// Set tasks as subtasks of a parent task
     ///
     /// Makes one or more tasks children of a parent task within the same project.
-    /// This uses the v2 API and requires TICKTICK_USERNAME/TICKTICK_PASSWORD.
+    /// This uses the v2 API and requires a session token.
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task subtask Personal parent123 child456
@@ -608,7 +599,7 @@ Examples:
     /// List tasks in the trash
     ///
     /// Shows tasks that have been deleted but not yet permanently removed.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli task trash
@@ -621,7 +612,7 @@ enum TagCommands {
     /// List all tags
     ///
     /// Lists all tags from your TickTick account.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli tag list
@@ -631,7 +622,7 @@ Examples:
     /// Create one or more tags
     ///
     /// Creates tags in TickTick. Multiple tag names can be provided at once.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli tag add work
@@ -649,7 +640,7 @@ Examples:
     ///
     /// Permanently deletes tags from TickTick. Tags will be removed from
     /// all tasks that have them.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
@@ -669,7 +660,7 @@ Examples:
     /// Rename a tag
     ///
     /// Renames a tag across all tasks that use it.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli tag rename old-name new-name
@@ -685,7 +676,7 @@ Examples:
     /// Edit a tag's properties
     ///
     /// Update properties of an existing tag such as color, parent, or sort settings.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "update")]
     #[command(after_long_help = "\
 Examples:
@@ -723,7 +714,7 @@ Examples:
     ///
     /// All tasks tagged with the source tag are re-tagged with the target tag,
     /// and the source tag is deleted.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli tag merge old-tag new-tag
@@ -742,7 +733,7 @@ enum FolderCommands {
     /// List all project folders/groups
     ///
     /// Lists all project folders (groups) from your TickTick account.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli folder list
@@ -752,7 +743,7 @@ Examples:
     /// Create a new folder
     ///
     /// Creates a new project folder (group) in TickTick.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli folder add 'Work Projects'
@@ -767,7 +758,7 @@ Examples:
     /// WARNING: This action cannot be undone!
     ///
     /// Permanently deletes project folders from TickTick.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
@@ -787,7 +778,7 @@ Examples:
     /// Rename a folder
     ///
     /// Renames a project folder (group).
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli folder rename 'Old Name' --name 'New Name'
@@ -807,7 +798,7 @@ enum HabitCommands {
     /// List all habits
     ///
     /// Lists all habits from your TickTick account.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit list
@@ -817,7 +808,7 @@ Examples:
     /// Create a new habit
     ///
     /// Creates a new habit in TickTick.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit add 'Morning Run'
@@ -858,7 +849,7 @@ Examples:
     /// WARNING: This action cannot be undone!
     ///
     /// Permanently deletes habits from TickTick.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
@@ -878,7 +869,7 @@ Examples:
     /// Edit an existing habit
     ///
     /// Update properties of an existing habit.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "update")]
     #[command(after_long_help = "\
 Examples:
@@ -918,7 +909,7 @@ Examples:
     /// Record a habit check-in
     ///
     /// Records a check-in for a habit. Defaults to today with value 1.0.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit checkin 'Morning Run'
@@ -942,7 +933,7 @@ Examples:
     /// Query habit check-in history
     ///
     /// Queries check-in records for one or more habits.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit log 'Morning Run'
@@ -960,8 +951,8 @@ Examples:
 
     /// Archive one or more habits
     ///
-    /// Sets the habit status to archived (status 2).
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Sets the habit status to archived (status 1).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit archive 'Old Habit'
@@ -983,7 +974,7 @@ enum HabitSectionCommands {
     /// List all habit sections
     ///
     /// Lists all habit sections (groups) from your TickTick account.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit section list
@@ -992,7 +983,7 @@ Examples:
 
     /// Create a new habit section
     ///
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "new")]
     #[command(after_long_help = "\
 Examples:
@@ -1005,7 +996,7 @@ Examples:
 
     /// Delete one or more habit sections
     ///
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
@@ -1023,7 +1014,7 @@ Examples:
 
     /// Rename a habit section
     ///
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli habit section rename 'Old Name' --name 'New Name'
@@ -1061,7 +1052,7 @@ enum FilterCommands {
     /// List all saved filters
     ///
     /// Lists all saved filters (smart views) from your TickTick account.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli filter list
@@ -1072,7 +1063,7 @@ Examples:
     ///
     /// Creates a saved filter with a name and rule.
     /// The rule is a JSON string defining the filter conditions.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "new")]
     #[command(after_long_help = r#"
 Examples:
@@ -1095,7 +1086,7 @@ Examples:
     /// Edit an existing filter
     ///
     /// Update properties of a saved filter.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "update")]
     #[command(after_long_help = "\
 Examples:
@@ -1122,7 +1113,7 @@ Examples:
     /// Delete one or more filters
     ///
     /// Permanently deletes saved filters.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(visible_alias = "rm")]
     #[command(after_long_help = "\
 Examples:
@@ -1145,7 +1136,7 @@ enum CalendarCommands {
     /// List connected calendar accounts
     ///
     /// Lists third-party calendar accounts (Google, Outlook, etc.) connected to TickTick.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli calendar list
@@ -1156,7 +1147,7 @@ Examples:
     ///
     /// Fetches events from all connected calendars within a date range.
     /// Defaults to 7 days ago through 7 days ahead if no range specified.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli calendar events
@@ -1187,7 +1178,7 @@ enum FocusCommands {
     /// Show current timer state
     ///
     /// Returns the current focus/pomodoro timer status.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus status
@@ -1197,7 +1188,7 @@ Examples:
     /// Show focus statistics (today/total)
     ///
     /// Returns pomodoro statistics including today's count and all-time totals.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus stats
@@ -1209,7 +1200,7 @@ Examples:
     /// Returns focus session history for a date range.
     /// Defaults to the last 30 days if no range specified.
     /// Dates are YYYY-MM-DD format, converted to epoch milliseconds internally.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus log
@@ -1228,7 +1219,7 @@ Examples:
     /// Show full focus session timeline
     ///
     /// Returns the complete focus session timeline.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus timeline
@@ -1238,7 +1229,7 @@ Examples:
     /// Start a focus session
     ///
     /// Starts a new pomodoro or stopwatch session. Optionally associate with a task.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus start
@@ -1263,7 +1254,7 @@ Examples:
     /// Pause the current focus session
     ///
     /// Pauses the currently running focus timer.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus pause
@@ -1273,7 +1264,7 @@ Examples:
     /// Resume a paused focus session
     ///
     /// Resumes a previously paused focus timer.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus resume
@@ -1283,7 +1274,7 @@ Examples:
     /// Stop the current focus session
     ///
     /// Stops and saves the current focus session.
-    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    /// Requires v2 API authentication (session token).
     #[command(after_long_help = "\
 Examples:
   ticktick-cli focus stop
@@ -1498,41 +1489,6 @@ fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-/// Compute `from` and `to` date strings for completed tasks query.
-/// Defaults to 30 days ago and now if not provided.
-fn completed_date_range(
-    from: Option<String>,
-    to: Option<String>,
-) -> Result<(String, String), String> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let now_secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let to_str = if let Some(t) = to {
-        // User gave YYYY-MM-DD, append time
-        format!("{t}+00:00:00")
-    } else {
-        // Use current UTC date
-        let days = now_secs / 86400;
-        let (y, m, d) = days_to_ymd(days);
-        format!("{y:04}-{m:02}-{d:02}+23:59:59")
-    };
-
-    let from_str = if let Some(f) = from {
-        format!("{f}+00:00:00")
-    } else {
-        // 30 days ago
-        let days = now_secs / 86400 - 30;
-        let (y, m, d) = days_to_ymd(days);
-        format!("{y:04}-{m:02}-{d:02}+00:00:00")
-    };
-
-    Ok((from_str, to_str))
 }
 
 /// Convert days since Unix epoch to (year, month, day).
@@ -1767,8 +1723,6 @@ pub fn run() -> Result<(), String> {
                 project,
                 completed,
                 limit,
-                from,
-                to,
             } => {
                 if completed {
                     let project_id = project
@@ -1778,9 +1732,7 @@ pub fn run() -> Result<(), String> {
                         let tasks = crate::api::v2::list_completed_by_project(&pid)?;
                         crate::output::success(&tasks);
                     } else {
-                        let (from_str, to_str) = completed_date_range(from, to)?;
-                        let tasks =
-                            crate::api::v2::list_completed_in_all(&from_str, &to_str, limit)?;
+                        let tasks = crate::api::v2::list_completed_in_all(limit)?;
                         crate::output::success(&tasks);
                     }
                 } else {
@@ -2534,7 +2486,7 @@ pub fn run() -> Result<(), String> {
                     .map(|h| match crate::api::habit::resolve_id(h) {
                         Ok((id, etag)) => {
                             let fields = crate::api::habit::HabitFields {
-                                status: Some(2),
+                                status: Some(1),
                                 ..Default::default()
                             };
                             match crate::api::habit::update(&id, &etag, &fields) {
