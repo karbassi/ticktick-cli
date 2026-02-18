@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2]
+
+### Fixed
+- `task move` now correctly retrieves the moved task using the project data endpoint (the individual task endpoint returns empty for moved tasks)
+
+### Added
+- `make fix` target for auto-formatting and auto-fixing clippy lints
+- `CLAUDE.md` with project conventions, architecture, and testing rules
+- Integration test for task move between projects
+
 ## [0.11.1]
 
 ### Fixed
