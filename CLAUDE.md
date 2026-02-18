@@ -15,7 +15,8 @@ src/
     auth.rs      — OAuth flow
     project.rs   — project CRUD + fuzzy name resolution (case-insensitive, partial match)
     task.rs      — task CRUD, date/time parsing, duration parsing
-  config.rs      — XDG config storage, .env loading
+    v2.rs        — v2 API session auth (cookie-based), batch task move endpoint
+  config.rs      — XDG config storage, .env loading, v2 session/device management
   output.rs      — JSON output helpers (success to stdout, errors to stderr)
 tests/
   api_tests.rs   — integration tests hitting real API (#[ignore])

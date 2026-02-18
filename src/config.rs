@@ -10,6 +10,10 @@ pub struct Config {
     pub account_timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inbox_project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v2_session_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v2_device_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -17,6 +21,8 @@ pub struct Env {
     pub client_id: String,
     pub client_secret: String,
     pub access_token: Option<String>,
+    pub v2_username: Option<String>,
+    pub v2_password: Option<String>,
 }
 
 fn config_dir() -> PathBuf {
@@ -57,6 +63,8 @@ pub fn load_env() -> Result<Env, String> {
     let mut client_id = std::env::var("TICKTICK_CLIENT_ID").ok();
     let mut client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok();
     let mut access_token = std::env::var("TICKTICK_ACCESS_TOKEN").ok();
+    let mut v2_username = std::env::var("TICKTICK_USERNAME").ok();
+    let mut v2_password = std::env::var("TICKTICK_PASSWORD").ok();
 
     // Fall back to .env file for any missing values
     if (client_id.is_none() || client_secret.is_none())
@@ -79,6 +87,12 @@ pub fn load_env() -> Result<Env, String> {
                     "TICKTICK_ACCESS_TOKEN" if access_token.is_none() => {
                         access_token = Some(value.to_string())
                     }
+                    "TICKTICK_USERNAME" if v2_username.is_none() => {
+                        v2_username = Some(value.to_string())
+                    }
+                    "TICKTICK_PASSWORD" if v2_password.is_none() => {
+                        v2_password = Some(value.to_string())
+                    }
                     _ => {}
                 }
             }
@@ -93,6 +107,8 @@ pub fn load_env() -> Result<Env, String> {
             "TICKTICK_CLIENT_SECRET not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
         access_token,
+        v2_username,
+        v2_password,
     })
 }
 
@@ -162,6 +178,10 @@ TICKTICK_CLIENT_SECRET=
 
 # Optional: OAuth callback port (default: 8080)
 # TICKTICK_OAUTH_PORT=8080
+
+# Optional: TickTick account credentials for v2 API features (task move)
+# TICKTICK_USERNAME=
+# TICKTICK_PASSWORD=
 ";
 
 pub fn init(local: bool, force: bool) -> Result<(), String> {
@@ -224,4 +244,105 @@ pub fn logout() -> Result<(), String> {
     eprintln!("Logged out");
     crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v2 API helpers
+// ---------------------------------------------------------------------------
+
+pub fn get_v2_credentials() -> Result<(String, String), String> {
+    let env = load_env()?;
+    let username = env.v2_username.ok_or(
+        "TICKTICK_USERNAME not set\n\n  hint: Set TICKTICK_USERNAME and TICKTICK_PASSWORD in your .env file for v2 API features (task move)"
+    )?;
+    let password = env.v2_password.ok_or(
+        "TICKTICK_PASSWORD not set\n\n  hint: Set TICKTICK_USERNAME and TICKTICK_PASSWORD in your .env file for v2 API features (task move)"
+    )?;
+    Ok((username, password))
+}
+
+/// Generate a device ID in the format used by the TickTick web client:
+/// "6490" prefix + 20 random hex characters.
+pub fn generate_device_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    // LCG parameters (Numerical Recipes)
+    let mut state = seed;
+    let mut hex = String::with_capacity(24);
+    hex.push_str("6490");
+    for _ in 0..20 {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let nibble = ((state >> 33) & 0xf) as u8;
+        hex.push(char::from_digit(nibble as u32, 16).unwrap());
+    }
+    hex
+}
+
+pub fn get_or_create_device_id() -> String {
+    let config = load();
+    if let Some(id) = config.v2_device_id {
+        return id;
+    }
+    let id = generate_device_id();
+    let mut config = load();
+    config.v2_device_id = Some(id.clone());
+    let _ = save(&config);
+    id
+}
+
+pub fn get_v2_session_token() -> Option<String> {
+    load().v2_session_token
+}
+
+pub fn save_v2_session_token(token: &str) -> Result<(), String> {
+    let mut config = load();
+    config.v2_session_token = Some(token.to_string());
+    save(&config)
+}
+
+pub fn clear_v2_session_token() -> Result<(), String> {
+    let mut config = load();
+    config.v2_session_token = None;
+    save(&config)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_id_format() {
+        let id = generate_device_id();
+        assert_eq!(
+            id.len(),
+            24,
+            "device ID should be 24 chars (4 prefix + 20 hex)"
+        );
+        assert!(id.starts_with("6490"), "device ID should start with '6490'");
+        assert!(
+            id[4..].chars().all(|c| c.is_ascii_hexdigit()),
+            "device ID suffix should be hex characters, got: {}",
+            &id[4..]
+        );
+    }
+
+    #[test]
+    fn device_id_uniqueness() {
+        let id1 = generate_device_id();
+        // Small sleep to ensure different seed
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let id2 = generate_device_id();
+        assert_ne!(id1, id2, "two device IDs should be different");
+    }
 }
