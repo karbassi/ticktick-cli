@@ -57,6 +57,8 @@ Examples:
   ticktick-cli task complete Personal abc123      # Complete a task
   ticktick-cli task delete Personal abc123        # Delete a task
   ticktick-cli task move inbox abc123 --to Work   # Move a task to Work project
+  ticktick-cli tag list                           # List all tags
+  ticktick-cli tag add urgent                     # Create a tag
 ")]
 pub struct Cli {
     #[command(subcommand)]
@@ -104,9 +106,36 @@ Examples:
     #[command(subcommand)]
     Task(Box<TaskCommands>),
 
+    /// Manage tags
+    #[command(subcommand)]
+    Tag(TagCommands),
+
     /// Manage projects
     #[command(subcommand)]
     Project(ProjectCommands),
+
+    /// Manage project folders/groups
+    #[command(subcommand)]
+    Folder(FolderCommands),
+
+    /// Manage habits
+    #[command(subcommand)]
+    Habit(HabitCommands),
+
+    /// Dump full account state from v2 batch/check endpoint
+    ///
+    /// Fetches the complete account state (projects, tasks, tags, habits, etc.)
+    /// from the TickTick v2 API and outputs raw JSON to stdout.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    ///
+    /// Pipe to jq for filtering: ticktick-cli sync | jq '.inboxId'
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli sync                     # Dump full account state
+  ticktick-cli sync | jq '.inboxId'     # Extract inbox ID
+  ticktick-cli sync | jq '.projectGroups'  # Extract project groups
+")]
+    Sync,
 
     /// Initialize a .env configuration file with required variables
     ///
@@ -152,6 +181,9 @@ enum TaskCommands {
     /// Lists tasks from your TickTick account. When a project is specified,
     /// only tasks from that project are shown. Otherwise, all tasks are listed.
     ///
+    /// Use --completed to list completed tasks instead of active ones.
+    /// Completed tasks default to the last 30 days; use --from/--to to adjust.
+    ///
     /// Each task displays:
     ///   - Task title and ID (used for complete/delete commands)
     ///   - Project name, due date, and priority level
@@ -160,10 +192,29 @@ Examples:
   ticktick-cli task list                    # List all tasks
   ticktick-cli task list Personal           # List tasks in Personal project
   ticktick-cli task list 'Work Projects'    # List tasks in project with spaces
+  ticktick-cli task list --completed        # List completed tasks (last 30 days)
+  ticktick-cli task list Personal --completed  # Completed tasks in project
+  ticktick-cli task list --completed --limit 100 --from 2026-01-01 --to 2026-02-01
 ")]
     List {
         /// Filter by project name or ID
         project: Option<String>,
+
+        /// List completed tasks instead of active tasks (requires v2 auth)
+        #[arg(long)]
+        completed: bool,
+
+        /// Maximum number of completed tasks to return (default: 50)
+        #[arg(long, default_value = "50")]
+        limit: u32,
+
+        /// Start date for completed tasks query (YYYY-MM-DD, default: 30 days ago)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End date for completed tasks query (YYYY-MM-DD, default: today)
+        #[arg(long)]
+        to: Option<String>,
     },
 
     /// Get details for a specific task by project and task ID
@@ -472,6 +523,377 @@ Examples:
         #[arg(long)]
         stdin: bool,
     },
+
+    /// Set tasks as subtasks of a parent task
+    ///
+    /// Makes one or more tasks children of a parent task within the same project.
+    /// This uses the v2 API and requires TICKTICK_USERNAME/TICKTICK_PASSWORD.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task subtask Personal parent123 child456
+  ticktick-cli task subtask Personal parent123 child1 child2 child3
+  echo -e 'child1\\nchild2' | ticktick-cli task subtask Personal parent123 --stdin
+")]
+    Subtask {
+        /// Project name or ID containing the tasks
+        project: String,
+
+        /// Parent task ID
+        parent_id: String,
+
+        /// Child task IDs to make subtasks
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        child_ids: Vec<String>,
+
+        /// Read child task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
+    },
+
+    /// Remove subtask relationships (make tasks top-level)
+    ///
+    /// Removes the parent relationship from one or more tasks, making them
+    /// top-level tasks again. Uses the v1 API to clear the parentId field.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task unparent Personal child456
+  ticktick-cli task unparent Personal child1 child2 child3
+  echo -e 'child1\\nchild2' | ticktick-cli task unparent Personal --stdin
+")]
+    Unparent {
+        /// Project name or ID containing the tasks
+        project: String,
+
+        /// Task IDs to remove parent relationship from
+        #[arg(num_args = 1.., required_unless_present = "stdin")]
+        task_ids: Vec<String>,
+
+        /// Read task IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum TagCommands {
+    /// List all tags
+    ///
+    /// Lists all tags from your TickTick account.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag list
+")]
+    List,
+
+    /// Create one or more tags
+    ///
+    /// Creates tags in TickTick. Multiple tag names can be provided at once.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag add work
+  ticktick-cli tag add urgent important later
+")]
+    Add {
+        /// Tag names to create
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+    },
+
+    /// Delete one or more tags
+    ///
+    /// WARNING: This action cannot be undone!
+    ///
+    /// Permanently deletes tags from TickTick. Tags will be removed from
+    /// all tasks that have them.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag delete --force old-tag
+  ticktick-cli tag delete --force tag1 tag2 tag3
+")]
+    Delete {
+        /// Tag names to delete
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Rename a tag
+    ///
+    /// Renames a tag across all tasks that use it.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli tag rename old-name new-name
+")]
+    Rename {
+        /// Current tag name
+        old: String,
+
+        /// New tag name
+        new: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum FolderCommands {
+    /// List all project folders/groups
+    ///
+    /// Lists all project folders (groups) from your TickTick account.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli folder list
+")]
+    List,
+
+    /// Create a new folder
+    ///
+    /// Creates a new project folder (group) in TickTick.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli folder add 'Work Projects'
+")]
+    Add {
+        /// Folder name
+        name: String,
+    },
+
+    /// Permanently delete one or more folders
+    ///
+    /// WARNING: This action cannot be undone!
+    ///
+    /// Permanently deletes project folders from TickTick.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli folder delete --force 'Old Folder'
+  ticktick-cli folder delete --force folder1 folder2
+")]
+    Delete {
+        /// Folder names or IDs to delete
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Rename a folder
+    ///
+    /// Renames a project folder (group).
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli folder rename 'Old Name' --name 'New Name'
+")]
+    Rename {
+        /// Current folder name or ID
+        folder: String,
+
+        /// New folder name
+        #[arg(short, long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum HabitCommands {
+    /// List all habits
+    ///
+    /// Lists all habits from your TickTick account.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit list
+")]
+    List,
+
+    /// Create a new habit
+    ///
+    /// Creates a new habit in TickTick.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit add 'Morning Run'
+  ticktick-cli habit add 'Read' --goal 30 --unit minutes
+  ticktick-cli habit add 'Drink Water' --type real --goal 8 --unit cups
+")]
+    Add {
+        /// Habit name
+        name: String,
+
+        /// Habit type: boolean or real
+        #[arg(long = "type", default_value = "boolean")]
+        habit_type: HabitType,
+
+        /// Goal value (default: 1 for boolean)
+        #[arg(long)]
+        goal: Option<f64>,
+
+        /// Unit label (e.g. minutes, cups, pages)
+        #[arg(long)]
+        unit: Option<String>,
+
+        /// Section ID to place the habit in
+        #[arg(long)]
+        section: Option<String>,
+
+        /// Repeat rule (e.g. each_day, each_week)
+        #[arg(long)]
+        repeat: Option<String>,
+
+        /// Color (hex string, e.g. '#FF0000')
+        #[arg(long)]
+        color: Option<String>,
+    },
+
+    /// Permanently delete one or more habits
+    ///
+    /// WARNING: This action cannot be undone!
+    ///
+    /// Permanently deletes habits from TickTick.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit delete --force 'Old Habit'
+  ticktick-cli habit delete --force habit1 habit2
+")]
+    Delete {
+        /// Habit names or IDs to delete
+        #[arg(num_args = 1.., required = true)]
+        names: Vec<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Edit an existing habit
+    ///
+    /// Update properties of an existing habit.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(visible_alias = "update")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit edit 'Morning Run' --name 'Evening Run'
+  ticktick-cli habit edit 'Read' --goal 60 --unit minutes
+  ticktick-cli habit edit 'Drink Water' --color '#00FF00'
+")]
+    Edit {
+        /// Current habit name or ID
+        habit: String,
+
+        /// New habit name
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// New color (hex string)
+        #[arg(long)]
+        color: Option<String>,
+
+        /// New goal value
+        #[arg(long)]
+        goal: Option<f64>,
+
+        /// New unit label
+        #[arg(long)]
+        unit: Option<String>,
+
+        /// New section ID
+        #[arg(long)]
+        section: Option<String>,
+
+        /// New repeat rule
+        #[arg(long)]
+        repeat: Option<String>,
+    },
+
+    /// Record a habit check-in
+    ///
+    /// Records a check-in for a habit. Defaults to today with value 1.0.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit checkin 'Morning Run'
+  ticktick-cli habit checkin 'Drink Water' --value 3
+  ticktick-cli habit checkin 'Read' --date 2026-02-17 --value 30
+  ticktick-cli habit checkin 'Meditate' --date yesterday
+")]
+    Checkin {
+        /// Habit name or ID
+        habit: String,
+
+        /// Date: YYYY-MM-DD, 'today', or 'yesterday' (default: today)
+        #[arg(short, long)]
+        date: Option<String>,
+
+        /// Check-in value (default: 1.0)
+        #[arg(long, default_value = "1.0")]
+        value: f64,
+    },
+
+    /// Query habit check-in history
+    ///
+    /// Queries check-in records for one or more habits.
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit log 'Morning Run'
+  ticktick-cli habit log 'Read' 'Meditate' --after 2026-01-01
+")]
+    Log {
+        /// Habit names or IDs
+        #[arg(num_args = 1.., required = true)]
+        habits: Vec<String>,
+
+        /// Only show check-ins after this date (YYYY-MM-DD, default: 30 days ago)
+        #[arg(long)]
+        after: Option<String>,
+    },
+
+    /// Archive one or more habits
+    ///
+    /// Sets the habit status to archived (status 2).
+    /// Requires v2 API authentication (TICKTICK_USERNAME/TICKTICK_PASSWORD).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli habit archive 'Old Habit'
+  ticktick-cli habit archive habit1 habit2
+")]
+    Archive {
+        /// Habit names or IDs to archive
+        #[arg(num_args = 1.., required = true)]
+        habits: Vec<String>,
+    },
+}
+
+/// Habit type
+#[derive(Clone, Copy, ValueEnum)]
+pub enum HabitType {
+    /// Boolean check-in (done/not done)
+    Boolean,
+    /// Real-valued check-in (e.g. 30 minutes)
+    Real,
+}
+
+impl HabitType {
+    pub fn to_api_value(self) -> &'static str {
+        match self {
+            HabitType::Boolean => "Boolean",
+            HabitType::Real => "Real",
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -510,6 +932,7 @@ Examples:
 Examples:
   ticktick-cli project add 'Side Projects'
   ticktick-cli project add Work
+  ticktick-cli project add Work --folder 'Work Projects'
 ")]
     Add {
         /// Project name
@@ -526,6 +949,10 @@ Examples:
         /// Project kind: TASK, NOTE
         #[arg(long)]
         kind: Option<String>,
+
+        /// Assign to a folder (name or ID); use 'none' to remove from folder
+        #[arg(long)]
+        folder: Option<String>,
     },
 
     /// Edit an existing project
@@ -538,6 +965,8 @@ Examples:
   ticktick-cli project edit Work --name 'Work Tasks'
   ticktick-cli project edit Work --color '#FF0000'
   ticktick-cli project edit Work --view-mode kanban
+  ticktick-cli project edit Work --folder 'Work Projects'
+  ticktick-cli project edit Work --folder none
 ")]
     Edit {
         /// Current project name or ID
@@ -558,6 +987,10 @@ Examples:
         /// Project kind: TASK, NOTE
         #[arg(long)]
         kind: Option<String>,
+
+        /// Assign to a folder (name or ID); use 'none' to remove from folder
+        #[arg(long)]
+        folder: Option<String>,
     },
 
     /// Permanently delete a project
@@ -646,20 +1079,20 @@ fn output_results(results: &[BulkResult]) -> Result<(), String> {
     }
 }
 
-/// Prompt for delete confirmation.
-fn confirm_delete(count: usize, from_stdin: bool) -> Result<(), String> {
+/// Prompt for destructive action confirmation.
+fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
     use std::io::IsTerminal;
 
     let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
 
-    if is_ci || from_stdin || !std::io::stdin().is_terminal() {
+    if is_ci || !std::io::stdin().is_terminal() {
         return Err(
             "refusing to delete without confirmation in non-interactive mode\n\n  hint: Use --force to skip confirmation"
                 .to_string(),
         );
     }
 
-    eprint!("Are you sure you want to delete {count} task(s)? [y/N] ");
+    eprint!("Are you sure you want to delete {count} {noun}(s)? [y/N] ");
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)
@@ -670,6 +1103,57 @@ fn confirm_delete(count: usize, from_stdin: bool) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Compute `from` and `to` date strings for completed tasks query.
+/// Defaults to 30 days ago and now if not provided.
+fn completed_date_range(
+    from: Option<String>,
+    to: Option<String>,
+) -> Result<(String, String), String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let to_str = if let Some(t) = to {
+        // User gave YYYY-MM-DD, append time
+        format!("{t}+00:00:00")
+    } else {
+        // Use current UTC date
+        let days = now_secs / 86400;
+        let (y, m, d) = days_to_ymd(days);
+        format!("{y:04}-{m:02}-{d:02}+23:59:59")
+    };
+
+    let from_str = if let Some(f) = from {
+        format!("{f}+00:00:00")
+    } else {
+        // 30 days ago
+        let days = now_secs / 86400 - 30;
+        let (y, m, d) = days_to_ymd(days);
+        format!("{y:04}-{m:02}-{d:02}+00:00:00")
+    };
+
+    Ok((from_str, to_str))
+}
+
+/// Convert days since Unix epoch to (year, month, day).
+fn days_to_ymd(days: u64) -> (i32, u32, u32) {
+    // Civil days algorithm from Howard Hinnant
+    let z = days as i64 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
 }
 
 type TimeblockResult = (
@@ -797,6 +1281,19 @@ fn resolve_timeblock(
     Ok((resolved_due, resolved_start, is_all_day, timezone))
 }
 
+/// Resolve the --folder flag value to a group_id option.
+/// "none" (case-insensitive) → clear, otherwise resolve to folder ID.
+fn resolve_folder_flag(folder: Option<String>) -> Result<Option<Option<String>>, String> {
+    match folder {
+        None => Ok(None),
+        Some(f) if f.eq_ignore_ascii_case("none") => Ok(Some(None)),
+        Some(f) => {
+            let (id, _etag) = crate::api::project_group::resolve_id(&f)?;
+            Ok(Some(Some(id)))
+        }
+    }
+}
+
 /// After a task create/update, detect the inbox project ID from the response
 /// and store it in config if not already known.
 fn detect_inbox_id(task: &crate::api::task::Task) {
@@ -844,13 +1341,34 @@ pub fn run() -> Result<(), String> {
         Commands::Login => crate::api::auth::login(),
         Commands::Logout => crate::config::logout(),
         Commands::Task(subcmd) => match *subcmd {
-            TaskCommands::List { project } => {
-                let token = crate::config::get_access_token()?;
-                let project_id = project
-                    .map(|s| crate::api::project::resolve_id(&s))
-                    .transpose()?;
-                let tasks = crate::api::task::list_by_project(&token, project_id.as_deref())?;
-                crate::output::success(&tasks);
+            TaskCommands::List {
+                project,
+                completed,
+                limit,
+                from,
+                to,
+            } => {
+                if completed {
+                    let project_id = project
+                        .map(|s| crate::api::project::resolve_id(&s))
+                        .transpose()?;
+                    if let Some(pid) = project_id {
+                        let tasks = crate::api::v2::list_completed_by_project(&pid)?;
+                        crate::output::success(&tasks);
+                    } else {
+                        let (from_str, to_str) = completed_date_range(from, to)?;
+                        let tasks =
+                            crate::api::v2::list_completed_in_all(&from_str, &to_str, limit)?;
+                        crate::output::success(&tasks);
+                    }
+                } else {
+                    let token = crate::config::get_access_token()?;
+                    let project_id = project
+                        .map(|s| crate::api::project::resolve_id(&s))
+                        .transpose()?;
+                    let tasks = crate::api::task::list_by_project(&token, project_id.as_deref())?;
+                    crate::output::success(&tasks);
+                }
                 Ok(())
             }
             TaskCommands::Get { project, task_id } => {
@@ -937,6 +1455,7 @@ pub fn run() -> Result<(), String> {
                                 items: items_field.clone(),
                                 reminders: reminders_field.clone(),
                                 repeat_flag: repeat_flag.clone(),
+                                parent_id: None,
                             };
                             let mut body = serde_json::json!({ "dryRun": true });
                             fields.apply_to(&mut body);
@@ -970,6 +1489,7 @@ pub fn run() -> Result<(), String> {
                             items: items_field.clone(),
                             reminders: reminders_field.clone(),
                             repeat_flag: repeat_flag.clone(),
+                            parent_id: None,
                         };
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => {
@@ -1109,6 +1629,7 @@ pub fn run() -> Result<(), String> {
                             items: items_field.clone(),
                             reminders: reminders_field.clone(),
                             repeat_flag: repeat_flag.clone(),
+                            parent_id: None,
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => {
@@ -1173,7 +1694,7 @@ pub fn run() -> Result<(), String> {
                 let inputs = collect_inputs(task_ids, stdin)?;
 
                 if !force {
-                    confirm_delete(inputs.len(), stdin)?;
+                    confirm_destructive(inputs.len(), "task")?;
                 }
 
                 let token = crate::config::get_access_token()?;
@@ -1258,6 +1779,331 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TaskCommands::Subtask {
+                project,
+                parent_id,
+                child_ids,
+                stdin,
+            } => {
+                let inputs = collect_inputs(child_ids, stdin)?;
+                let project_id = crate::api::project::resolve_id(&project)?;
+
+                let parents: Vec<crate::api::v2::TaskParent> = inputs
+                    .iter()
+                    .map(|child_id| crate::api::v2::TaskParent {
+                        parent_id: parent_id.clone(),
+                        project_id: project_id.clone(),
+                        task_id: child_id.clone(),
+                    })
+                    .collect();
+
+                crate::api::v2::set_task_parents(&parents)?;
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|child_id| BulkResult {
+                        id: child_id.clone(),
+                        status: "ok".into(),
+                        data: Some(serde_json::json!({
+                            "taskId": child_id,
+                            "parentId": parent_id,
+                            "projectId": project_id,
+                        })),
+                        error: None,
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+            TaskCommands::Unparent {
+                project,
+                task_ids,
+                stdin,
+            } => {
+                let inputs = collect_inputs(task_ids, stdin)?;
+                let token = crate::config::get_access_token()?;
+                let project_id = crate::api::project::resolve_id(&project)?;
+
+                let results: Vec<BulkResult> = inputs
+                    .iter()
+                    .map(|task_id| {
+                        let fields = crate::api::task::TaskFields {
+                            parent_id: Some(None), // Clear parent
+                            ..Default::default()
+                        };
+                        match crate::api::task::update(&token, &project_id, task_id, &fields) {
+                            Ok(task) => BulkResult {
+                                id: task_id.clone(),
+                                status: "ok".into(),
+                                data: Some(serde_json::to_value(&task).unwrap_or_default()),
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: task_id.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+        },
+        Commands::Tag(subcmd) => match subcmd {
+            TagCommands::List => {
+                let tags = crate::api::tag::list()?;
+                crate::output::success(&tags);
+                Ok(())
+            }
+            TagCommands::Add { names } => {
+                let tags = crate::api::tag::create(&names)?;
+                crate::output::success(&tags);
+                Ok(())
+            }
+            TagCommands::Delete { names, force } => {
+                if !force {
+                    confirm_destructive(names.len(), "tag")?;
+                }
+
+                let results: Vec<BulkResult> = names
+                    .iter()
+                    .map(|name| match crate::api::tag::delete(name) {
+                        Ok(()) => BulkResult {
+                            id: name.clone(),
+                            status: "ok".into(),
+                            data: None,
+                            error: None,
+                        },
+                        Err(e) => BulkResult {
+                            id: name.clone(),
+                            status: "error".into(),
+                            data: None,
+                            error: Some(e),
+                        },
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+            TagCommands::Rename { old, new } => {
+                crate::api::tag::rename(&old, &new)?;
+                crate::output::success(&serde_json::json!({
+                    "status": "ok",
+                    "oldName": old,
+                    "newName": new,
+                }));
+                Ok(())
+            }
+        },
+        Commands::Folder(subcmd) => match subcmd {
+            FolderCommands::List => {
+                let groups = crate::api::project_group::list()?;
+                crate::output::success(&groups);
+                Ok(())
+            }
+            FolderCommands::Add { name } => {
+                let result = crate::api::project_group::create(&name)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            FolderCommands::Delete { names, force } => {
+                if !force {
+                    confirm_destructive(names.len(), "folder")?;
+                }
+
+                let results: Vec<BulkResult> = names
+                    .iter()
+                    .map(|name| match crate::api::project_group::resolve_id(name) {
+                        Ok((id, _etag)) => match crate::api::project_group::delete(&[id]) {
+                            Ok(()) => BulkResult {
+                                id: name.clone(),
+                                status: "ok".into(),
+                                data: None,
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: name.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        },
+                        Err(e) => BulkResult {
+                            id: name.clone(),
+                            status: "error".into(),
+                            data: None,
+                            error: Some(e),
+                        },
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+            FolderCommands::Rename { folder, name } => {
+                let (id, etag) = crate::api::project_group::resolve_id(&folder)?;
+                let result = crate::api::project_group::rename(&id, &etag, &name)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+        },
+        Commands::Habit(subcmd) => match subcmd {
+            HabitCommands::List => {
+                let habits = crate::api::habit::list()?;
+                crate::output::success(&habits);
+                Ok(())
+            }
+            HabitCommands::Add {
+                name,
+                habit_type,
+                goal,
+                unit,
+                section,
+                repeat,
+                color,
+            } => {
+                let fields = crate::api::habit::HabitFields {
+                    name: Some(name),
+                    habit_type: Some(habit_type.to_api_value().to_string()),
+                    goal,
+                    unit,
+                    section_id: section,
+                    repeat_rule: repeat,
+                    color,
+                    status: None,
+                };
+                let result = crate::api::habit::create(&fields)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            HabitCommands::Delete { names, force } => {
+                if !force {
+                    confirm_destructive(names.len(), "habit")?;
+                }
+
+                let results: Vec<BulkResult> = names
+                    .iter()
+                    .map(|name| match crate::api::habit::resolve_id(name) {
+                        Ok((id, _etag)) => match crate::api::habit::delete(&[id]) {
+                            Ok(()) => BulkResult {
+                                id: name.clone(),
+                                status: "ok".into(),
+                                data: None,
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: name.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        },
+                        Err(e) => BulkResult {
+                            id: name.clone(),
+                            status: "error".into(),
+                            data: None,
+                            error: Some(e),
+                        },
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
+            HabitCommands::Edit {
+                habit,
+                name,
+                color,
+                goal,
+                unit,
+                section,
+                repeat,
+            } => {
+                let (id, etag) = crate::api::habit::resolve_id(&habit)?;
+                let fields = crate::api::habit::HabitFields {
+                    name,
+                    habit_type: None,
+                    goal,
+                    unit,
+                    section_id: section,
+                    repeat_rule: repeat,
+                    color,
+                    status: None,
+                };
+                let result = crate::api::habit::update(&id, &etag, &fields)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            HabitCommands::Checkin { habit, date, value } => {
+                let (habit_id, _etag) = crate::api::habit::resolve_id(&habit)?;
+                let stamp = match date {
+                    Some(d) => crate::api::habit::date_to_stamp(&d)?,
+                    None => crate::api::habit::date_to_stamp("today")?,
+                };
+                let result = crate::api::habit::checkin(&habit_id, stamp, value)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            HabitCommands::Log { habits, after } => {
+                let habit_ids: Vec<String> = habits
+                    .iter()
+                    .map(|h| crate::api::habit::resolve_id(h).map(|(id, _)| id))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let after_stamp = match after {
+                    Some(d) => crate::api::habit::date_to_stamp(&d)?,
+                    None => {
+                        // Default to 30 days ago
+                        use std::time::{SystemTime, UNIX_EPOCH};
+                        let now_secs = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+                        let days_ago = now_secs / 86400 - 30;
+                        let (y, m, d) = days_to_ymd(days_ago);
+                        y as i64 * 10000 + m as i64 * 100 + d as i64
+                    }
+                };
+
+                let result = crate::api::habit::query_checkins(&habit_ids, after_stamp)?;
+                crate::output::success(&result);
+                Ok(())
+            }
+            HabitCommands::Archive { habits } => {
+                let results: Vec<BulkResult> = habits
+                    .iter()
+                    .map(|h| match crate::api::habit::resolve_id(h) {
+                        Ok((id, etag)) => {
+                            let fields = crate::api::habit::HabitFields {
+                                status: Some(2),
+                                ..Default::default()
+                            };
+                            match crate::api::habit::update(&id, &etag, &fields) {
+                                Ok(result) => BulkResult {
+                                    id: h.clone(),
+                                    status: "ok".into(),
+                                    data: Some(result),
+                                    error: None,
+                                },
+                                Err(e) => BulkResult {
+                                    id: h.clone(),
+                                    status: "error".into(),
+                                    data: None,
+                                    error: Some(e),
+                                },
+                            }
+                        }
+                        Err(e) => BulkResult {
+                            id: h.clone(),
+                            status: "error".into(),
+                            data: None,
+                            error: Some(e),
+                        },
+                    })
+                    .collect();
+
+                output_results(&results)
+            }
         },
         Commands::Project(subcmd) => match subcmd {
             ProjectCommands::List => crate::api::project::list(),
@@ -1270,12 +2116,15 @@ pub fn run() -> Result<(), String> {
                 color,
                 view_mode,
                 kind,
+                folder,
             } => {
+                let group_id = resolve_folder_flag(folder)?;
                 let fields = crate::api::project::ProjectFields {
                     name: Some(name),
                     color,
                     view_mode,
                     kind,
+                    group_id,
                 };
                 crate::api::project::create(&fields)
             }
@@ -1285,13 +2134,16 @@ pub fn run() -> Result<(), String> {
                 color,
                 view_mode,
                 kind,
+                folder,
             } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
+                let group_id = resolve_folder_flag(folder)?;
                 let fields = crate::api::project::ProjectFields {
                     name,
                     color,
                     view_mode,
                     kind,
+                    group_id,
                 };
                 crate::api::project::update(&project_id, &fields)
             }
@@ -1300,6 +2152,11 @@ pub fn run() -> Result<(), String> {
                 crate::api::project::delete(&project_id, force)
             }
         },
+        Commands::Sync => {
+            let data = crate::api::v2::batch_check()?;
+            crate::output::success(&data);
+            Ok(())
+        }
         Commands::Init { local, force } => crate::config::init(local, force),
         Commands::Completions { shell } => {
             clap_complete::generate(

@@ -469,3 +469,733 @@ fn test_v2_move_task_between_projects() {
         .call();
     println!("Task deleted (cleanup)");
 }
+
+fn v2_session(username: &str, password: &str) -> (String, String) {
+    let device_id = "6490test00000000000000";
+    let x_device = format!(
+        r#"{{"platform":"web","os":"macOS 10.15.7","device":"Chrome 130.0.0.0","name":"","version":6490,"id":"{device_id}","channel":"website","campaign":"","websocket":""}}"#
+    );
+
+    let signon_body = serde_json::json!({
+        "username": username,
+        "password": password,
+    });
+
+    let resp = ureq::post(&format!("{V2_BASE_URL}/user/signon?wc=true&remember=true"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Content-Type", "application/json")
+        .send_json(signon_body)
+        .expect("v2 signon failed");
+
+    let signon_resp: serde_json::Value = resp.into_json().expect("Failed to parse signon JSON");
+    let token = signon_resp["token"]
+        .as_str()
+        .expect("Missing token in signon response")
+        .to_string();
+
+    (token, x_device)
+}
+
+#[test]
+#[ignore]
+fn test_v2_list_completed_tasks() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!(
+        "{V2_BASE_URL}/project/all/completedInAll/?from=2020-01-01%2B00%3A00%3A00&to=2030-01-01%2B00%3A00%3A00&limit=10"
+    ))
+    .set("User-Agent", "Mozilla/5.0")
+    .set("x-device", &x_device)
+    .set("Cookie", &format!("t={session_token}"))
+    .call()
+    .expect("v2 completed tasks request failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_array(), "Response should be an array");
+    println!(
+        "Completed tasks: {}",
+        serde_json::to_string_pretty(&body).unwrap()
+    );
+}
+
+#[test]
+#[ignore]
+fn test_v2_tag_create_and_delete() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let tag_name = "cli-test-tag";
+
+    // Create
+    let body = serde_json::json!({ "add": [{ "label": tag_name, "name": tag_name }] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/tag"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 tag create failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Tag created");
+
+    // Verify tag exists in listing
+    let resp = ureq::get(&format!("{V2_BASE_URL}/tags"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 tag list failed");
+
+    let tags: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let found = tags.iter().any(|t| t["name"].as_str() == Some(tag_name));
+    assert!(found, "Created tag should appear in tag listing");
+    println!("Tag found in listing");
+
+    // Delete
+    let resp = ureq::delete(&format!("{V2_BASE_URL}/tag?name={tag_name}"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 tag delete failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Tag deleted");
+}
+
+#[test]
+#[ignore]
+fn test_v2_tag_rename() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let old_name = "cli-test-rename-old";
+    let new_name = "cli-test-rename-new";
+
+    // Create the tag first
+    let body = serde_json::json!({ "add": [{ "label": old_name, "name": old_name }] });
+    ureq::post(&format!("{V2_BASE_URL}/batch/tag"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 tag create failed");
+
+    // Rename
+    let rename_body = serde_json::json!({ "name": old_name, "newName": new_name });
+    let resp = ureq::put(&format!("{V2_BASE_URL}/tag/rename"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(rename_body)
+        .expect("v2 tag rename failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Tag renamed");
+
+    // Clean up
+    let _ = ureq::delete(&format!("{V2_BASE_URL}/tag?name={new_name}"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call();
+    println!("Tag deleted (cleanup)");
+}
+
+#[test]
+#[ignore]
+fn test_v2_set_task_parent() {
+    let token = get_token();
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    // Get a project
+    let resp = ureq::get(&format!("{BASE_URL}/project"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("API request failed");
+
+    let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    if projects.is_empty() {
+        println!("No projects found, skipping test");
+        return;
+    }
+
+    let project_id = projects[0]["id"].as_str().expect("Project should have id");
+
+    // Create parent and child tasks
+    let parent_body = serde_json::json!({
+        "title": "Test parent task",
+        "projectId": project_id
+    });
+    let resp = ureq::post(&format!("{BASE_URL}/task"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(parent_body)
+        .expect("Create parent task failed");
+    let parent_task: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let parent_id = parent_task["id"].as_str().unwrap();
+
+    let child_body = serde_json::json!({
+        "title": "Test child task",
+        "projectId": project_id
+    });
+    let resp = ureq::post(&format!("{BASE_URL}/task"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(child_body)
+        .expect("Create child task failed");
+    let child_task: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let child_id = child_task["id"].as_str().unwrap();
+
+    println!("Created parent={parent_id}, child={child_id} in project {project_id}");
+
+    // Set parent via v2 batch endpoint
+    let batch_body = serde_json::json!([{
+        "parentId": parent_id,
+        "projectId": project_id,
+        "taskId": child_id,
+    }]);
+
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/taskParent"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(batch_body)
+        .expect("v2 set parent failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Parent relationship set via v2 batch");
+
+    // Verify via project data
+    let resp = ureq::get(&format!("{BASE_URL}/project/{project_id}/data"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("Get project data failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let tasks = data["tasks"].as_array().expect("tasks should be an array");
+    let child = tasks.iter().find(|t| t["id"].as_str() == Some(child_id));
+
+    if let Some(child) = child {
+        assert_eq!(
+            child["parentId"].as_str(),
+            Some(parent_id),
+            "Child should have parentId set"
+        );
+        println!("Child task has parentId={parent_id} confirmed");
+    } else {
+        println!("Child task not found in project data (may need time to propagate)");
+    }
+
+    // Clean up
+    let _ = ureq::delete(&format!("{BASE_URL}/project/{project_id}/task/{child_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call();
+    let _ = ureq::delete(&format!("{BASE_URL}/project/{project_id}/task/{parent_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call();
+    println!("Tasks deleted (cleanup)");
+}
+
+// ---------------------------------------------------------------------------
+// batch/check (sync)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_batch_check() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_object(), "Response should be an object");
+    assert!(
+        body.get("inboxId").is_some(),
+        "batch/check should contain inboxId"
+    );
+    println!(
+        "Batch check keys: {:?}",
+        body.as_object().unwrap().keys().collect::<Vec<_>>()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Project groups (folders)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_project_group_create_and_delete() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let folder_name = "cli-test-folder";
+
+    // Create
+    let body = serde_json::json!({
+        "add": [{"name": folder_name, "listType": "group"}]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 project group create failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Project group created");
+
+    // Get the folder ID from batch/check
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let groups = data["projectGroups"]
+        .as_array()
+        .expect("should have projectGroups");
+    let folder = groups
+        .iter()
+        .find(|g| g["name"].as_str() == Some(folder_name))
+        .expect("Created folder should appear in batch/check");
+    let folder_id = folder["id"].as_str().unwrap();
+    println!("Folder ID: {folder_id}");
+
+    // Delete
+    let body = serde_json::json!({ "delete": [folder_id] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 project group delete failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Project group deleted");
+}
+
+#[test]
+#[ignore]
+fn test_v2_project_group_rename() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let old_name = "cli-test-rename-folder";
+    let new_name = "cli-test-renamed-folder";
+
+    // Create
+    let body = serde_json::json!({
+        "add": [{"name": old_name, "listType": "group"}]
+    });
+    ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 project group create failed");
+
+    // Find the folder
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let groups = data["projectGroups"].as_array().unwrap();
+    let folder = groups
+        .iter()
+        .find(|g| g["name"].as_str() == Some(old_name))
+        .expect("Folder should exist");
+    let folder_id = folder["id"].as_str().unwrap();
+    let etag = folder["etag"].as_str().unwrap_or("");
+
+    // Rename
+    let body = serde_json::json!({
+        "update": [{"id": folder_id, "etag": etag, "name": new_name, "listType": "group"}]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 project group rename failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Project group renamed");
+
+    // Clean up
+    let body = serde_json::json!({ "delete": [folder_id] });
+    let _ = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+    println!("Project group deleted (cleanup)");
+}
+
+#[test]
+#[ignore]
+fn test_v2_assign_project_to_folder() {
+    let token = get_token();
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    // Create a folder
+    let folder_name = "cli-test-assign-folder";
+    let body = serde_json::json!({
+        "add": [{"name": folder_name, "listType": "group"}]
+    });
+    ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 project group create failed");
+
+    // Get folder ID
+    let resp = ureq::get(&format!("{V2_BASE_URL}/batch/check/0"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 batch check failed");
+
+    let data: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    let groups = data["projectGroups"].as_array().unwrap();
+    let folder = groups
+        .iter()
+        .find(|g| g["name"].as_str() == Some(folder_name))
+        .expect("Folder should exist");
+    let folder_id = folder["id"].as_str().unwrap();
+
+    // Get a project to assign
+    let resp = ureq::get(&format!("{BASE_URL}/project"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .expect("API request failed");
+
+    let projects: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    if projects.is_empty() {
+        println!("No projects found, skipping test");
+        // Clean up folder
+        let body = serde_json::json!({ "delete": [folder_id] });
+        let _ = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+            .set("User-Agent", "Mozilla/5.0")
+            .set("x-device", &x_device)
+            .set("Cookie", &format!("t={session_token}"))
+            .set("Content-Type", "application/json")
+            .send_json(body);
+        return;
+    }
+
+    let project_id = projects[0]["id"].as_str().unwrap();
+    let original_group = projects[0]["groupId"].as_str().map(String::from);
+
+    // Assign project to folder via v1 API
+    let body = serde_json::json!({
+        "id": project_id,
+        "groupId": folder_id,
+    });
+    let resp = ureq::post(&format!("{BASE_URL}/project/{project_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("Project update failed");
+
+    assert_eq!(resp.status(), 200);
+    let updated: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert_eq!(
+        updated["groupId"].as_str(),
+        Some(folder_id),
+        "Project should be assigned to folder"
+    );
+    println!("Project assigned to folder");
+
+    // Restore original group
+    let restore_group = original_group.as_deref().unwrap_or("NONE");
+    let body = serde_json::json!({
+        "id": project_id,
+        "groupId": restore_group,
+    });
+    let _ = ureq::post(&format!("{BASE_URL}/project/{project_id}"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+
+    // Clean up folder
+    let body = serde_json::json!({ "delete": [folder_id] });
+    let _ = ureq::post(&format!("{V2_BASE_URL}/batch/projectGroup"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+    println!("Cleanup done");
+}
+
+// ---------------------------------------------------------------------------
+// Habits
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_v2_list_habits() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let resp = ureq::get(&format!("{V2_BASE_URL}/habits"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 habits list failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    assert!(body.is_array(), "Response should be an array");
+    println!("Habits: {}", serde_json::to_string_pretty(&body).unwrap());
+}
+
+#[test]
+#[ignore]
+fn test_v2_habit_create_and_delete() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let habit_name = "cli-test-habit";
+
+    // Create
+    let body = serde_json::json!({
+        "add": [{
+            "name": habit_name,
+            "type": "Boolean",
+            "goal": 1.0,
+        }]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit create failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Habit created");
+
+    // List to find the habit ID
+    let resp = ureq::get(&format!("{V2_BASE_URL}/habits"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 habits list failed");
+
+    let habits: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let habit = habits
+        .iter()
+        .find(|h| h["name"].as_str() == Some(habit_name))
+        .expect("Created habit should appear in listing");
+    let habit_id = habit["id"].as_str().unwrap();
+    println!("Habit ID: {habit_id}");
+
+    // Delete
+    let body = serde_json::json!({ "delete": [habit_id] });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit delete failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Habit deleted");
+}
+
+#[test]
+#[ignore]
+fn test_v2_habit_checkin_and_query() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let habit_name = "cli-test-checkin";
+
+    // Create habit
+    let body = serde_json::json!({
+        "add": [{
+            "name": habit_name,
+            "type": "Boolean",
+            "goal": 1.0,
+        }]
+    });
+    ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit create failed");
+
+    // Find habit ID
+    let resp = ureq::get(&format!("{V2_BASE_URL}/habits"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 habits list failed");
+
+    let habits: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let habit = habits
+        .iter()
+        .find(|h| h["name"].as_str() == Some(habit_name))
+        .expect("Habit should exist");
+    let habit_id = habit["id"].as_str().unwrap();
+
+    // Check in
+    let body = serde_json::json!({
+        "add": [{
+            "habitId": habit_id,
+            "checkinStamp": 20260218,
+            "value": 1.0,
+            "status": 0,
+        }]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habitCheckins/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit checkin failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Habit checked in");
+
+    // Query check-ins
+    let body = serde_json::json!({
+        "habitIds": [habit_id],
+        "afterStamp": 20260101,
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habitCheckins/query"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit checkin query failed");
+
+    assert_eq!(resp.status(), 200);
+    let query_result: serde_json::Value = resp.into_json().expect("Failed to parse JSON");
+    println!(
+        "Checkin query: {}",
+        serde_json::to_string_pretty(&query_result).unwrap()
+    );
+
+    // Clean up
+    let body = serde_json::json!({ "delete": [habit_id] });
+    let _ = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+    println!("Habit deleted (cleanup)");
+}
+
+#[test]
+#[ignore]
+fn test_v2_habit_archive() {
+    let (username, password) = load_v2_credentials();
+    let (session_token, x_device) = v2_session(&username, &password);
+
+    let habit_name = "cli-test-archive";
+
+    // Create habit
+    let body = serde_json::json!({
+        "add": [{
+            "name": habit_name,
+            "type": "Boolean",
+            "goal": 1.0,
+        }]
+    });
+    ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit create failed");
+
+    // Find habit
+    let resp = ureq::get(&format!("{V2_BASE_URL}/habits"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .call()
+        .expect("v2 habits list failed");
+
+    let habits: Vec<serde_json::Value> = resp.into_json().expect("Failed to parse JSON");
+    let habit = habits
+        .iter()
+        .find(|h| h["name"].as_str() == Some(habit_name))
+        .expect("Habit should exist");
+    let habit_id = habit["id"].as_str().unwrap();
+    let etag = habit["etag"].as_str().unwrap_or("");
+
+    // Archive (set status to 2)
+    let body = serde_json::json!({
+        "update": [{
+            "id": habit_id,
+            "etag": etag,
+            "status": 2,
+        }]
+    });
+    let resp = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .expect("v2 habit archive failed");
+
+    assert_eq!(resp.status(), 200);
+    println!("Habit archived");
+
+    // Clean up
+    let body = serde_json::json!({ "delete": [habit_id] });
+    let _ = ureq::post(&format!("{V2_BASE_URL}/habits/batch"))
+        .set("User-Agent", "Mozilla/5.0")
+        .set("x-device", &x_device)
+        .set("Cookie", &format!("t={session_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+    println!("Habit deleted (cleanup)");
+}

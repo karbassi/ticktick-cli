@@ -7,6 +7,8 @@ pub struct ProjectFields {
     pub color: Option<String>,
     pub view_mode: Option<String>,
     pub kind: Option<String>,
+    /// Some(Some(id)) = set group, Some(None) = clear group via "NONE", None = skip
+    pub group_id: Option<Option<String>>,
 }
 
 impl ProjectFields {
@@ -22,6 +24,15 @@ impl ProjectFields {
         }
         if let Some(ref k) = self.kind {
             body["kind"] = serde_json::Value::String(k.clone());
+        }
+        match &self.group_id {
+            Some(Some(gid)) => {
+                body["groupId"] = serde_json::Value::String(gid.clone());
+            }
+            Some(None) => {
+                body["groupId"] = serde_json::Value::String("NONE".to_string());
+            }
+            None => {}
         }
     }
 }
@@ -106,7 +117,7 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
         return get_inbox_id();
     }
 
-    // Already an inbox ID (e.g. inbox112708464)
+    // Already an inbox ID (e.g. inbox123456789)
     if name_or_id.starts_with("inbox")
         && name_or_id[5..].chars().all(|c| c.is_ascii_digit())
         && name_or_id.len() > 5
