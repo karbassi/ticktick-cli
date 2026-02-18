@@ -16,9 +16,12 @@ src/
     project.rs   — project CRUD + fuzzy name resolution (case-insensitive, partial match)
     project_group.rs — project folder/group CRUD via v2 API (list, create, delete, rename, resolve)
     task.rs      — task CRUD, date/time parsing, duration parsing
-    tag.rs       — tag CRUD via v2 API (list, create, delete, rename)
+    tag.rs       — tag CRUD via v2 API (list, create, delete, rename, edit, merge)
+    filter.rs    — saved filter CRUD via v2 API (list, create, update, delete, fuzzy resolve)
+    calendar.rs  — calendar accounts and events (read-only) via v2 API
+    focus.rs     — focus/pomodoro timer control and statistics via v2 + ms.ticktick.com APIs
     habit.rs     — habit CRUD, check-in, query, sections via v2 API
-    v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put/delete), batch check, batch task move, completed tasks, subtask parent batch
+    v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put/delete), batch check, batch task move, completed tasks, subtask parent batch, profile, settings, trash
   config.rs      — XDG config storage, .env loading, v2 session/device management
   output.rs      — JSON output helpers (success to stdout, errors to stderr)
 tests/
