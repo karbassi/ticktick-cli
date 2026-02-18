@@ -1,6 +1,13 @@
 pub mod auth;
+pub mod calendar;
+pub mod filter;
+pub mod focus;
+pub mod habit;
 pub mod project;
+pub mod project_group;
+pub mod tag;
 pub mod task;
+pub mod v2;
 
 use crate::config;
 

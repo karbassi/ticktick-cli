@@ -63,14 +63,32 @@ fn unknown_flag_exits_two() {
 
 #[test]
 fn top_level_subcommand_help_exits_zero() {
-    for subcmd in ["login", "logout", "task", "project", "init", "completions"] {
+    for subcmd in [
+        "login",
+        "logout",
+        "task",
+        "project",
+        "tag",
+        "folder",
+        "habit",
+        "filter",
+        "calendar",
+        "focus",
+        "profile",
+        "settings",
+        "sync",
+        "init",
+        "completions",
+    ] {
         cmd().args([subcmd, "--help"]).assert().success();
     }
 }
 
 #[test]
 fn task_subcommand_help_exits_zero() {
-    for subcmd in ["list", "get", "add", "edit", "complete", "delete", "move"] {
+    for subcmd in [
+        "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent", "trash",
+    ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
 }
@@ -105,7 +123,18 @@ fn move_missing_args_exits_two() {
 #[test]
 fn unauthenticated_commands_fail_with_hint() {
     for args in [vec!["project", "list"], vec!["task", "list"]] {
-        let output = cmd().args(&args).output().expect("failed to run");
+        // Run in a temp dir with no .env so credentials aren't found
+        let tmp = tempfile::tempdir().expect("failed to create temp dir");
+        let output = cmd()
+            .args(&args)
+            .current_dir(tmp.path())
+            .env_remove("TICKTICK_CLIENT_ID")
+            .env_remove("TICKTICK_CLIENT_SECRET")
+            .env_remove("TICKTICK_ACCESS_TOKEN")
+            .env_remove("XDG_CONFIG_HOME")
+            .env("HOME", tmp.path())
+            .output()
+            .expect("failed to run");
         if !output.status.success() {
             let stderr = String::from_utf8(output.stderr).unwrap();
             let parsed: serde_json::Value =
@@ -280,9 +309,50 @@ fn usage_lists_subcommands() {
         "task complete",
         "task delete",
         "task move",
+        "task subtask",
+        "task unparent",
+        "task trash",
+        "tag list",
+        "tag add",
+        "tag delete",
+        "tag rename",
+        "tag edit",
+        "tag merge",
+        "filter list",
+        "filter add",
+        "filter edit",
+        "filter delete",
+        "calendar list",
+        "calendar events",
+        "focus status",
+        "focus stats",
+        "focus log",
+        "focus timeline",
+        "focus start",
+        "focus pause",
+        "focus resume",
+        "focus stop",
+        "folder list",
+        "folder add",
+        "folder delete",
+        "folder rename",
+        "habit list",
+        "habit add",
+        "habit delete",
+        "habit edit",
+        "habit checkin",
+        "habit log",
+        "habit archive",
+        "habit section list",
+        "habit section add",
+        "habit section delete",
+        "habit section rename",
         "project list",
         "project add",
         "project delete",
+        "profile",
+        "settings",
+        "sync",
         "init",
         "completions",
     ] {
@@ -976,6 +1046,22 @@ fn edit_clear_repeat_conflicts_with_repeat() {
         .code(2);
 }
 
+// -- Move help --
+
+#[test]
+fn move_help_shows_to_flag() {
+    let output = cmd()
+        .args(["task", "move", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--to"),
+        "task move --help should mention --to flag"
+    );
+}
+
 // -- Project field flags --
 
 #[test]
@@ -1008,4 +1094,395 @@ fn project_edit_help_shows_new_flags() {
             "project edit --help should contain '{flag}'"
         );
     }
+}
+
+// -- Completed tasks --
+
+#[test]
+fn task_list_completed_flag_accepted() {
+    // --completed should not be a usage error (exit code 2)
+    cmd()
+        .args(["task", "list", "--completed"])
+        .assert()
+        .code(predicate::ne(2));
+}
+
+#[test]
+fn task_list_completed_with_limit() {
+    // Completed-related flags should be accepted without usage errors
+    cmd()
+        .args(["task", "list", "--completed", "--limit", "100"])
+        .assert()
+        .code(predicate::ne(2));
+}
+
+// -- Tag commands --
+
+#[test]
+fn tag_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "rename", "edit", "merge"] {
+        cmd().args(["tag", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn tag_add_missing_name_exits_two() {
+    cmd().args(["tag", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn tag_delete_missing_name_exits_two() {
+    cmd().args(["tag", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn tag_rename_missing_args_exits_two() {
+    cmd().args(["tag", "rename"]).assert().failure().code(2);
+    cmd()
+        .args(["tag", "rename", "only-one"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn tag_edit_missing_name_exits_two() {
+    cmd().args(["tag", "edit"]).assert().failure().code(2);
+}
+
+#[test]
+fn tag_edit_parent_conflicts_with_clear_parent() {
+    cmd()
+        .args([
+            "tag",
+            "edit",
+            "sometag",
+            "--parent",
+            "foo",
+            "--clear-parent",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn tag_merge_missing_args_exits_two() {
+    cmd().args(["tag", "merge"]).assert().failure().code(2);
+    cmd()
+        .args(["tag", "merge", "only-one"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn tag_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["tag", "delete", "sometag"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+// -- Subtask / Unparent commands --
+
+#[test]
+fn subtask_help_exits_zero() {
+    cmd().args(["task", "subtask", "--help"]).assert().success();
+}
+
+#[test]
+fn unparent_help_exits_zero() {
+    cmd()
+        .args(["task", "unparent", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn subtask_missing_args_exits_two() {
+    cmd().args(["task", "subtask"]).assert().failure().code(2);
+    cmd()
+        .args(["task", "subtask", "proj"])
+        .assert()
+        .failure()
+        .code(2);
+    cmd()
+        .args(["task", "subtask", "proj", "parent"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn unparent_missing_args_exits_two() {
+    cmd().args(["task", "unparent"]).assert().failure().code(2);
+    cmd()
+        .args(["task", "unparent", "proj"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+// -- Sync command --
+
+#[test]
+fn sync_help_exits_zero() {
+    cmd().args(["sync", "--help"]).assert().success();
+}
+
+// -- Calendar commands --
+
+#[test]
+fn calendar_subcommand_help_exits_zero() {
+    for subcmd in ["list", "events"] {
+        cmd()
+            .args(["calendar", subcmd, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+// -- Filter commands --
+
+#[test]
+fn filter_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "edit", "delete"] {
+        cmd().args(["filter", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn filter_add_missing_args_exits_two() {
+    cmd().args(["filter", "add"]).assert().failure().code(2);
+    cmd()
+        .args(["filter", "add", "name-only"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn filter_edit_missing_name_exits_two() {
+    cmd().args(["filter", "edit"]).assert().failure().code(2);
+}
+
+#[test]
+fn filter_delete_missing_name_exits_two() {
+    cmd().args(["filter", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn filter_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["filter", "delete", "somefilter"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+// -- Folder commands --
+
+#[test]
+fn folder_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "rename"] {
+        cmd().args(["folder", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn folder_add_missing_name_exits_two() {
+    cmd().args(["folder", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn folder_delete_missing_name_exits_two() {
+    cmd().args(["folder", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn folder_rename_missing_args_exits_two() {
+    cmd().args(["folder", "rename"]).assert().failure().code(2);
+    cmd()
+        .args(["folder", "rename", "only-one"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn folder_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["folder", "delete", "somefolder"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+// -- Habit commands --
+
+#[test]
+fn habit_subcommand_help_exits_zero() {
+    for subcmd in [
+        "list", "add", "delete", "edit", "checkin", "log", "archive", "section",
+    ] {
+        cmd().args(["habit", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn habit_add_missing_name_exits_two() {
+    cmd().args(["habit", "add"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_delete_missing_name_exits_two() {
+    cmd().args(["habit", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["habit", "delete", "somehabit"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+#[test]
+fn habit_checkin_missing_habit_exits_two() {
+    cmd().args(["habit", "checkin"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_log_missing_habit_exits_two() {
+    cmd().args(["habit", "log"]).assert().failure().code(2);
+}
+
+#[test]
+fn habit_archive_missing_habit_exits_two() {
+    cmd().args(["habit", "archive"]).assert().failure().code(2);
+}
+
+// -- Habit section commands --
+
+#[test]
+fn habit_section_subcommand_help_exits_zero() {
+    for subcmd in ["list", "add", "delete", "rename"] {
+        cmd()
+            .args(["habit", "section", subcmd, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn habit_section_add_missing_name_exits_two() {
+    cmd()
+        .args(["habit", "section", "add"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn habit_section_delete_missing_name_exits_two() {
+    cmd()
+        .args(["habit", "section", "delete"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn habit_section_delete_refuses_without_force_in_non_tty() {
+    cmd()
+        .args(["habit", "section", "delete", "somesection"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--force"));
+}
+
+#[test]
+fn habit_section_rename_missing_args_exits_two() {
+    cmd()
+        .args(["habit", "section", "rename"])
+        .assert()
+        .failure()
+        .code(2);
+    cmd()
+        .args(["habit", "section", "rename", "old"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+// -- Project --folder flag --
+
+#[test]
+fn project_add_help_shows_folder_flag() {
+    let output = cmd()
+        .args(["project", "add", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--folder"),
+        "project add --help should contain '--folder'"
+    );
+}
+
+#[test]
+fn project_edit_help_shows_folder_flag() {
+    let output = cmd()
+        .args(["project", "edit", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("--folder"),
+        "project edit --help should contain '--folder'"
+    );
+}
+
+// -- Focus commands --
+
+#[test]
+fn focus_subcommand_help_exits_zero() {
+    for subcmd in [
+        "status", "stats", "log", "timeline", "start", "pause", "resume", "stop",
+    ] {
+        cmd().args(["focus", subcmd, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn focus_start_mode_flag_accepts_values() {
+    // pomo and stopwatch should be accepted without usage errors (exit code 2)
+    for mode in ["pomo", "stopwatch"] {
+        cmd()
+            .args(["focus", "start", "--mode", mode])
+            .assert()
+            .code(predicate::ne(2));
+    }
+}
+
+#[test]
+fn focus_start_invalid_mode_exits_two() {
+    cmd()
+        .args(["focus", "start", "--mode", "invalid"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn focus_log_accepts_date_range() {
+    cmd()
+        .args(["focus", "log", "--from", "2026-01-01", "--to", "2026-02-01"])
+        .assert()
+        .code(predicate::ne(2));
 }

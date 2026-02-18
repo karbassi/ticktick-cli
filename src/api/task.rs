@@ -24,7 +24,7 @@ pub struct ChecklistItem {
     pub sort_order: Option<i32>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Task {
@@ -52,6 +52,8 @@ pub struct Task {
     pub is_all_day: Option<bool>,
     #[serde(default)]
     pub time_zone: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 pub fn get_by_id(token: &str, project_id: &str, task_id: &str) -> Result<Task, String> {
@@ -552,6 +554,7 @@ pub struct TaskFields {
     pub items: Option<Vec<ChecklistItem>>,
     pub reminders: Option<Vec<String>>,
     pub repeat_flag: Option<Option<String>>,
+    pub parent_id: Option<Option<String>>,
 }
 
 impl TaskFields {
@@ -634,6 +637,15 @@ impl TaskFields {
             }
             None => {}
         }
+        match &self.parent_id {
+            Some(Some(pid)) => {
+                body["parentId"] = serde_json::Value::String(pid.clone());
+            }
+            Some(None) => {
+                body["parentId"] = serde_json::Value::String(String::new());
+            }
+            None => {}
+        }
     }
 }
 
@@ -676,28 +688,6 @@ pub fn update(
 
     resp.into_json()
         .map_err(|e| format!("failed to parse task: {e}"))
-}
-
-pub fn move_task(
-    token: &str,
-    _source_project_id: &str,
-    task_id: &str,
-    dest_project_id: &str,
-) -> Result<Task, String> {
-    let body = serde_json::json!({
-        "taskId": task_id,
-        "projectId": dest_project_id,
-    });
-    super::post(&format!("/task/{task_id}"), token, &body)?;
-
-    // The individual task GET endpoint may return an empty body for
-    // recently-moved tasks. Use the project data endpoint instead,
-    // which is the documented way to retrieve tasks.
-    let tasks = list_by_project(token, Some(dest_project_id))?;
-    tasks
-        .into_iter()
-        .find(|t| t.id == task_id)
-        .ok_or_else(|| format!("task {task_id} not found in destination project after move"))
 }
 
 pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
@@ -1063,6 +1053,55 @@ mod tests {
         assert_eq!(format_offset(-21600), "-0600"); // CST (Chicago winter)
         assert_eq!(format_offset(19800), "+0530"); // IST (India)
         assert_eq!(format_offset(-18000), "-0500"); // EST / CDT
+    }
+
+    // -- Task parentId ---------------------------------------------------------
+
+    #[test]
+    fn task_deserialize_with_parent_id() {
+        let json = r#"{"id":"t1","title":"child","parentId":"p1"}"#;
+        let task: Task = serde_json::from_str(json).unwrap();
+        assert_eq!(task.parent_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn task_deserialize_without_parent_id() {
+        let json = r#"{"id":"t1","title":"standalone"}"#;
+        let task: Task = serde_json::from_str(json).unwrap();
+        assert!(task.parent_id.is_none());
+    }
+
+    #[test]
+    fn task_fields_apply_parent_id_set() {
+        let fields = TaskFields {
+            parent_id: Some(Some("parent123".to_string())),
+            ..Default::default()
+        };
+        let mut body = serde_json::json!({});
+        fields.apply_to(&mut body);
+        assert_eq!(body["parentId"], "parent123");
+    }
+
+    #[test]
+    fn task_fields_apply_parent_id_clear() {
+        let fields = TaskFields {
+            parent_id: Some(None),
+            ..Default::default()
+        };
+        let mut body = serde_json::json!({});
+        fields.apply_to(&mut body);
+        assert_eq!(body["parentId"], "");
+    }
+
+    #[test]
+    fn task_fields_apply_parent_id_skip() {
+        let fields = TaskFields {
+            parent_id: None,
+            ..Default::default()
+        };
+        let mut body = serde_json::json!({});
+        fields.apply_to(&mut body);
+        assert!(body.get("parentId").is_none());
     }
 
     #[test]

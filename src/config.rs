@@ -10,6 +10,10 @@ pub struct Config {
     pub account_timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inbox_project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v2_session_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v2_device_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -224,4 +228,82 @@ pub fn logout() -> Result<(), String> {
     eprintln!("Logged out");
     crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v2 API helpers
+// ---------------------------------------------------------------------------
+
+/// Generate a device ID in the format used by the TickTick web client:
+/// "6490" prefix + 20 random hex characters.
+pub fn generate_device_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
+
+    // LCG parameters (Numerical Recipes)
+    let mut state = seed;
+    let mut hex = String::with_capacity(24);
+    hex.push_str("6490");
+    for _ in 0..20 {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let nibble = ((state >> 33) & 0xf) as u8;
+        hex.push(char::from_digit(nibble as u32, 16).unwrap());
+    }
+    hex
+}
+
+pub fn get_or_create_device_id() -> String {
+    let config = load();
+    if let Some(id) = config.v2_device_id {
+        return id;
+    }
+    let id = generate_device_id();
+    let mut config = load();
+    config.v2_device_id = Some(id.clone());
+    let _ = save(&config);
+    id
+}
+
+pub fn get_v2_session_token() -> Option<String> {
+    load().v2_session_token
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_id_format() {
+        let id = generate_device_id();
+        assert_eq!(
+            id.len(),
+            24,
+            "device ID should be 24 chars (4 prefix + 20 hex)"
+        );
+        assert!(id.starts_with("6490"), "device ID should start with '6490'");
+        assert!(
+            id[4..].chars().all(|c| c.is_ascii_hexdigit()),
+            "device ID suffix should be hex characters, got: {}",
+            &id[4..]
+        );
+    }
+
+    #[test]
+    fn device_id_uniqueness() {
+        let id1 = generate_device_id();
+        // Small sleep to ensure different seed
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let id2 = generate_device_id();
+        assert_ne!(id1, id2, "two device IDs should be different");
+    }
 }
