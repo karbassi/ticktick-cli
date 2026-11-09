@@ -83,23 +83,6 @@ pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         .map_err(|e| v2_error(&e))
 }
 
-/// Make a DELETE request to the v2 API with session auth.
-pub fn v2_delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> DELETE {url}");
-    }
-
-    ureq::delete(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Cookie", &format!("t={token}"))
-        .call()
-        .map_err(|e| v2_error(&e))
-}
-
 /// Make a PUT request to the v2 API with session auth.
 pub fn v2_put(
     endpoint: &str,
