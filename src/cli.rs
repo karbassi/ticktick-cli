@@ -1492,7 +1492,7 @@ fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
 }
 
 /// Convert days since Unix epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (i32, u32, u32) {
+pub(crate) fn days_to_ymd(days: u64) -> (i32, u32, u32) {
     // Civil days algorithm from Howard Hinnant
     let z = days as i64 + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
@@ -2353,8 +2353,8 @@ pub fn run() -> Result<(), String> {
                 output_results(&results)
             }
             FolderCommands::Rename { folder, name } => {
-                let (id, etag) = crate::api::project_group::resolve_id(&folder)?;
-                let result = crate::api::project_group::rename(&id, &etag, &name)?;
+                let (id, _etag) = crate::api::project_group::resolve_id(&folder)?;
+                let result = crate::api::project_group::rename(&id, &name)?;
                 crate::output::success(&result);
                 Ok(())
             }
