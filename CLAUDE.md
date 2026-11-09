@@ -21,7 +21,7 @@ src/
     calendar.rs  — calendar accounts and events (read-only) via v2 API
     focus.rs     — focus log via v1; timer control and statistics via v2 + ms.ticktick.com APIs
     habit.rs     — habit CRUD, check-in, query, section writes via v2 API; section list via v1
-    v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put/delete), batch check, batch task move, completed tasks, subtask parent batch, profile, settings, trash
+    v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put), batch check, completed tasks, subtask parent batch, profile, settings, trash
   config.rs      — XDG config storage, .env loading, v2 session/device management
   output.rs      — JSON output helpers (success to stdout, errors to stderr)
 tests/

@@ -304,7 +304,7 @@ All datetime values (`--due`, `--start`) use your **local system timezone** by d
 
 ### v2 API authentication
 
-Some commands (tag merge, habits, filters, focus timer/stats, calendar, completed tasks, task move) use TickTick's internal v2 API which requires a session token:
+Some commands (tag merge, habits, filters, focus timer/stats, calendar, completed tasks) use TickTick's internal v2 API which requires a session token:
 
 1. Log in at [ticktick.com](https://ticktick.com) in your browser
 2. Open DevTools → Network tab
@@ -356,6 +356,7 @@ Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick
 | **Tasks** | `task add` | `task list`, `task get` | `task edit` | `task delete` |
 | **Projects** | `project add` | `project list`, `project get` | `project edit` | `project delete` |
 | **Completion** | `task complete` | — | — | — |
+| **Move** | — | — | `task move` | — |
 | **Tags** | `tag add` | `tag list` | `tag edit`, `tag rename` | `tag delete` |
 | **Folders** | `folder add` | `folder list` | `folder rename` | `folder delete` |
 | **Habit Sections** | — | `habit section list` | — | — |
@@ -371,7 +372,7 @@ Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick
 | **Habit Sections** | `habit section add` | — | `habit section rename` | `habit section delete` |
 | **Focus** | `focus start` | `focus status`, `focus stats`, `focus timeline` | `focus pause`, `focus resume`, `focus stop` | — |
 | **Calendar** | — | `calendar list`, `calendar events` | — | — |
-| **Task Ops** | — | `task list --completed`, `task trash` | `task move`, `task subtask`, `task unparent` | — |
+| **Task Ops** | — | `task list --completed`, `task trash` | `task subtask`, `task unparent` | — |
 | **Account** | — | `profile`, `settings`, `sync` | — | — |
 
 ### Known Limitations

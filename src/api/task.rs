@@ -705,6 +705,22 @@ pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMove {
+    pub task_id: String,
+    pub from_project_id: String,
+    pub to_project_id: String,
+}
+
+/// Move tasks between projects in one request.
+pub fn move_tasks(token: &str, moves: &[TaskMove]) -> Result<(), String> {
+    let body = serde_json::to_value(moves)
+        .map_err(|e| format!("failed to serialize move request: {e}"))?;
+    super::post("/task/move", token, &body)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -712,6 +728,19 @@ pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_move_serializes_to_v1_shape() {
+        let moves = [TaskMove {
+            task_id: "t1".into(),
+            from_project_id: "inbox1".into(),
+            to_project_id: "p2".into(),
+        }];
+        assert_eq!(
+            serde_json::to_value(moves).unwrap(),
+            serde_json::json!([{ "taskId": "t1", "fromProjectId": "inbox1", "toProjectId": "p2" }])
+        );
+    }
 
     // -- parse_datetime -------------------------------------------------------
 

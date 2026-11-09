@@ -2108,17 +2108,17 @@ pub fn run() -> Result<(), String> {
                 let dest_project_id = crate::api::project::resolve_id(&to)?;
 
                 // Build batch move request
-                let moves: Vec<crate::api::v2::TaskMove> = inputs
+                let moves: Vec<crate::api::task::TaskMove> = inputs
                     .iter()
-                    .map(|task_id| crate::api::v2::TaskMove {
+                    .map(|task_id| crate::api::task::TaskMove {
                         task_id: task_id.clone(),
                         from_project_id: source_project_id.clone(),
                         to_project_id: dest_project_id.clone(),
                     })
                     .collect();
 
-                // Single batch v2 API call for all moves
-                crate::api::v2::move_tasks(&moves)?;
+                // Single API call for all moves
+                crate::api::task::move_tasks(&token, &moves)?;
 
                 // Fetch each task individually for output
                 let results: Vec<BulkResult> = inputs

@@ -145,27 +145,6 @@ pub fn batch_check() -> Result<serde_json::Value, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Task move
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskMove {
-    pub task_id: String,
-    pub from_project_id: String,
-    pub to_project_id: String,
-}
-
-/// Move tasks between projects using the v2 batch endpoint.
-pub fn move_tasks(moves: &[TaskMove]) -> Result<(), String> {
-    let token = get_session_token()?;
-    let body = serde_json::to_value(moves)
-        .map_err(|e| format!("failed to serialize move request: {e}"))?;
-    v2_post("/batch/taskProject", &token, &body)?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Completed tasks
 // ---------------------------------------------------------------------------
 
