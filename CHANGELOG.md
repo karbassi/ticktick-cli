@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — official API migration (#21)
+
+These commands now call TickTick's official Open API (`/open/v1`) instead of the private v2 API, so they no longer need a v2 session cookie. Each one was verified live against v2 before switching.
+
+- `tag list` uses `GET /open/v1/tag`. Same tags, colors, and parents; v1 omits `rawName` and `etag`, which now print as `null`. (#22)
+- `tag add` uses `POST /open/v1/tag`, one request per name, and prints the created tags. (#23)
+- `tag edit` uses `PUT /open/v1/tag`; only the flags you pass change. (#24)
+- `tag rename` uses `PUT /open/v1/tag/rename?scope=0`, renaming the tag on every task, as before. (#25)
+- `tag delete` uses `DELETE /open/v1/tag/delete?scope=0`. As before, the tag is also removed from tasks. (#26)
+- `folder list` (and folder name resolution for `project add/edit --folder`) uses `GET /open/v1/project/group` instead of a full v2 account sync. (#27)
+- `folder add`, `folder rename`, and `folder delete` use `/open/v1/project/group[/{id}]`. Deleting a folder still ungroups its projects instead of deleting them. (#28, #29, #30)
+- `habit section list` (and section name resolution) uses `GET /open/v1/habit/sections`. Section add/rename/delete stay on v2: there is no official write endpoint. (#34)
+- `focus log` uses `GET /open/v1/focus`. It returns pomodoro and stopwatch records and splits ranges longer than 30 days to fit the v1 limit. (#37)
+- `task move` uses `POST /open/v1/task/move` (same body as v2 `/batch/taskProject`, still one request for all IDs). Verified live inbox→project with notes kept. (#42)
+
+### Still on v2
+
+These have no official endpoint, or the official one failed the parity check (details on each issue): `tag merge`, habits (#31–#33, #35, #36), calendar (#39, #40), `task list --completed` (#41), `settings` (#43), filters, trash, subtasks, focus timer/stats/timeline, profile, sync.
+
 ## [1.0.0-rc.1]
 
 ### Added

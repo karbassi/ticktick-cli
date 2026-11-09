@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::v2;
+use crate::config;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,49 +55,51 @@ impl TagFields {
 
 /// List all tags.
 pub fn list() -> Result<Vec<Tag>, String> {
-    let token = v2::get_session_token()?;
-    let resp = v2::v2_get("/tags", &token)?;
+    let token = config::get_access_token()?;
+    let resp = super::get("/tag", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse tags: {e}"))
 }
 
-/// Create one or more tags via the batch endpoint.
+/// Create one or more tags (one request per name).
 pub fn create(names: &[String]) -> Result<Vec<Tag>, String> {
-    let token = v2::get_session_token()?;
-    let add: Vec<serde_json::Value> = names
+    let token = config::get_access_token()?;
+    names
         .iter()
-        .map(|n| serde_json::json!({ "label": n, "name": n }))
-        .collect();
-    let body = serde_json::json!({ "add": add });
-    let resp = v2::v2_post("/batch/tag", &token, &body)?;
-    // The batch endpoint returns the full list of tags after the operation.
-    resp.into_json()
-        .map_err(|e| format!("failed to parse tag create response: {e}"))
+        .map(|n| {
+            let body = serde_json::json!({ "label": n, "name": n });
+            super::post("/tag", &token, &body)?
+                .into_json()
+                .map_err(|e| format!("failed to parse tag create response: {e}"))
+        })
+        .collect()
 }
 
-/// Delete a tag by its label.
+/// Delete a tag by name. The tag is also removed from every task that had it.
 pub fn delete(name: &str) -> Result<(), String> {
-    let token = v2::get_session_token()?;
-    let encoded = v2::url_encode(name);
-    v2::v2_delete(&format!("/tag?name={encoded}"), &token)?;
+    let token = config::get_access_token()?;
+    super::delete_json(
+        "/tag/delete?scope=0",
+        &token,
+        &serde_json::json!({ "name": name }),
+    )?;
     Ok(())
 }
 
-/// Rename a tag.
+/// Rename a tag on every task that has it.
 pub fn rename(old: &str, new: &str) -> Result<(), String> {
-    let token = v2::get_session_token()?;
+    let token = config::get_access_token()?;
     let body = serde_json::json!({ "name": old, "newName": new });
-    v2::v2_put("/tag/rename", &token, &body)?;
+    super::put("/tag/rename?scope=0", &token, &body)?;
     Ok(())
 }
 
-/// Update a tag's properties.
+/// Update a tag's properties. Only the fields set in `fields` change.
 pub fn update(name: &str, fields: &TagFields) -> Result<serde_json::Value, String> {
-    let token = v2::get_session_token()?;
+    let token = config::get_access_token()?;
     let mut tag = serde_json::json!({ "name": name });
     fields.apply_to(&mut tag);
-    let body = serde_json::json!({ "update": [tag] });
-    let resp = v2::v2_post("/batch/tag", &token, &body)?;
+    let resp = super::put("/tag", &token, &tag)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse tag update response: {e}"))
 }

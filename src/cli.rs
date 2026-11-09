@@ -1492,7 +1492,7 @@ fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
 }
 
 /// Convert days since Unix epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (i32, u32, u32) {
+pub(crate) fn days_to_ymd(days: u64) -> (i32, u32, u32) {
     // Civil days algorithm from Howard Hinnant
     let z = days as i64 + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
@@ -2108,17 +2108,17 @@ pub fn run() -> Result<(), String> {
                 let dest_project_id = crate::api::project::resolve_id(&to)?;
 
                 // Build batch move request
-                let moves: Vec<crate::api::v2::TaskMove> = inputs
+                let moves: Vec<crate::api::task::TaskMove> = inputs
                     .iter()
-                    .map(|task_id| crate::api::v2::TaskMove {
+                    .map(|task_id| crate::api::task::TaskMove {
                         task_id: task_id.clone(),
                         from_project_id: source_project_id.clone(),
                         to_project_id: dest_project_id.clone(),
                     })
                     .collect();
 
-                // Single batch v2 API call for all moves
-                crate::api::v2::move_tasks(&moves)?;
+                // Single API call for all moves
+                crate::api::task::move_tasks(&token, &moves)?;
 
                 // Fetch each task individually for output
                 let results: Vec<BulkResult> = inputs
@@ -2353,8 +2353,8 @@ pub fn run() -> Result<(), String> {
                 output_results(&results)
             }
             FolderCommands::Rename { folder, name } => {
-                let (id, etag) = crate::api::project_group::resolve_id(&folder)?;
-                let result = crate::api::project_group::rename(&id, &etag, &name)?;
+                let (id, _etag) = crate::api::project_group::resolve_id(&folder)?;
+                let result = crate::api::project_group::rename(&id, &name)?;
                 crate::output::success(&result);
                 Ok(())
             }
