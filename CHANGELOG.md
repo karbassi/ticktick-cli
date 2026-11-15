@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `countdown list` via `GET /open/v1/countdown`. Read-only: `POST`, `PUT` and `DELETE` on `/open/v1/countdown` return 405, so there are no write commands.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)
