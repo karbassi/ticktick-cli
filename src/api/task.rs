@@ -729,6 +729,55 @@ pub fn complete(token: &str, project_id: &str, task_id: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// Most task IDs the batch complete endpoint accepts per request.
+pub const COMPLETE_BATCH_SIZE: usize = 50;
+
+/// Request body for `POST /task/completeTasks`.
+fn complete_tasks_body(project_id: &str, task_ids: &[String]) -> serde_json::Value {
+    serde_json::json!({ "projectId": project_id, "taskIds": task_ids })
+}
+
+/// Complete tasks with the batch endpoint, 50 per request.
+///
+/// Returns one result per input ID (duplicates removed, order kept): `Ok(())` when the
+/// endpoint reported the ID as completed, otherwise an error. The endpoint returns only
+/// the IDs it completed, so unknown IDs come back as errors.
+pub fn complete_many(
+    token: &str,
+    project_id: &str,
+    task_ids: &[String],
+) -> Vec<(String, Result<(), String>)> {
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<String> = task_ids
+        .iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    let mut out = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(COMPLETE_BATCH_SIZE) {
+        let body = complete_tasks_body(project_id, chunk);
+        let completed = super::post("/task/completeTasks", token, &body).and_then(|resp| {
+            resp.into_json::<Vec<String>>()
+                .map_err(|e| format!("failed to parse completeTasks response: {e}"))
+        });
+        match completed {
+            Ok(done) => {
+                let done: std::collections::HashSet<String> = done.into_iter().collect();
+                for id in chunk {
+                    let r = if done.contains(id) {
+                        Ok(())
+                    } else {
+                        Err("not completed (task not found in project?)".to_string())
+                    };
+                    out.push((id.clone(), r));
+                }
+            }
+            Err(e) => out.extend(chunk.iter().map(|id| (id.clone(), Err(e.clone())))),
+        }
+    }
+    out
+}
+
 pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
     super::delete(&format!("/project/{project_id}/task/{task_id}"), token)?;
 
@@ -856,6 +905,26 @@ pub fn unassign(token: &str, project_id: &str, task_id: &str) -> Result<serde_js
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_tasks_body_uses_v1_shape() {
+        let ids = vec!["t1".to_string(), "t2".to_string()];
+        assert_eq!(
+            complete_tasks_body("p1", &ids),
+            serde_json::json!({ "projectId": "p1", "taskIds": ["t1", "t2"] })
+        );
+    }
+
+    #[test]
+    fn complete_batch_size_matches_api_limit() {
+        assert_eq!(COMPLETE_BATCH_SIZE, 50);
+        let ids: Vec<usize> = (0..120).collect();
+        let sizes: Vec<usize> = ids
+            .chunks(COMPLETE_BATCH_SIZE)
+            .map(<[usize]>::len)
+            .collect();
+        assert_eq!(sizes, [50, 50, 20]);
+    }
 
     #[test]
     fn task_move_serializes_to_v1_shape() {

@@ -85,7 +85,7 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task get <project> <task_id>` | | Get task details |
 | `task add <titles...> [-p project]` | `task new` | Create one or more tasks |
 | `task edit <project> <task_ids...>` | `task update` | Edit one or more tasks |
-| `task complete <project> <task_ids...>` | `task done` | Mark one or more tasks as complete |
+| `task complete <project> <task_ids...>` | `task done` | Mark one or more tasks as complete (several IDs are batched, 50 per request) |
 | `task delete <project> <task_ids...>` | `task rm` | Delete one or more tasks |
 | `task move <project> <task_ids...> --to <dest>` | `task mv` | Move one or more tasks to a different project |
 | `task assign <project> <task_id> --assignee <username>` | | Assign a task to a project member (shared projects only) |
