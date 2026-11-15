@@ -1,0 +1,2043 @@
+{
+  "tools": [
+    {
+      "name": "list_tasks",
+      "description": "List tasks from TickTick.\n\nRetrieves tasks from a specific project or all projects. Use 'status' to\nfilter by active/completed tasks. For completed tasks across all projects,\nomit the project parameter.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Project name or ID to list tasks from. Supports fuzzy matching.\nUse \"inbox\" for the default inbox. Omit to list from all projects."
+          },
+          "status": {
+            "default": "active",
+            "type": "string",
+            "description": "Filter by task status: \"active\" (default) or \"completed\"."
+          },
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "description": "Maximum number of completed tasks to return (only used with status=\"completed\")."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get a single task by its ID.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "add_task",
+      "description": "Create a new task in TickTick.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Task title (required)."
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Project name or ID. Supports fuzzy matching. Omit for inbox."
+          },
+          "due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Due date. Accepts \"today\", \"tomorrow\", \"YYYY-MM-DD\", \"YYYY-MM-DDTHH:MM\"."
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Start date. Same format as due. If duration is set, defaults to due."
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Duration like \"1h\", \"30m\", \"1h30m\". Requires a start or due date with a time."
+          },
+          "priority": {
+            "default": "none",
+            "type": "string",
+            "description": "Priority level: \"none\" (default), \"low\", \"medium\", \"high\"."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "List of tag names to apply."
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Markdown content/notes for the task."
+          },
+          "desc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Plain text description."
+          },
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "List of checklist item titles."
+          },
+          "all_day": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Whether this is an all-day task. Auto-detected from date format."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "IANA timezone name (e.g. \"America/Chicago\"). Defaults to system timezone."
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Kanban column name or ID to put the task in. Requires project."
+          },
+          "reminders": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Reminder triggers, e.g. [\"TRIGGER:PT0S\"] (at due time) or\n[\"TRIGGER:-PT15M\"] (15 min before). Omit to get the default when the task\nhas a date: at the due time for timed tasks, 9am for all-day tasks. Pass\n[] for no reminder."
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "edit_task",
+      "description": "Update an existing task.\n\nOnly provided fields are changed. Use clear_due/clear_start to remove dates.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to edit."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New task title."
+          },
+          "due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New due date (\"today\", \"tomorrow\", \"YYYY-MM-DD\", \"YYYY-MM-DDTHH:MM\")."
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New start date."
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New priority: \"none\", \"low\", \"medium\", \"high\"."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Replace all tags with this list."
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New markdown content."
+          },
+          "desc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New plain text description."
+          },
+          "clear_due": {
+            "default": false,
+            "type": "boolean",
+            "description": "Set to true to remove the due date."
+          },
+          "clear_start": {
+            "default": false,
+            "type": "boolean",
+            "description": "Set to true to remove the start date."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "IANA timezone for date interpretation."
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Move the task to this kanban column (name or ID) within its project."
+          },
+          "reminders": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Replace all reminders with these triggers, e.g. [\"TRIGGER:PT0S\"].\nPass [] to remove all reminders. Omit to leave reminders unchanged."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "complete_task",
+      "description": "Mark one or more tasks as complete.\n\nPass `task_id` for a single task, or `task_ids` for several. Several tasks are\ncompleted with the batch endpoint in chunks of 50 instead of one request each.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task(s)."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A single task ID to complete."
+          },
+          "task_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Several task IDs to complete (all in `project`)."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "delete_task",
+      "description": "Permanently delete a task.\n\nThis action cannot be undone. The task is moved to trash first but\nthis API call removes it entirely.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to delete."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "move_task",
+      "description": "Move a task from one project to another.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to move."
+          },
+          "from_project": {
+            "type": "string",
+            "description": "Source project name or ID."
+          },
+          "to_project": {
+            "type": "string",
+            "description": "Destination project name or ID."
+          }
+        },
+        "required": [
+          "task_id",
+          "from_project",
+          "to_project"
+        ]
+      }
+    },
+    {
+      "name": "assign_task",
+      "description": "Assign a task to a member of its (shared) project.\n\nUse list_project_members to find valid usernames. Only works in\nprojects shared with other people.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to assign."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Member username (from list_project_members)."
+          }
+        },
+        "required": [
+          "task_id",
+          "project",
+          "assignee"
+        ]
+      }
+    },
+    {
+      "name": "unassign_task",
+      "description": "Remove the assignee from a task.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to unassign."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "set_subtask",
+      "description": "Make a task a subtask of another task.\n\nBoth tasks must be in the same project.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to make a subtask."
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "The parent task ID."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing both tasks."
+          }
+        },
+        "required": [
+          "task_id",
+          "parent_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "unparent_task",
+      "description": "Remove a task's parent, making it a top-level task.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID to unparent."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "list_trash",
+      "description": "List tasks in the trash.\n\nReturns tasks that have been deleted but not yet permanently removed.\nRequires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_comments",
+      "description": "List the comments on a task.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          }
+        },
+        "required": [
+          "task_id",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to a task.\n\nComments cannot be edited through the official API. To change one,\ndelete it and add a new one.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          },
+          "text": {
+            "type": "string",
+            "description": "The comment text."
+          }
+        },
+        "required": [
+          "task_id",
+          "project",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Delete a comment from a task.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project name or ID containing the task."
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The comment ID (from list_comments)."
+          }
+        },
+        "required": [
+          "task_id",
+          "project",
+          "comment_id"
+        ]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List all projects (task lists) in TickTick.\n\nReturns all projects including their IDs, names, colors, and folder assignments.\nDoes not include the Inbox — use \"inbox\" as the project name in task tools to\ninteract with the default inbox.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get a single project by name or ID.\n\nSupports fuzzy name matching. Use \"inbox\" to get the inbox project.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "list_project_members",
+      "description": "List the members of a project.\n\nReturns username, displayName, and self (true for you). A project\nthat is not shared lists only you. Use a member's username with\nassign_task.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "add_project",
+      "description": "Create a new project (task list).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name (required)."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Hex color code (e.g. \"#FF0000\")."
+          },
+          "view_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "View mode: \"list\", \"kanban\", \"timeline\"."
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Project kind (e.g. \"TASK\", \"NOTE\")."
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Folder name or ID to place the project in."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "edit_project",
+      "description": "Update an existing project's properties.\n\nOnly provided fields are changed.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID to edit."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New project name."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New hex color code."
+          },
+          "view_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New view mode: \"list\", \"kanban\", \"timeline\"."
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Move project to this folder (name or ID)."
+          },
+          "remove_folder": {
+            "default": false,
+            "type": "boolean",
+            "description": "Set to true to remove the project from its folder."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Permanently delete a project and all its tasks.\n\nThis action cannot be undone.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID to delete."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "search_tasks",
+      "description": "Search tasks by keyword, server-side.\n\nMatches whole words in task titles and content, case-insensitively\n(\"quokka\" finds \"Quokka plan\", \"quok\" does not). Faster than listing every\nproject and scanning. For criteria without a keyword (priority, date range,\nkind), use filter_tasks.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keyword(s) to search for."
+          },
+          "projects": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only search these projects (names or IDs; \"inbox\" works)."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only tasks with these tags."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Statuses to include: \"active\", \"completed\", \"abandoned\"."
+          },
+          "due_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Earliest due date: \"today\", \"tomorrow\", \"YYYY-MM-DD\", or \"YYYY-MM-DDTHH:MM\"."
+          },
+          "due_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest due date, same formats."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "filter_tasks",
+      "description": "Filter tasks by project, date range, priority, tags, status, or kind, server-side.\n\nAll criteria are optional and combine. No keyword matching; use search_tasks\nfor that. Not related to the saved filters (list_filters and friends).",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projects": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only these projects (names or IDs; \"inbox\" works)."
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Earliest task start date: \"today\", \"tomorrow\", \"YYYY-MM-DD\",\nor \"YYYY-MM-DDTHH:MM\"."
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest task start date, same formats."
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Priorities to include: \"none\", \"low\", \"medium\", \"high\"."
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only tasks with these tags."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Statuses to include: \"active\", \"completed\", \"abandoned\"."
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Task kinds to include: \"text\", \"note\", \"checklist\"."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "List all tags.\n\nReturns all tags with their names, colors, parent relationships, and sort settings.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_tags",
+      "description": "Create one or more new tags.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of tag names to create."
+          }
+        },
+        "required": [
+          "names"
+        ]
+      }
+    },
+    {
+      "name": "delete_tags",
+      "description": "Delete one or more tags by name.\n\nTasks keep existing, but the tag is removed from every task that had it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of tag names to delete."
+          }
+        },
+        "required": [
+          "names"
+        ]
+      }
+    },
+    {
+      "name": "rename_tag",
+      "description": "Rename a tag.\n\nAll tasks with the old tag name will be updated to use the new name.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "old_name": {
+            "type": "string",
+            "description": "Current tag name."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New tag name."
+          }
+        },
+        "required": [
+          "old_name",
+          "new_name"
+        ]
+      }
+    },
+    {
+      "name": "edit_tag",
+      "description": "Update a tag's properties.\n\nOnly provided fields are changed.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The tag name to edit."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New hex color code (e.g. \"#FF0000\")."
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Set a parent tag name (for hierarchical tags)."
+          },
+          "clear_parent": {
+            "default": false,
+            "type": "boolean",
+            "description": "Set to true to remove the parent tag."
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New sort order integer."
+          },
+          "sort_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Sort type (e.g. \"project\", \"dueDate\")."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "merge_tags",
+      "description": "Merge a source tag into a target tag.\n\nAll tasks tagged with the source tag will be re-tagged with the target tag.\nThe source tag is deleted.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Tag name to merge from (will be deleted)."
+          },
+          "target": {
+            "type": "string",
+            "description": "Tag name to merge into (will be kept)."
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List all project folders (groups).\n\nFolders organize projects into groups. Returns folder IDs, names,\nand sort settings.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_folder",
+      "description": "Create a new project folder.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Folder name (required)."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_folders",
+      "description": "Delete one or more folders.\n\nProjects inside deleted folders are not deleted — they become ungrouped.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "folders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of folder names or IDs to delete. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "folders"
+        ]
+      }
+    },
+    {
+      "name": "rename_folder",
+      "description": "Rename a project folder.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "folder": {
+            "type": "string",
+            "description": "Current folder name or ID. Supports fuzzy matching."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New folder name."
+          }
+        },
+        "required": [
+          "folder",
+          "new_name"
+        ]
+      }
+    },
+    {
+      "name": "list_habits",
+      "description": "List all habits.\n\nReturns all habits with their IDs, names, types, goals, streaks, and sections.\nRequires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_habit",
+      "description": "Create a new habit.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Habit name (required)."
+          },
+          "habit_type": {
+            "default": "Boolean",
+            "type": "string",
+            "description": "\"Boolean\" for yes/no, \"Numeric\" for tracked values. Default: \"Boolean\"."
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Daily goal value (e.g. 8 for \"8 glasses of water\"). Default: 1 for Boolean."
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Unit label for numeric habits (e.g. \"glasses\", \"km\", \"pages\")."
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Habit section name or ID to group this habit under."
+          },
+          "repeat_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Repeat rule string (e.g. for specific days of the week)."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Hex color code (e.g. \"#FF0000\")."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "edit_habit",
+      "description": "Update an existing habit's properties.\n\nOnly provided fields are changed.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "habit": {
+            "type": "string",
+            "description": "Habit name or ID. Supports fuzzy matching."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New habit name."
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New daily goal value."
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New unit label."
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Move to this section (name or ID)."
+          },
+          "repeat_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New repeat rule string."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New hex color code."
+          }
+        },
+        "required": [
+          "habit"
+        ]
+      }
+    },
+    {
+      "name": "delete_habits",
+      "description": "Delete one or more habits.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "habits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of habit names or IDs to delete. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "habits"
+        ]
+      }
+    },
+    {
+      "name": "checkin_habit",
+      "description": "Record a habit check-in for a given date.\n\nFor Boolean habits, value=1 means done. For Numeric habits, value is the\ntracked amount (e.g. 3 for \"3 glasses of water\").",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "habit": {
+            "type": "string",
+            "description": "Habit name or ID. Supports fuzzy matching."
+          },
+          "date": {
+            "default": "today",
+            "type": "string",
+            "description": "Check-in date: \"today\" (default), \"yesterday\", or \"YYYY-MM-DD\"."
+          },
+          "value": {
+            "default": 1.0,
+            "type": "number",
+            "description": "Check-in value. Default: 1.0 (done for Boolean habits)."
+          }
+        },
+        "required": [
+          "habit"
+        ]
+      }
+    },
+    {
+      "name": "habit_log",
+      "description": "Query check-in history for one or more habits.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "habits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of habit names or IDs to query. Supports fuzzy matching."
+          },
+          "after": {
+            "default": "today",
+            "type": "string",
+            "description": "Return check-ins after this date: \"today\", \"yesterday\", \"YYYY-MM-DD\"."
+          }
+        },
+        "required": [
+          "habits"
+        ]
+      }
+    },
+    {
+      "name": "archive_habits",
+      "description": "Archive one or more habits (set status to inactive).\n\nArchived habits are hidden from the main view but retain their data.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "habits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of habit names or IDs to archive. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "habits"
+        ]
+      }
+    },
+    {
+      "name": "manage_habit_sections",
+      "description": "Manage habit sections (groups for organizing habits).\n\nConsolidates list/add/delete/rename operations into one tool.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Operation to perform: \"list\", \"add\", \"delete\", \"rename\"."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Section name (required for \"add\")."
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Section name or ID (required for \"rename\")."
+          },
+          "new_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New name (required for \"rename\")."
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "List of section names or IDs (required for \"delete\")."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "list_filters",
+      "description": "List all saved filters.\n\nReturns all custom filters with their IDs, names, rules, and sort settings.\nRequires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_filter",
+      "description": "Create a new saved filter.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Filter name (required)."
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "JSON rule definition string (e.g. '{\"and\":[],\"type\":0}')."
+          },
+          "sort_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Sort type for filter results (e.g. \"dueDate\", \"priority\")."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "edit_filter",
+      "description": "Update an existing filter.\n\nOnly provided fields are changed.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "filter_name": {
+            "type": "string",
+            "description": "Current filter name or ID. Supports fuzzy matching."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New filter name."
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New JSON rule definition string."
+          },
+          "sort_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New sort type."
+          }
+        },
+        "required": [
+          "filter_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_filters",
+      "description": "Delete one or more saved filters.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "filters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "List of filter names or IDs to delete. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "filters"
+        ]
+      }
+    },
+    {
+      "name": "focus_status",
+      "description": "Get the current focus/pomodoro timer status.\n\nReturns the active timer state including elapsed time, task association,\nand whether it's running or paused. Requires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "focus_stats",
+      "description": "Get focus/pomodoro statistics.\n\nReturns daily and total focus time statistics including session counts\nand total minutes. Requires v2 session token.\n\nNote: \"total\" fields may exclude the current day (TickTick caches these).\nUse focus_log for accurate current-day data.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "focus_log",
+      "description": "Get focus session log for a date range.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from_date": {
+            "type": "string",
+            "description": "Start date: \"today\", \"yesterday\", or \"YYYY-MM-DD\"."
+          },
+          "to_date": {
+            "type": "string",
+            "description": "End date: \"today\", \"yesterday\", or \"YYYY-MM-DD\"."
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date"
+        ]
+      }
+    },
+    {
+      "name": "focus_timeline",
+      "description": "Get the full focus session timeline.\n\nReturns all focus sessions in chronological order.\nRequires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "focus_save",
+      "description": "Save a completed focus/pomodoro record.\n\nRecords a focus session that has already happened. This does not start\na live timer — it saves a historical record.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Duration of the focus session in minutes. Must be >= 1."
+          },
+          "end": {
+            "default": "now",
+            "type": "string",
+            "description": "End time: \"now\" (default) or ISO datetime string (e.g. \"2026-02-22T14:30:00\")."
+          },
+          "note": {
+            "default": "",
+            "type": "string",
+            "description": "Optional note to attach to the session."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional task ID to associate with the session."
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional project ID (required if task_id is provided)."
+          }
+        },
+        "required": [
+          "duration_minutes"
+        ]
+      }
+    },
+    {
+      "name": "list_calendars",
+      "description": "List third-party calendar accounts connected to TickTick.\n\nReturns connected calendar accounts (Google Calendar, Outlook, etc.)\nwith their sync status. Requires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "Query calendar events for a date range.\n\nReturns events from all connected calendars within the specified date range.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "begin": {
+            "type": "string",
+            "description": "Start datetime in ISO format (e.g. \"2026-02-11T00:00:00.000+0000\")."
+          },
+          "end": {
+            "type": "string",
+            "description": "End datetime in ISO format (e.g. \"2026-02-18T23:59:59.999+0000\")."
+          }
+        },
+        "required": [
+          "begin",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "sync_account",
+      "description": "Perform a full account sync.\n\nFetches the complete account state including all projects, tasks, tags,\nfilters, folders, and settings. Useful for getting a comprehensive view\nof the account or forcing a refresh. Requires v2 session token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_columns",
+      "description": "List the kanban columns of a project.\n\nReturns column IDs, names, colors, and sort orders. A project only has\ncolumns when it uses the kanban view.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID. Supports fuzzy matching."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "add_column",
+      "description": "Create a kanban column in a project.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID. Supports fuzzy matching."
+          },
+          "name": {
+            "type": "string",
+            "description": "Column name (required)."
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Position among the columns; lower comes first."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Column color as a hex string, e.g. \"#FF0000\"."
+          }
+        },
+        "required": [
+          "project",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "edit_column",
+      "description": "Rename, reorder, or recolor a kanban column.\n\nOnly provided fields are changed. The official API has no endpoint to\ndelete a column, so there is no delete_column tool.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name or ID. Supports fuzzy matching."
+          },
+          "column": {
+            "type": "string",
+            "description": "Column name or ID. Supports fuzzy matching."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New column name."
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New position among the columns; lower comes first."
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New color as a hex string, e.g. \"#FF0000\"."
+          }
+        },
+        "required": [
+          "project",
+          "column"
+        ]
+      }
+    },
+    {
+      "name": "list_countdowns",
+      "description": "List all countdowns (birthdays, anniversaries, events).\n\nRead-only: the official API has no create, update, or delete for countdowns.\nEach countdown has an id, name, date (YYYYMMDD integer), repeatFlag, reminders,\nand display settings.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ],
+  "resources": [
+    {
+      "uri": "ticktick://profile",
+      "name": "profile",
+      "description": "User profile and subscription status merged into one view."
+    },
+    {
+      "uri": "ticktick://settings",
+      "name": "settings",
+      "description": "User preference settings including web-specific options."
+    },
+    {
+      "uri": "ticktick://projects",
+      "name": "projects",
+      "description": "All projects (task lists) with their IDs, names, colors, and folder assignments."
+    },
+    {
+      "uri": "ticktick://tags",
+      "name": "tags",
+      "description": "All tags with their names, colors, and hierarchical relationships."
+    }
+  ]
+}
