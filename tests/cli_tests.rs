@@ -1486,3 +1486,34 @@ fn focus_log_accepts_date_range() {
         .assert()
         .code(predicate::ne(2));
 }
+
+#[test]
+fn task_comment_help_lists_subcommands() {
+    cmd()
+        .args(["task", "comment", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("list")
+                .and(predicate::str::contains("add"))
+                .and(predicate::str::contains("delete")),
+        );
+}
+
+#[test]
+fn task_comment_add_requires_text() {
+    cmd()
+        .args(["task", "comment", "add", "Work", "t1"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn task_comment_has_no_edit_subcommand() {
+    cmd()
+        .args(["task", "comment", "edit", "Work", "t1", "c1", "x"])
+        .assert()
+        .failure()
+        .code(2);
+}

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `task comment list|add|delete` manage task comments via the official v1 API (`GET .../task/{t}/comments`, `POST .../task/{t}/comment`, `DELETE .../task/{t}/comment/{id}`). There is no `edit`: the API has no edit endpoint (`PUT`/`POST`/`PATCH` on `.../comment/{id}` return 405), so delete and re-add instead.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)

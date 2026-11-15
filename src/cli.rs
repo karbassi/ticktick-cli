@@ -605,6 +605,70 @@ Examples:
   ticktick-cli task trash
 ")]
     Trash,
+
+    /// Manage task comments
+    ///
+    /// List, add, and delete comments on a task via the official v1 API.
+    /// Comments cannot be edited (the API has no edit endpoint); delete and
+    /// re-add instead.
+    #[command(subcommand)]
+    Comment(CommentCommands),
+}
+
+#[derive(Subcommand)]
+enum CommentCommands {
+    /// List the comments on a task
+    #[command(visible_alias = "ls")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment list Work abc123
+")]
+    List {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+    },
+
+    /// Add a comment to a task
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment add Work abc123 'Waiting on legal'
+")]
+    Add {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+
+        /// Comment text
+        text: String,
+    },
+
+    /// Delete a comment from a task
+    ///
+    /// WARNING: This action cannot be undone!
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment delete --force Work abc123 comment456
+")]
+    Delete {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+
+        /// Comment ID (from `task comment list`)
+        comment_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2058,6 +2122,44 @@ pub fn run() -> Result<(), String> {
                     .collect();
 
                 output_results(&results)
+            }
+            TaskCommands::Comment(sub) => {
+                let token = crate::config::get_access_token()?;
+                match sub {
+                    CommentCommands::List { project, task_id } => {
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        let comments = crate::api::comment::list(&token, &project_id, &task_id)?;
+                        crate::output::success(&comments);
+                        Ok(())
+                    }
+                    CommentCommands::Add {
+                        project,
+                        task_id,
+                        text,
+                    } => {
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        let comment =
+                            crate::api::comment::add(&token, &project_id, &task_id, &text)?;
+                        crate::output::success(&comment);
+                        Ok(())
+                    }
+                    CommentCommands::Delete {
+                        project,
+                        task_id,
+                        comment_id,
+                        force,
+                    } => {
+                        if !force {
+                            confirm_destructive(1, "comment")?;
+                        }
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        crate::api::comment::delete(&token, &project_id, &task_id, &comment_id)?;
+                        crate::output::success(
+                            &serde_json::json!({"status": "ok", "id": comment_id}),
+                        );
+                        Ok(())
+                    }
+                }
             }
             TaskCommands::Delete {
                 project,
