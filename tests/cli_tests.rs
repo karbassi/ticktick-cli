@@ -69,6 +69,7 @@ fn top_level_subcommand_help_exits_zero() {
         "task",
         "project",
         "tag",
+        "countdown",
         "folder",
         "habit",
         "filter",
@@ -1118,6 +1119,23 @@ fn task_list_completed_with_limit() {
         .args(["task", "list", "--completed", "--limit", "100"])
         .assert()
         .code(predicate::ne(2));
+}
+
+// -- Countdown commands --
+
+#[test]
+fn countdown_list_help_exits_zero() {
+    cmd()
+        .args(["countdown", "list", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn countdown_has_no_write_subcommands() {
+    for subcmd in ["add", "delete", "edit"] {
+        cmd().args(["countdown", subcmd]).assert().failure().code(2);
+    }
 }
 
 // -- Tag commands --

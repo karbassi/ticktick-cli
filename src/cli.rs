@@ -114,6 +114,10 @@ Examples:
     #[command(subcommand)]
     Project(ProjectCommands),
 
+    /// List countdowns (read-only)
+    #[command(subcommand)]
+    Countdown(CountdownCommands),
+
     /// Manage project folders/groups
     #[command(subcommand)]
     Folder(FolderCommands),
@@ -638,6 +642,19 @@ Examples:
   ticktick-cli task trash
 ")]
     Trash,
+}
+
+#[derive(Subcommand)]
+enum CountdownCommands {
+    /// List all countdowns
+    ///
+    /// Lists countdowns (birthdays, anniversaries, events). The official API
+    /// has no create, update, or delete for countdowns.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli countdown list
+")]
+    List,
 }
 
 #[derive(Subcommand)]
@@ -2291,6 +2308,13 @@ pub fn run() -> Result<(), String> {
             TaskCommands::Trash => {
                 let tasks = crate::api::v2::list_trash()?;
                 crate::output::success(&tasks);
+                Ok(())
+            }
+        },
+        Commands::Countdown(subcmd) => match subcmd {
+            CountdownCommands::List => {
+                let countdowns = crate::api::countdown::list()?;
+                crate::output::success(&countdowns);
                 Ok(())
             }
         },

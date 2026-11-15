@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `project members <project>` (`GET /open/v1/project/{id}/members`), `task assign <project> <task_id> --assignee <username>` (`POST /open/v1/task/assign`) and `task unassign <project> <task_id>` (`POST /open/v1/task/unassign`). Members and unassign verified live; assign is mock-only (request body unit-tested) because it needs a project shared with another person.
 
+### Added
+
+- `countdown list` via `GET /open/v1/countdown`. Read-only: `POST`, `PUT` and `DELETE` on `/open/v1/countdown` return 405, so there are no write commands.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)

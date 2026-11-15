@@ -100,6 +100,7 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task subtask <project> <parent> <ids...>` | | Set tasks as subtasks |
 | `task unparent <project> <ids...>` | | Remove subtask relationships |
 | `task trash` | | List tasks in trash |
+| `countdown list` | | List countdowns (read-only; the API has no writes) |
 | `tag list` | | List all tags |
 | `tag add <names...>` | | Create tags |
 | `tag delete <names...>` | `tag rm` | Delete tags |
