@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `task search <query>` — server-side keyword search via `POST /open/v1/task/search`. Whole-word, case-insensitive match; narrow with `--project`, `--tag`, `--status`, `--due-from`, `--due-to`.
+- `task filter` — server-side filtering via `POST /open/v1/task/filter` by `--project`, `--start-date`, `--end-date`, `--priority`, `--tag`, `--status`, `--kind`. The endpoint calls plain tasks `TASK`, so `--kind text` sends that. Verified live; unrelated to the saved `filter` command.
+
+### Added
+
 - `task add` now applies a default reminder when a date is given and no `--reminder` is passed, matching TickTick's own connector: `TRIGGER:PT0S` for timed tasks, `TRIGGER:P0DT9H0M0S` (9am) for all-day tasks. New `--no-reminder` opts out. Before this, dated tasks created here got no reminder, so TickTick never notified. `task edit` is unchanged.
 
 ### Added

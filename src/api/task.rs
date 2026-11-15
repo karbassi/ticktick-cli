@@ -751,6 +751,64 @@ pub fn move_tasks(token: &str, moves: &[TaskMove]) -> Result<(), String> {
     Ok(())
 }
 
+/// Criteria for `POST /task/search`. `keywords` is required by the server
+/// (an empty search returns nothing); the rest are optional.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSearch {
+    pub keywords: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub project_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub status: Vec<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_to: Option<String>,
+}
+
+/// Criteria for `POST /task/filter`. Every field is optional and they combine.
+/// Note the singular `tag`, unlike search's `tags`.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFilter {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub project_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub priority: Vec<i32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tag: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub kind: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub status: Vec<i32>,
+}
+
+fn post_for_tasks(endpoint: &str, token: &str, body: &impl Serialize) -> Result<Vec<Task>, String> {
+    let body = serde_json::to_value(body)
+        .map_err(|e| format!("failed to serialize {endpoint} request: {e}"))?;
+    let resp = super::post(endpoint, token, &body)?;
+    resp.into_json::<Option<Vec<Task>>>()
+        .map(Option::unwrap_or_default)
+        .map_err(|e| format!("failed to parse {endpoint} response: {e}"))
+}
+
+/// Server-side keyword search (whole words, case-insensitive).
+pub fn search(token: &str, search: &TaskSearch) -> Result<Vec<Task>, String> {
+    post_for_tasks("/task/search", token, search)
+}
+
+/// Server-side filter by project, dates, priority, tags, status, and kind.
+pub fn filter(token: &str, filter: &TaskFilter) -> Result<Vec<Task>, String> {
+    post_for_tasks("/task/filter", token, filter)
+}
+
 /// Request body for `POST /task/assign`.
 pub fn assign_body(project_id: &str, task_id: &str, assignee: &str) -> serde_json::Value {
     serde_json::json!({
@@ -809,6 +867,68 @@ mod tests {
         assert_eq!(
             serde_json::to_value(moves).unwrap(),
             serde_json::json!([{ "taskId": "t1", "fromProjectId": "inbox1", "toProjectId": "p2" }])
+        );
+    }
+
+    #[test]
+    fn task_search_serializes_only_set_fields() {
+        let minimal = TaskSearch {
+            keywords: "quokka".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&minimal).unwrap(),
+            serde_json::json!({ "keywords": "quokka" })
+        );
+
+        let full = TaskSearch {
+            keywords: "plan".into(),
+            project_ids: vec!["p1".into()],
+            tags: vec!["a".into()],
+            status: vec![0, 2],
+            due_from: Some("2030-01-01T00:00:00.000+0000".into()),
+            due_to: Some("2030-02-01T00:00:00.000+0000".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&full).unwrap(),
+            serde_json::json!({
+                "keywords": "plan",
+                "projectIds": ["p1"],
+                "tags": ["a"],
+                "status": [0, 2],
+                "dueFrom": "2030-01-01T00:00:00.000+0000",
+                "dueTo": "2030-02-01T00:00:00.000+0000"
+            })
+        );
+    }
+
+    #[test]
+    fn task_filter_serializes_to_v1_shape() {
+        assert_eq!(
+            serde_json::to_value(TaskFilter::default()).unwrap(),
+            serde_json::json!({})
+        );
+
+        let filter = TaskFilter {
+            project_ids: vec!["p1".into()],
+            start_date: Some("2030-01-01T00:00:00.000+0000".into()),
+            end_date: Some("2030-02-01T00:00:00.000+0000".into()),
+            priority: vec![5, 3],
+            tag: vec!["a".into()],
+            kind: vec!["TASK".into()],
+            status: vec![-1],
+        };
+        assert_eq!(
+            serde_json::to_value(&filter).unwrap(),
+            serde_json::json!({
+                "projectIds": ["p1"],
+                "startDate": "2030-01-01T00:00:00.000+0000",
+                "endDate": "2030-02-01T00:00:00.000+0000",
+                "priority": [5, 3],
+                "tag": ["a"],
+                "kind": ["TASK"],
+                "status": [-1]
+            })
         );
     }
 
