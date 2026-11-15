@@ -153,7 +153,8 @@ All five task mutation commands (`add`, `edit`, `complete`, `delete`, `move`) ac
 | `--desc` | `add`, `edit` | Task description |
 | `--tag` | `add`, `edit` | Tag (repeatable) |
 | `--item` | `add`, `edit` | Checklist item (repeatable) |
-| `--reminder` | `add`, `edit` | Reminder trigger (repeatable, e.g. `TRIGGER:PT0S`) |
+| `--reminder` | `add`, `edit` | Reminder trigger (repeatable, e.g. `TRIGGER:PT0S`). `add` with a date and no `--reminder` defaults to `TRIGGER:PT0S` (timed) or `TRIGGER:P0DT9H0M0S` (all-day) |
+| `--no-reminder` | `add` | Skip the default reminder |
 | `--repeat` | `add`, `edit` | Recurrence rule (e.g. `RRULE:FREQ=DAILY;INTERVAL=1`) |
 | `--clear-due` | `edit` | Remove due date |
 | `--clear-start` | `edit` | Remove start date |

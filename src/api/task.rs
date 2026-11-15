@@ -539,6 +539,36 @@ pub enum DateField {
     Clear,
 }
 
+/// Reminder at the due time for timed tasks (TickTick's own default).
+pub const DEFAULT_TIMED_REMINDER: &str = "TRIGGER:PT0S";
+/// Reminder at 9am for all-day tasks (TickTick's own default).
+pub const DEFAULT_ALL_DAY_REMINDER: &str = "TRIGGER:P0DT9H0M0S";
+
+/// Reminders to send when creating a task. Explicit `--reminder` values win;
+/// `--no-reminder` sends an empty list; otherwise a dated task gets the default.
+/// `None` means send no `reminders` field at all.
+pub fn add_reminders(
+    explicit: Vec<String>,
+    no_reminder: bool,
+    is_all_day: Option<bool>,
+    has_datetime: bool,
+) -> Option<Vec<String>> {
+    if !explicit.is_empty() {
+        return Some(explicit);
+    }
+    if no_reminder {
+        return Some(Vec::new());
+    }
+    if !has_datetime {
+        return None;
+    }
+    if is_all_day == Some(true) {
+        Some(vec![DEFAULT_ALL_DAY_REMINDER.to_string()])
+    } else {
+        Some(vec![DEFAULT_TIMED_REMINDER.to_string()])
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct TaskFields {
     pub title: Option<String>,
@@ -740,6 +770,44 @@ mod tests {
             serde_json::to_value(moves).unwrap(),
             serde_json::json!([{ "taskId": "t1", "fromProjectId": "inbox1", "toProjectId": "p2" }])
         );
+    }
+
+    // -- add_reminders --------------------------------------------------------
+
+    #[test]
+    fn add_reminders_timed_defaults_to_at_due_time() {
+        assert_eq!(
+            add_reminders(vec![], false, Some(false), true),
+            Some(vec!["TRIGGER:PT0S".to_string()])
+        );
+    }
+
+    #[test]
+    fn add_reminders_all_day_defaults_to_9am() {
+        assert_eq!(
+            add_reminders(vec![], false, Some(true), true),
+            Some(vec!["TRIGGER:P0DT9H0M0S".to_string()])
+        );
+    }
+
+    #[test]
+    fn add_reminders_no_date_sends_nothing() {
+        assert_eq!(add_reminders(vec![], false, None, false), None);
+    }
+
+    #[test]
+    fn add_reminders_explicit_wins() {
+        let r = vec!["TRIGGER:-PT15M".to_string()];
+        assert_eq!(add_reminders(r.clone(), false, Some(false), true), Some(r));
+    }
+
+    #[test]
+    fn add_reminders_opt_out_sends_empty_list() {
+        assert_eq!(
+            add_reminders(vec![], true, Some(false), true),
+            Some(Vec::new())
+        );
+        assert_eq!(add_reminders(vec![], true, None, false), Some(Vec::new()));
     }
 
     // -- parse_datetime -------------------------------------------------------

@@ -331,6 +331,10 @@ Examples:
         #[arg(long = "reminder", action = clap::ArgAction::Append)]
         reminders: Vec<String>,
 
+        /// Skip the default reminder (applied when a date is given and no --reminder is passed)
+        #[arg(long, conflicts_with = "reminders")]
+        no_reminder: bool,
+
         /// Recurrence rule (e.g. RRULE:FREQ=DAILY;INTERVAL=1)
         #[arg(long = "repeat")]
         repeat: Option<String>,
@@ -1766,6 +1770,7 @@ pub fn run() -> Result<(), String> {
                 tags,
                 items,
                 reminders,
+                no_reminder,
                 repeat,
                 dry_run,
                 stdin,
@@ -1804,11 +1809,12 @@ pub fn run() -> Result<(), String> {
                             .collect(),
                     )
                 };
-                let reminders_field = if reminders.is_empty() {
-                    None
-                } else {
-                    Some(reminders)
-                };
+                let reminders_field = crate::api::task::add_reminders(
+                    reminders,
+                    no_reminder,
+                    is_all_day,
+                    has_datetime,
+                );
                 let repeat_flag = repeat.map(Some);
 
                 if dry_run {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `task add` now applies a default reminder when a date is given and no `--reminder` is passed, matching TickTick's own connector: `TRIGGER:PT0S` for timed tasks, `TRIGGER:P0DT9H0M0S` (9am) for all-day tasks. New `--no-reminder` opts out. Before this, dated tasks created here got no reminder, so TickTick never notified. `task edit` is unchanged.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)
