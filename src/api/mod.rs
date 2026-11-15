@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod calendar;
+pub mod column;
 pub mod comment;
 pub mod countdown;
 pub mod filter;

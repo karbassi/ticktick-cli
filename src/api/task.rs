@@ -54,6 +54,8 @@ pub struct Task {
     pub time_zone: Option<String>,
     #[serde(default)]
     pub parent_id: Option<String>,
+    #[serde(default)]
+    pub column_id: Option<String>,
 }
 
 pub fn get_by_id(token: &str, project_id: &str, task_id: &str) -> Result<Task, String> {
@@ -585,6 +587,7 @@ pub struct TaskFields {
     pub reminders: Option<Vec<String>>,
     pub repeat_flag: Option<Option<String>>,
     pub parent_id: Option<Option<String>>,
+    pub column_id: Option<String>,
 }
 
 impl TaskFields {
@@ -666,6 +669,9 @@ impl TaskFields {
                 body["repeatFlag"] = serde_json::Value::Null;
             }
             None => {}
+        }
+        if let Some(ref cid) = self.column_id {
+            body["columnId"] = serde_json::Value::String(cid.clone());
         }
         match &self.parent_id {
             Some(Some(pid)) => {
@@ -1407,6 +1413,28 @@ mod tests {
         let json = r#"{"id":"t1","title":"standalone"}"#;
         let task: Task = serde_json::from_str(json).unwrap();
         assert!(task.parent_id.is_none());
+    }
+
+    #[test]
+    fn task_fields_apply_column_id() {
+        let fields = TaskFields {
+            column_id: Some("col1".to_string()),
+            ..Default::default()
+        };
+        let mut body = serde_json::json!({});
+        fields.apply_to(&mut body);
+        assert_eq!(body["columnId"], "col1");
+
+        let mut body = serde_json::json!({});
+        TaskFields::default().apply_to(&mut body);
+        assert!(body.get("columnId").is_none());
+    }
+
+    #[test]
+    fn task_deserialize_column_id() {
+        let json = r#"{"id":"t1","title":"x","columnId":"c9","columnName":"Doing"}"#;
+        let task: Task = serde_json::from_str(json).unwrap();
+        assert_eq!(task.column_id.as_deref(), Some("c9"));
     }
 
     #[test]

@@ -14,6 +14,7 @@ src/
     mod.rs       — HTTP helpers (get, post, post_empty, put, delete, delete_json) with auto token refresh
     auth.rs      — OAuth flow
     project.rs   — project CRUD + fuzzy name resolution (case-insensitive, partial match)
+    column.rs    — kanban column list/create/update via v1 API (no delete endpoint), name resolution
     project_group.rs — project folder/group CRUD via v1 API (list, create, delete, rename, resolve)
     task.rs      — task CRUD, date/time parsing, duration parsing
     tag.rs       — tag CRUD via v1 API (list, create, delete, rename, edit); merge via v2

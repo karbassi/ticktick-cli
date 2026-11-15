@@ -96,6 +96,9 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `project add <name>` | | Create a new project |
 | `project edit <project>` | | Edit a project |
 | `project delete <project>` | `project rm` | Delete a project |
+| `project column list <project>` | | List a project's kanban columns |
+| `project column add <project> --name <name>` | | Create a kanban column |
+| `project column edit <project> <column>` | | Rename, reorder, or recolor a column (no delete: the API has none) |
 | `task list --completed [--limit]` | | List completed tasks (v2) |
 | `task subtask <project> <parent> <ids...>` | | Set tasks as subtasks |
 | `task unparent <project> <ids...>` | | Remove subtask relationships |
@@ -185,6 +188,8 @@ All five task mutation commands (`add`, `edit`, `complete`, `delete`, `move`) ac
 | `--view-mode` | `add`, `edit` | View mode: `list`, `kanban`, `timeline` |
 | `--kind` | `add`, `edit` | Project kind: `TASK`, `NOTE` |
 | `--folder` | `add`, `edit` | Assign project to a folder (`--folder none` to remove) |
+
+`task add --column <name>` (with `--project`) and `task edit --column <name>` put a task in a kanban column; names resolve within the project.
 
 **Note:** Project can be specified by name (case-insensitive, partial match supported), ID, or `inbox` for the inbox project.
 
@@ -373,6 +378,7 @@ Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick
 
 | **Assignment** | — | `project members` | `task assign`, `task unassign` | — |
 | **Tags** | `tag add` | `tag list` | `tag edit`, `tag rename` | `tag delete` |
+| **Columns** | `project column add` | `project column list` | `project column edit` | — |
 | **Folders** | `folder add` | `folder list` | `folder rename` | `folder delete` |
 | **Habit Sections** | — | `habit section list` | — | — |
 | **Focus** | — | `focus log` | — | — |
