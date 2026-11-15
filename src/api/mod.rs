@@ -123,6 +123,52 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
     }
 }
 
+/// Send a JSON body with any method, refreshing the token once on 401.
+fn send_json(
+    method: &str,
+    endpoint: &str,
+    token: &str,
+    body: &serde_json::Value,
+) -> Result<ureq::Response, String> {
+    if crate::output::verbose() >= 1 {
+        eprintln!("> {method} {BASE_URL}{endpoint}");
+    }
+    let call = |t: &str| {
+        ureq::request(method, &format!("{BASE_URL}{endpoint}"))
+            .set("Authorization", &format!("Bearer {t}"))
+            .set("Content-Type", "application/json")
+            .send_json(body.clone())
+            .map_err(Box::new)
+    };
+    match call(token) {
+        Ok(resp) => Ok(resp),
+        Err(e) if is_unauthorized(&e) => match try_refresh_token() {
+            Some(new_token) => call(&new_token).map_err(|e| format!("API request failed: {e}")),
+            None => Err(
+                "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string(),
+            ),
+        },
+        Err(e) => Err(format!("API request failed: {e}")),
+    }
+}
+
+pub fn put(
+    endpoint: &str,
+    token: &str,
+    body: &serde_json::Value,
+) -> Result<ureq::Response, String> {
+    send_json("PUT", endpoint, token, body)
+}
+
+/// DELETE with a JSON body (e.g. `/tag/delete`).
+pub fn delete_json(
+    endpoint: &str,
+    token: &str,
+    body: &serde_json::Value,
+) -> Result<ureq::Response, String> {
+    send_json("DELETE", endpoint, token, body)
+}
+
 pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     if crate::output::verbose() >= 1 {
         eprintln!("> DELETE {BASE_URL}{endpoint}");

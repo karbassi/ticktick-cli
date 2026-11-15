@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::v2;
+use crate::config;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,50 +20,40 @@ pub struct ProjectGroup {
     pub view_mode: Option<String>,
 }
 
-/// List all project groups by extracting from batch/check response.
+/// List all project groups (folders).
 pub fn list() -> Result<Vec<ProjectGroup>, String> {
-    let data = v2::batch_check()?;
-    let groups = data
-        .get("projectGroups")
-        .cloned()
-        .unwrap_or(serde_json::Value::Array(vec![]));
-    serde_json::from_value(groups).map_err(|e| format!("failed to parse project groups: {e}"))
+    let token = config::get_access_token()?;
+    let resp = super::get("/project/group", &token)?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project groups: {e}"))
 }
 
 /// Create a project group (folder).
 pub fn create(name: &str) -> Result<serde_json::Value, String> {
-    let token = v2::get_session_token()?;
-    let body = serde_json::json!({
-        "add": [{
-            "name": name,
-            "listType": "group",
-        }]
-    });
-    let resp = v2::v2_post("/batch/projectGroup", &token, &body)?;
+    let token = config::get_access_token()?;
+    let resp = super::post(
+        "/project/group",
+        &token,
+        &serde_json::json!({ "name": name }),
+    )?;
     resp.into_json()
         .map_err(|e| format!("failed to parse project group create response: {e}"))
 }
 
-/// Delete project groups by IDs.
+/// Delete project groups by IDs. Projects inside become ungrouped, not deleted.
 pub fn delete(ids: &[String]) -> Result<(), String> {
-    let token = v2::get_session_token()?;
-    let body = serde_json::json!({ "delete": ids });
-    v2::v2_post("/batch/projectGroup", &token, &body)?;
+    let token = config::get_access_token()?;
+    for id in ids {
+        super::delete(&format!("/project/group/{id}"), &token)?;
+    }
     Ok(())
 }
 
 /// Rename a project group.
-pub fn rename(id: &str, etag: &str, new_name: &str) -> Result<serde_json::Value, String> {
-    let token = v2::get_session_token()?;
-    let body = serde_json::json!({
-        "update": [{
-            "id": id,
-            "etag": etag,
-            "name": new_name,
-            "listType": "group",
-        }]
-    });
-    let resp = v2::v2_post("/batch/projectGroup", &token, &body)?;
+pub fn rename(id: &str, new_name: &str) -> Result<serde_json::Value, String> {
+    let token = config::get_access_token()?;
+    let body = serde_json::json!({ "name": new_name });
+    let resp = super::post(&format!("/project/group/{id}"), &token, &body)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse project group rename response: {e}"))
 }

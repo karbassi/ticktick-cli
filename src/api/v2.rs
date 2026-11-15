@@ -83,23 +83,6 @@ pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         .map_err(|e| v2_error(&e))
 }
 
-/// Make a DELETE request to the v2 API with session auth.
-pub fn v2_delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> DELETE {url}");
-    }
-
-    ureq::delete(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Cookie", &format!("t={token}"))
-        .call()
-        .map_err(|e| v2_error(&e))
-}
-
 /// Make a PUT request to the v2 API with session auth.
 pub fn v2_put(
     endpoint: &str,
@@ -159,27 +142,6 @@ pub fn batch_check() -> Result<serde_json::Value, String> {
     let resp = v2_get("/batch/check/0", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse batch check response: {e}"))
-}
-
-// ---------------------------------------------------------------------------
-// Task move
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskMove {
-    pub task_id: String,
-    pub from_project_id: String,
-    pub to_project_id: String,
-}
-
-/// Move tasks between projects using the v2 batch endpoint.
-pub fn move_tasks(moves: &[TaskMove]) -> Result<(), String> {
-    let token = get_session_token()?;
-    let body = serde_json::to_value(moves)
-        .map_err(|e| format!("failed to serialize move request: {e}"))?;
-    v2_post("/batch/taskProject", &token, &body)?;
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

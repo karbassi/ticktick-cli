@@ -23,13 +23,67 @@ pub fn get_stats() -> Result<serde_json::Value, String> {
         .map_err(|e| format!("failed to parse focus stats: {e}"))
 }
 
-/// Get focus session log for a date range.
+/// v1 `/focus` rejects ranges longer than 30 days.
+const V1_FOCUS_MAX_RANGE_MS: i64 = 30 * 86_400_000;
+/// 0 = pomodoro, 1 = stopwatch. v1 requires one per request.
+const FOCUS_TYPES: [u8; 2] = [0, 1];
+
+/// Format epoch milliseconds as TickTick's `yyyy-MM-ddTHH:mm:ss.SSS+0000`.
+fn epoch_ms_to_iso(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let (y, m, d) = crate::cli::days_to_ymd(secs.div_euclid(86_400) as u64);
+    let rem = secs.rem_euclid(86_400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}+0000",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60,
+        ms.rem_euclid(1000)
+    )
+}
+
+/// Split [from, to] into v1-sized windows.
+fn chunk_range(from: i64, to: i64) -> Vec<(i64, i64)> {
+    let mut chunks = Vec::new();
+    let mut start = from;
+    while start < to {
+        let end = (start + V1_FOCUS_MAX_RANGE_MS).min(to);
+        chunks.push((start, end));
+        start = end;
+    }
+    chunks
+}
+
+/// Get focus records (both types) for a date range, sorted by start time.
 /// `from` and `to` are epoch milliseconds.
 pub fn get_log(from: i64, to: i64) -> Result<serde_json::Value, String> {
-    let token = v2::get_session_token()?;
-    let resp = v2::v2_get(&format!("/pomodoros?from={from}&to={to}"), &token)?;
-    resp.into_json()
-        .map_err(|e| format!("failed to parse focus log: {e}"))
+    let token = crate::config::get_access_token()?;
+    let mut by_id = std::collections::BTreeMap::new();
+    for (start, end) in chunk_range(from, to) {
+        for focus_type in FOCUS_TYPES {
+            let endpoint = format!(
+                "/focus?from={}&to={}&type={focus_type}",
+                v2::url_encode(&epoch_ms_to_iso(start)),
+                v2::url_encode(&epoch_ms_to_iso(end)),
+            );
+            let records: Vec<serde_json::Value> = super::get(&endpoint, &token)?
+                .into_json()
+                .map_err(|e| format!("failed to parse focus log: {e}"))?;
+            // Records spanning a chunk boundary come back in both chunks.
+            for r in records {
+                let id = r["id"].as_str().unwrap_or_default().to_string();
+                by_id.insert(id, r);
+            }
+        }
+    }
+    let mut records: Vec<serde_json::Value> = by_id.into_values().collect();
+    records.sort_by(|a, b| {
+        a["startTime"]
+            .as_str()
+            .unwrap_or_default()
+            .cmp(b["startTime"].as_str().unwrap_or_default())
+    });
+    Ok(serde_json::Value::Array(records))
 }
 
 /// Get full focus session timeline.
@@ -140,6 +194,27 @@ pub fn now_iso() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn epoch_ms_to_iso_formats_utc() {
+        assert_eq!(epoch_ms_to_iso(0), "1970-01-01T00:00:00.000+0000");
+        // 2026-02-14T23:59:59.999Z
+        assert_eq!(
+            epoch_ms_to_iso(1_771_113_599_999),
+            "2026-02-14T23:59:59.999+0000"
+        );
+    }
+
+    #[test]
+    fn chunk_range_splits_at_30_days() {
+        let day = 86_400_000;
+        assert_eq!(chunk_range(0, 10 * day), vec![(0, 10 * day)]);
+        assert_eq!(
+            chunk_range(0, 45 * day),
+            vec![(0, 30 * day), (30 * day, 45 * day)]
+        );
+        assert!(chunk_range(5, 5).is_empty());
+    }
 
     #[test]
     fn generate_id_is_hex() {

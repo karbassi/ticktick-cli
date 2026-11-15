@@ -134,8 +134,8 @@ pub fn list() -> Result<Vec<Habit>, String> {
 
 /// List all habit sections.
 pub fn list_sections() -> Result<Vec<HabitSection>, String> {
-    let token = v2::get_session_token()?;
-    let resp = v2::v2_get("/habitSections", &token)?;
+    let token = crate::config::get_access_token()?;
+    let resp = super::get("/habit/sections", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse habit sections: {e}"))
 }
