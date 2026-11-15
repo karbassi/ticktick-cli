@@ -335,6 +335,10 @@ Examples:
         #[arg(long = "repeat")]
         repeat: Option<String>,
 
+        /// Kanban column name or ID to put the task in (requires --project)
+        #[arg(long, requires = "project")]
+        column: Option<String>,
+
         /// Preview without creating the task
         #[arg(short = 'n', long)]
         dry_run: bool,
@@ -448,6 +452,10 @@ Examples:
         /// Remove recurrence rule
         #[arg(long, conflicts_with = "repeat")]
         clear_repeat: bool,
+
+        /// Move to this kanban column (name or ID) within the project
+        #[arg(long)]
+        column: Option<String>,
 
         /// Read task IDs from stdin (one per line)
         #[arg(long)]
@@ -1397,6 +1405,78 @@ Examples:
         #[arg(short, long)]
         force: bool,
     },
+
+    /// Manage kanban columns of a project
+    #[command(subcommand)]
+    Column(ColumnCommands),
+}
+
+#[derive(Subcommand)]
+enum ColumnCommands {
+    /// List the kanban columns of a project
+    ///
+    /// A project only has columns when it uses the kanban view
+    /// (see 'project edit --view-mode kanban').
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli project column list Work
+")]
+    List {
+        /// Project name or ID
+        project: String,
+    },
+
+    /// Create a kanban column
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli project column add Work --name 'In review'
+  ticktick-cli project column add Work --name Done --sort-order 9 --color '#00AA00'
+")]
+    Add {
+        /// Project name or ID
+        project: String,
+
+        /// Column name
+        #[arg(short, long)]
+        name: String,
+
+        /// Position among the columns (lower comes first)
+        #[arg(long, allow_hyphen_values = true)]
+        sort_order: Option<i64>,
+
+        /// Column color (hex string, e.g. '#FF0000')
+        #[arg(long)]
+        color: Option<String>,
+    },
+
+    /// Rename, reorder, or recolor a kanban column
+    ///
+    /// The official API has no endpoint to delete a column, so there is
+    /// no 'column delete' command.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli project column edit Work Doing --name 'In progress'
+  ticktick-cli project column edit Work Doing --sort-order 2 --color '#FF0000'
+")]
+    Edit {
+        /// Project name or ID
+        project: String,
+
+        /// Column name or ID
+        column: String,
+
+        /// New column name
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// New position among the columns (lower comes first)
+        #[arg(long, allow_hyphen_values = true)]
+        sort_order: Option<i64>,
+
+        /// New column color (hex string, e.g. '#FF0000')
+        #[arg(long)]
+        color: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1767,6 +1847,7 @@ pub fn run() -> Result<(), String> {
                 items,
                 reminders,
                 repeat,
+                column,
                 dry_run,
                 stdin,
             } => {
@@ -1774,6 +1855,10 @@ pub fn run() -> Result<(), String> {
                 let project_id = project
                     .map(|n| crate::api::project::resolve_id(&n))
                     .transpose()?;
+                let column_id = match (&project_id, column) {
+                    (Some(pid), Some(c)) => Some(crate::api::column::resolve_id(pid, &c)?),
+                    _ => None,
+                };
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
@@ -1830,6 +1915,7 @@ pub fn run() -> Result<(), String> {
                                 reminders: reminders_field.clone(),
                                 repeat_flag: repeat_flag.clone(),
                                 parent_id: None,
+                                column_id: column_id.clone(),
                             };
                             let mut body = serde_json::json!({ "dryRun": true });
                             fields.apply_to(&mut body);
@@ -1864,6 +1950,7 @@ pub fn run() -> Result<(), String> {
                             reminders: reminders_field.clone(),
                             repeat_flag: repeat_flag.clone(),
                             parent_id: None,
+                            column_id: column_id.clone(),
                         };
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => {
@@ -1911,6 +1998,7 @@ pub fn run() -> Result<(), String> {
                 clear_reminders,
                 repeat,
                 clear_repeat,
+                column,
                 stdin,
             } => {
                 let inputs = collect_inputs(task_ids, stdin)?;
@@ -1921,6 +2009,9 @@ pub fn run() -> Result<(), String> {
 
                 let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
+                let column_id = column
+                    .map(|c| crate::api::column::resolve_id(&project_id, &c))
+                    .transpose()?;
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
@@ -2004,6 +2095,7 @@ pub fn run() -> Result<(), String> {
                             reminders: reminders_field.clone(),
                             repeat_flag: repeat_flag.clone(),
                             parent_id: None,
+                            column_id: column_id.clone(),
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => {
@@ -2688,6 +2780,54 @@ pub fn run() -> Result<(), String> {
                 let project_id = crate::api::project::resolve_id(&project)?;
                 crate::api::project::delete(&project_id, force)
             }
+            ProjectCommands::Column(cmd) => match cmd {
+                ColumnCommands::List { project } => {
+                    let project_id = crate::api::project::resolve_id(&project)?;
+                    let columns = crate::api::column::list(&project_id)?;
+                    crate::output::success(&columns);
+                    Ok(())
+                }
+                ColumnCommands::Add {
+                    project,
+                    name,
+                    sort_order,
+                    color,
+                } => {
+                    let project_id = crate::api::project::resolve_id(&project)?;
+                    let fields = crate::api::column::ColumnFields {
+                        name: Some(name),
+                        sort_order,
+                        color,
+                    };
+                    let result = crate::api::column::create(&project_id, &fields)?;
+                    crate::output::success(&result);
+                    Ok(())
+                }
+                ColumnCommands::Edit {
+                    project,
+                    column,
+                    name,
+                    sort_order,
+                    color,
+                } => {
+                    let fields = crate::api::column::ColumnFields {
+                        name,
+                        sort_order,
+                        color,
+                    };
+                    if fields.is_empty() {
+                        return Err(
+                            "nothing to update\n\n  hint: pass --name, --sort-order, or --color"
+                                .to_string(),
+                        );
+                    }
+                    let project_id = crate::api::project::resolve_id(&project)?;
+                    let column_id = crate::api::column::resolve_id(&project_id, &column)?;
+                    let result = crate::api::column::update(&project_id, &column_id, &fields)?;
+                    crate::output::success(&result);
+                    Ok(())
+                }
+            },
         },
         Commands::Calendar(subcmd) => match subcmd {
             CalendarCommands::List => {

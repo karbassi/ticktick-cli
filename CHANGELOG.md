@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `project column list|add|edit` manage kanban columns via `GET`/`POST /open/v1/project/{id}/column` and `POST /open/v1/project/{id}/column/{columnId}`. There is no `column delete`: the official API returns 405 for `DELETE` on a column (verified live). Closes #7.
+- `task add --column` and `task edit --column` set a task's `columnId` by column name or ID; `task get` now includes `columnId`.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)

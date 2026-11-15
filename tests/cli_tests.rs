@@ -350,6 +350,7 @@ fn usage_lists_subcommands() {
         "project list",
         "project add",
         "project delete",
+        "project column",
         "profile",
         "settings",
         "sync",
@@ -1485,4 +1486,44 @@ fn focus_log_accepts_date_range() {
         .args(["focus", "log", "--from", "2026-01-01", "--to", "2026-02-01"])
         .assert()
         .code(predicate::ne(2));
+}
+
+#[test]
+fn project_column_help_lists_subcommands() {
+    cmd()
+        .args(["project", "column", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("list")
+                .and(predicate::str::contains("add"))
+                .and(predicate::str::contains("edit")),
+        );
+}
+
+#[test]
+fn project_column_edit_requires_column_arg() {
+    cmd()
+        .args(["project", "column", "edit", "Work"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn project_column_add_requires_name() {
+    cmd()
+        .args(["project", "column", "add", "Work"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn task_add_column_requires_project() {
+    cmd()
+        .args(["task", "add", "--dry-run", "--column", "Doing", "x"])
+        .assert()
+        .failure()
+        .code(2);
 }

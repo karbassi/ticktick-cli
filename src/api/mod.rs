@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod calendar;
+pub mod column;
 pub mod filter;
 pub mod focus;
 pub mod habit;
