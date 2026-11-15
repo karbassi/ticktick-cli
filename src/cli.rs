@@ -26,6 +26,48 @@ impl Priority {
     }
 }
 
+/// Task status for search and filter
+#[derive(Clone, Copy, ValueEnum)]
+pub enum StatusArg {
+    /// Open tasks
+    Active,
+    /// Completed tasks
+    Completed,
+    /// Won't-do tasks
+    Abandoned,
+}
+
+impl StatusArg {
+    pub fn to_api_value(self) -> i32 {
+        match self {
+            StatusArg::Active => 0,
+            StatusArg::Completed => 2,
+            StatusArg::Abandoned => -1,
+        }
+    }
+}
+
+/// Task kind for filter
+#[derive(Clone, Copy, ValueEnum)]
+pub enum KindArg {
+    /// Plain tasks (the filter endpoint calls these TASK)
+    Text,
+    /// Notes
+    Note,
+    /// Checklists
+    Checklist,
+}
+
+impl KindArg {
+    pub fn to_api_value(self) -> &'static str {
+        match self {
+            KindArg::Text => "TASK",
+            KindArg::Note => "NOTE",
+            KindArg::Checklist => "CHECKLIST",
+        }
+    }
+}
+
 /// TickTick CLI - A command-line interface for managing tasks and projects
 ///
 /// Manage your TickTick tasks and projects from the terminal. Supports
@@ -113,6 +155,10 @@ Examples:
     /// Manage projects
     #[command(subcommand)]
     Project(ProjectCommands),
+
+    /// List countdowns (read-only)
+    #[command(subcommand)]
+    Countdown(CountdownCommands),
 
     /// Manage project folders/groups
     #[command(subcommand)]
@@ -331,6 +377,10 @@ Examples:
         #[arg(long = "reminder", action = clap::ArgAction::Append)]
         reminders: Vec<String>,
 
+        /// Skip the default reminder (applied when a date is given and no --reminder is passed)
+        #[arg(long, conflicts_with = "reminders")]
+        no_reminder: bool,
+
         /// Recurrence rule (e.g. RRULE:FREQ=DAILY;INTERVAL=1)
         #[arg(long = "repeat")]
         repeat: Option<String>,
@@ -547,6 +597,39 @@ Examples:
         stdin: bool,
     },
 
+    /// Assign a task to a member of its (shared) project
+    ///
+    /// The project must be shared with other people. Use 'project members'
+    /// to find valid usernames.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task assign Team abc123 --assignee bob@example.com
+")]
+    Assign {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+
+        /// Member username (see 'project members')
+        #[arg(short = 'a', long)]
+        assignee: String,
+    },
+
+    /// Remove the assignee from a task
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task unassign Team abc123
+")]
+    Unassign {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+    },
+
     /// Set tasks as subtasks of a parent task
     ///
     /// Makes one or more tasks children of a parent task within the same project.
@@ -596,6 +679,84 @@ Examples:
         stdin: bool,
     },
 
+    /// Search tasks by keyword (server-side)
+    ///
+    /// Matches whole words in task titles and content, case-insensitively
+    /// ('quokka' finds 'Quokka plan'; 'quok' does not). Searches every project
+    /// unless --project is given. For criteria without a keyword, use 'task filter'.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task search invoice
+  ticktick-cli task search 'tax return' --project Personal
+  ticktick-cli task search report --status completed --status active
+  ticktick-cli task search review --tag work --due-from 2026-03-01 --due-to 2026-03-31
+")]
+    Search {
+        /// Keyword(s) to search for
+        query: String,
+
+        /// Only search these projects (name or ID; repeatable)
+        #[arg(short, long)]
+        project: Vec<String>,
+
+        /// Only tasks with these tags (repeatable)
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Statuses to include (repeatable)
+        #[arg(short, long, value_enum)]
+        status: Vec<StatusArg>,
+
+        /// Earliest due date (today, tomorrow, YYYY-MM-DD, YYYY-MM-DDTHH:MM)
+        #[arg(long)]
+        due_from: Option<String>,
+
+        /// Latest due date (same formats)
+        #[arg(long)]
+        due_to: Option<String>,
+    },
+
+    /// Filter tasks by project, dates, priority, tags, status, or kind (server-side)
+    ///
+    /// All criteria are optional and combine. There is no keyword matching;
+    /// use 'task search' for that. Not related to saved filters ('filter' command).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task filter --priority high --status active
+  ticktick-cli task filter --project Work --tag urgent
+  ticktick-cli task filter --start-date 2026-03-01 --end-date 2026-03-31
+  ticktick-cli task filter --kind checklist
+")]
+    Filter {
+        /// Only these projects (name or ID; repeatable)
+        #[arg(short, long)]
+        project: Vec<String>,
+
+        /// Earliest task start date (today, tomorrow, YYYY-MM-DD, YYYY-MM-DDTHH:MM)
+        #[arg(long)]
+        start_date: Option<String>,
+
+        /// Latest task start date (same formats)
+        #[arg(long)]
+        end_date: Option<String>,
+
+        /// Priorities to include (repeatable)
+        #[arg(long, value_enum)]
+        priority: Vec<Priority>,
+
+        /// Only tasks with these tags (repeatable)
+        #[arg(short, long)]
+        tag: Vec<String>,
+
+        /// Statuses to include (repeatable)
+        #[arg(short, long, value_enum)]
+        status: Vec<StatusArg>,
+
+        /// Kinds to include (repeatable)
+        #[arg(short, long, value_enum)]
+        kind: Vec<KindArg>,
+    },
+
     /// List tasks in the trash
     ///
     /// Shows tasks that have been deleted but not yet permanently removed.
@@ -605,6 +766,83 @@ Examples:
   ticktick-cli task trash
 ")]
     Trash,
+
+    /// Manage task comments
+    ///
+    /// List, add, and delete comments on a task via the official v1 API.
+    /// Comments cannot be edited (the API has no edit endpoint); delete and
+    /// re-add instead.
+    #[command(subcommand)]
+    Comment(CommentCommands),
+}
+
+#[derive(Subcommand)]
+enum CommentCommands {
+    /// List the comments on a task
+    #[command(visible_alias = "ls")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment list Work abc123
+")]
+    List {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+    },
+
+    /// Add a comment to a task
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment add Work abc123 'Waiting on legal'
+")]
+    Add {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+
+        /// Comment text
+        text: String,
+    },
+
+    /// Delete a comment from a task
+    ///
+    /// WARNING: This action cannot be undone!
+    #[command(visible_alias = "rm")]
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli task comment delete --force Work abc123 comment456
+")]
+    Delete {
+        /// Project name or ID containing the task
+        project: String,
+
+        /// Task ID
+        task_id: String,
+
+        /// Comment ID (from `task comment list`)
+        comment_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum CountdownCommands {
+    /// List all countdowns
+    ///
+    /// Lists countdowns (birthdays, anniversaries, events). The official API
+    /// has no create, update, or delete for countdowns.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli countdown list
+")]
+    List,
 }
 
 #[derive(Subcommand)]
@@ -1294,6 +1532,19 @@ Examples:
 ")]
     List,
 
+    /// List the members of a project
+    ///
+    /// Shows usernames to use with 'task assign'. An unshared project lists
+    /// only you.
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli project members Team
+")]
+    Members {
+        /// Project name (case-insensitive) or ID
+        name: String,
+    },
+
     /// Get details for a specific project by name or ID
     ///
     /// Project name matching:
@@ -1614,6 +1865,21 @@ fn resolve_timezone(
     }
 }
 
+/// Resolve project names/IDs to IDs.
+fn resolve_project_ids(projects: &[String]) -> Result<Vec<String>, String> {
+    projects
+        .iter()
+        .map(|p| crate::api::project::resolve_id(p))
+        .collect()
+}
+
+/// Parse a user date (today, YYYY-MM-DD, YYYY-MM-DDTHH:MM) into an API datetime string.
+fn api_date(input: Option<&str>) -> Result<Option<String>, String> {
+    input
+        .map(|s| crate::api::task::parse_datetime(s).map(|d| d.to_api_string(None)))
+        .transpose()
+}
+
 /// Resolve timeblocking flags into TaskFields components.
 /// Returns (due_date, start_date, is_all_day, time_zone).
 fn resolve_timeblock(
@@ -1784,6 +2050,7 @@ pub fn run() -> Result<(), String> {
                 tags,
                 items,
                 reminders,
+                no_reminder,
                 repeat,
                 dry_run,
                 stdin,
@@ -1822,11 +2089,12 @@ pub fn run() -> Result<(), String> {
                             .collect(),
                     )
                 };
-                let reminders_field = if reminders.is_empty() {
-                    None
-                } else {
-                    Some(reminders)
-                };
+                let reminders_field = crate::api::task::add_reminders(
+                    reminders,
+                    no_reminder,
+                    is_all_day,
+                    has_datetime,
+                );
                 let repeat_flag = repeat.map(Some);
 
                 if dry_run {
@@ -2076,6 +2344,44 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TaskCommands::Comment(sub) => {
+                let token = crate::config::get_access_token()?;
+                match sub {
+                    CommentCommands::List { project, task_id } => {
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        let comments = crate::api::comment::list(&token, &project_id, &task_id)?;
+                        crate::output::success(&comments);
+                        Ok(())
+                    }
+                    CommentCommands::Add {
+                        project,
+                        task_id,
+                        text,
+                    } => {
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        let comment =
+                            crate::api::comment::add(&token, &project_id, &task_id, &text)?;
+                        crate::output::success(&comment);
+                        Ok(())
+                    }
+                    CommentCommands::Delete {
+                        project,
+                        task_id,
+                        comment_id,
+                        force,
+                    } => {
+                        if !force {
+                            confirm_destructive(1, "comment")?;
+                        }
+                        let project_id = crate::api::project::resolve_id(&project)?;
+                        crate::api::comment::delete(&token, &project_id, &task_id, &comment_id)?;
+                        crate::output::success(
+                            &serde_json::json!({"status": "ok", "id": comment_id}),
+                        );
+                        Ok(())
+                    }
+                }
+            }
             TaskCommands::Delete {
                 project,
                 task_ids,
@@ -2170,6 +2476,24 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TaskCommands::Assign {
+                project,
+                task_id,
+                assignee,
+            } => {
+                let token = crate::config::get_access_token()?;
+                let project_id = crate::api::project::resolve_id(&project)?;
+                let task = crate::api::task::assign(&token, &project_id, &task_id, &assignee)?;
+                crate::output::success(&task);
+                Ok(())
+            }
+            TaskCommands::Unassign { project, task_id } => {
+                let token = crate::config::get_access_token()?;
+                let project_id = crate::api::project::resolve_id(&project)?;
+                let task = crate::api::task::unassign(&token, &project_id, &task_id)?;
+                crate::output::success(&task);
+                Ok(())
+            }
             TaskCommands::Subtask {
                 project,
                 parent_id,
@@ -2241,9 +2565,60 @@ pub fn run() -> Result<(), String> {
 
                 output_results(&results)
             }
+            TaskCommands::Search {
+                query,
+                project,
+                tag,
+                status,
+                due_from,
+                due_to,
+            } => {
+                let token = crate::config::get_access_token()?;
+                let search = crate::api::task::TaskSearch {
+                    keywords: query,
+                    project_ids: resolve_project_ids(&project)?,
+                    tags: tag,
+                    status: status.iter().map(|s| s.to_api_value()).collect(),
+                    due_from: api_date(due_from.as_deref())?,
+                    due_to: api_date(due_to.as_deref())?,
+                };
+                let tasks = crate::api::task::search(&token, &search)?;
+                crate::output::success(&tasks);
+                Ok(())
+            }
+            TaskCommands::Filter {
+                project,
+                start_date,
+                end_date,
+                priority,
+                tag,
+                status,
+                kind,
+            } => {
+                let token = crate::config::get_access_token()?;
+                let filter = crate::api::task::TaskFilter {
+                    project_ids: resolve_project_ids(&project)?,
+                    start_date: api_date(start_date.as_deref())?,
+                    end_date: api_date(end_date.as_deref())?,
+                    priority: priority.iter().map(|p| p.to_api_value()).collect(),
+                    tag,
+                    kind: kind.iter().map(|k| k.to_api_value().to_string()).collect(),
+                    status: status.iter().map(|s| s.to_api_value()).collect(),
+                };
+                let tasks = crate::api::task::filter(&token, &filter)?;
+                crate::output::success(&tasks);
+                Ok(())
+            }
             TaskCommands::Trash => {
                 let tasks = crate::api::v2::list_trash()?;
                 crate::output::success(&tasks);
+                Ok(())
+            }
+        },
+        Commands::Countdown(subcmd) => match subcmd {
+            CountdownCommands::List => {
+                let countdowns = crate::api::countdown::list()?;
+                crate::output::success(&countdowns);
                 Ok(())
             }
         },
@@ -2661,6 +3036,10 @@ pub fn run() -> Result<(), String> {
         },
         Commands::Project(subcmd) => match subcmd {
             ProjectCommands::List => crate::api::project::list(),
+            ProjectCommands::Members { name } => {
+                let id = crate::api::project::resolve_id(&name)?;
+                crate::api::project::members(&id)
+            }
             ProjectCommands::Get { name } => {
                 let id = crate::api::project::resolve_id(&name)?;
                 crate::api::project::get_by_id(&id)
