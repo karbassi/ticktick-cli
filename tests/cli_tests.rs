@@ -88,10 +88,8 @@ fn top_level_subcommand_help_exits_zero() {
 #[test]
 fn task_subcommand_help_exits_zero() {
     for subcmd in [
-        "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent", "trash",
-        "search", "filter",
         "list", "get", "add", "edit", "complete", "delete", "move", "assign", "unassign",
-        "subtask", "unparent", "trash",
+        "subtask", "unparent", "trash", "search", "filter",
     ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
