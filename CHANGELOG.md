@@ -12,6 +12,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `project column list|add|edit` manage kanban columns via `GET`/`POST /open/v1/project/{id}/column` and `POST /open/v1/project/{id}/column/{columnId}`. There is no `column delete`: the official API returns 405 for `DELETE` on a column (verified live). Closes #7.
 - `task add --column` and `task edit --column` set a task's `columnId` by column name or ID; `task get` now includes `columnId`.
 
+### Added
+
+- `task complete` with several task IDs now uses `POST /open/v1/task/completeTasks` in batches of 50 instead of one request per task. A single ID still uses the per-task endpoint. IDs the API did not complete are reported as errors in the per-task results. Verified live.
+
+### Added
+
+- `task search <query>` — server-side keyword search via `POST /open/v1/task/search`. Whole-word, case-insensitive match; narrow with `--project`, `--tag`, `--status`, `--due-from`, `--due-to`.
+- `task filter` — server-side filtering via `POST /open/v1/task/filter` by `--project`, `--start-date`, `--end-date`, `--priority`, `--tag`, `--status`, `--kind`. The endpoint calls plain tasks `TASK`, so `--kind text` sends that. Verified live; unrelated to the saved `filter` command.
+
+### Added
+
+- `task add` now applies a default reminder when a date is given and no `--reminder` is passed, matching TickTick's own connector: `TRIGGER:PT0S` for timed tasks, `TRIGGER:P0DT9H0M0S` (9am) for all-day tasks. New `--no-reminder` opts out. Before this, dated tasks created here got no reminder, so TickTick never notified. `task edit` is unchanged.
+
+### Added
+
+- `task comment list|add|delete` manage task comments via the official v1 API (`GET .../task/{t}/comments`, `POST .../task/{t}/comment`, `DELETE .../task/{t}/comment/{id}`). There is no `edit`: the API has no edit endpoint (`PUT`/`POST`/`PATCH` on `.../comment/{id}` return 405), so delete and re-add instead.
+
+### Added
+
+- `project members <project>` (`GET /open/v1/project/{id}/members`), `task assign <project> <task_id> --assignee <username>` (`POST /open/v1/task/assign`) and `task unassign <project> <task_id>` (`POST /open/v1/task/unassign`). Members and unassign verified live; assign is mock-only (request body unit-tested) because it needs a project shared with another person.
+
+### Added
+
+- `countdown list` via `GET /open/v1/countdown`. Read-only: `POST`, `PUT` and `DELETE` on `/open/v1/countdown` return 405, so there are no write commands.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)
