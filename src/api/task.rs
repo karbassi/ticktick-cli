@@ -539,6 +539,36 @@ pub enum DateField {
     Clear,
 }
 
+/// Reminder at the due time for timed tasks (TickTick's own default).
+pub const DEFAULT_TIMED_REMINDER: &str = "TRIGGER:PT0S";
+/// Reminder at 9am for all-day tasks (TickTick's own default).
+pub const DEFAULT_ALL_DAY_REMINDER: &str = "TRIGGER:P0DT9H0M0S";
+
+/// Reminders to send when creating a task. Explicit `--reminder` values win;
+/// `--no-reminder` sends an empty list; otherwise a dated task gets the default.
+/// `None` means send no `reminders` field at all.
+pub fn add_reminders(
+    explicit: Vec<String>,
+    no_reminder: bool,
+    is_all_day: Option<bool>,
+    has_datetime: bool,
+) -> Option<Vec<String>> {
+    if !explicit.is_empty() {
+        return Some(explicit);
+    }
+    if no_reminder {
+        return Some(Vec::new());
+    }
+    if !has_datetime {
+        return None;
+    }
+    if is_all_day == Some(true) {
+        Some(vec![DEFAULT_ALL_DAY_REMINDER.to_string()])
+    } else {
+        Some(vec![DEFAULT_TIMED_REMINDER.to_string()])
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct TaskFields {
     pub title: Option<String>,
@@ -779,6 +809,46 @@ pub fn filter(token: &str, filter: &TaskFilter) -> Result<Vec<Task>, String> {
     post_for_tasks("/task/filter", token, filter)
 }
 
+/// Request body for `POST /task/assign`.
+pub fn assign_body(project_id: &str, task_id: &str, assignee: &str) -> serde_json::Value {
+    serde_json::json!({
+        "projectId": project_id,
+        "taskId": task_id,
+        "assigneeUsername": assignee,
+    })
+}
+
+/// Request body for `POST /task/unassign`.
+pub fn unassign_body(project_id: &str, task_id: &str) -> serde_json::Value {
+    serde_json::json!({ "projectId": project_id, "taskId": task_id })
+}
+
+/// Assign a task to a member of its (shared) project. Returns the updated task.
+pub fn assign(
+    token: &str,
+    project_id: &str,
+    task_id: &str,
+    assignee: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = super::post(
+        "/task/assign",
+        token,
+        &assign_body(project_id, task_id, assignee),
+    )
+    .map_err(|e| {
+        format!("{e} (the assignee must be a member of a shared project; see 'project members')")
+    })?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse assign response: {e}"))
+}
+
+/// Remove the assignee from a task. Returns the updated task.
+pub fn unassign(token: &str, project_id: &str, task_id: &str) -> Result<serde_json::Value, String> {
+    let resp = super::post("/task/unassign", token, &unassign_body(project_id, task_id))?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse unassign response: {e}"))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -859,6 +929,56 @@ mod tests {
                 "kind": ["TASK"],
                 "status": [-1]
             })
+        );
+    }
+
+    // -- add_reminders --------------------------------------------------------
+
+    #[test]
+    fn add_reminders_timed_defaults_to_at_due_time() {
+        assert_eq!(
+            add_reminders(vec![], false, Some(false), true),
+            Some(vec!["TRIGGER:PT0S".to_string()])
+        );
+    }
+
+    #[test]
+    fn add_reminders_all_day_defaults_to_9am() {
+        assert_eq!(
+            add_reminders(vec![], false, Some(true), true),
+            Some(vec!["TRIGGER:P0DT9H0M0S".to_string()])
+        );
+    }
+
+    #[test]
+    fn add_reminders_no_date_sends_nothing() {
+        assert_eq!(add_reminders(vec![], false, None, false), None);
+    }
+
+    #[test]
+    fn add_reminders_explicit_wins() {
+        let r = vec!["TRIGGER:-PT15M".to_string()];
+        assert_eq!(add_reminders(r.clone(), false, Some(false), true), Some(r));
+    }
+
+    #[test]
+    fn add_reminders_opt_out_sends_empty_list() {
+        assert_eq!(
+            add_reminders(vec![], true, Some(false), true),
+            Some(Vec::new())
+        );
+        assert_eq!(add_reminders(vec![], true, None, false), Some(Vec::new()));
+    }
+
+    #[test]
+    fn assign_bodies_use_v1_shape() {
+        assert_eq!(
+            assign_body("p1", "t1", "bob@example.com"),
+            serde_json::json!({ "projectId": "p1", "taskId": "t1", "assigneeUsername": "bob@example.com" })
+        );
+        assert_eq!(
+            unassign_body("p1", "t1"),
+            serde_json::json!({ "projectId": "p1", "taskId": "t1" })
         );
     }
 

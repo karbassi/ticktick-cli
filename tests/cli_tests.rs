@@ -69,6 +69,7 @@ fn top_level_subcommand_help_exits_zero() {
         "task",
         "project",
         "tag",
+        "countdown",
         "folder",
         "habit",
         "filter",
@@ -89,6 +90,8 @@ fn task_subcommand_help_exits_zero() {
     for subcmd in [
         "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent", "trash",
         "search", "filter",
+        "list", "get", "add", "edit", "complete", "delete", "move", "assign", "unassign",
+        "subtask", "unparent", "trash",
     ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
@@ -348,6 +351,9 @@ fn usage_lists_subcommands() {
         "task complete",
         "task delete",
         "task move",
+        "task assign",
+        "task unassign",
+        "project members",
         "task subtask",
         "task unparent",
         "task trash",
@@ -1155,6 +1161,23 @@ fn task_list_completed_with_limit() {
         .code(predicate::ne(2));
 }
 
+// -- Countdown commands --
+
+#[test]
+fn countdown_list_help_exits_zero() {
+    cmd()
+        .args(["countdown", "list", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn countdown_has_no_write_subcommands() {
+    for subcmd in ["add", "delete", "edit"] {
+        cmd().args(["countdown", subcmd]).assert().failure().code(2);
+    }
+}
+
 // -- Tag commands --
 
 #[test]
@@ -1524,4 +1547,120 @@ fn focus_log_accepts_date_range() {
         .args(["focus", "log", "--from", "2026-01-01", "--to", "2026-02-01"])
         .assert()
         .code(predicate::ne(2));
+}
+
+fn dry_run_body(args: &[&str]) -> serde_json::Value {
+    let mut full = vec!["task", "add", "--dry-run", "x"];
+    full.extend_from_slice(args);
+    let output = cmd().args(&full).output().expect("failed to run");
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).expect("valid JSON")
+}
+
+#[test]
+fn add_dry_run_timed_gets_default_reminder() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--tz", "America/Chicago"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:PT0S"]));
+}
+
+#[test]
+fn add_dry_run_all_day_gets_9am_reminder() {
+    let v = dry_run_body(&["--due", "2027-03-01", "--tz", "America/Chicago"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:P0DT9H0M0S"]));
+}
+
+#[test]
+fn add_dry_run_no_date_has_no_reminders() {
+    let v = dry_run_body(&[]);
+    assert!(v.get("reminders").is_none());
+}
+
+#[test]
+fn add_dry_run_no_reminder_flag_sends_empty_list() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--no-reminder"]);
+    assert_eq!(v["reminders"], serde_json::json!([]));
+}
+
+#[test]
+fn add_dry_run_explicit_reminder_wins() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--reminder", "TRIGGER:-PT15M"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:-PT15M"]));
+}
+
+#[test]
+fn add_no_reminder_conflicts_with_reminder() {
+    cmd()
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "x",
+            "--no-reminder",
+            "--reminder",
+            "TRIGGER:PT0S",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn task_comment_help_lists_subcommands() {
+    cmd()
+        .args(["task", "comment", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("list")
+                .and(predicate::str::contains("add"))
+                .and(predicate::str::contains("delete")),
+        );
+}
+
+#[test]
+fn task_comment_add_requires_text() {
+    cmd()
+        .args(["task", "comment", "add", "Work", "t1"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn task_comment_has_no_edit_subcommand() {
+    cmd()
+        .args(["task", "comment", "edit", "Work", "t1", "c1", "x"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+// -- Assign / members --
+
+#[test]
+fn assign_help_shows_assignee_flag() {
+    let output = cmd()
+        .args(["task", "assign", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--assignee"));
+}
+
+#[test]
+fn assign_missing_args_exits_two() {
+    cmd()
+        .args(["task", "assign", "p", "t"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn project_members_help_exits_zero() {
+    cmd()
+        .args(["project", "members", "--help"])
+        .assert()
+        .success();
 }

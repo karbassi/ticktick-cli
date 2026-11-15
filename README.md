@@ -88,8 +88,11 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task complete <project> <task_ids...>` | `task done` | Mark one or more tasks as complete |
 | `task delete <project> <task_ids...>` | `task rm` | Delete one or more tasks |
 | `task move <project> <task_ids...> --to <dest>` | `task mv` | Move one or more tasks to a different project |
+| `task assign <project> <task_id> --assignee <username>` | | Assign a task to a project member (shared projects only) |
+| `task unassign <project> <task_id>` | | Remove a task's assignee |
 | `project list` | | List all projects |
 | `project get <name>` | | Get project details by name or ID |
+| `project members <project>` | | List project members (usernames for `task assign`) |
 | `project add <name>` | | Create a new project |
 | `project edit <project>` | | Edit a project |
 | `project delete <project>` | `project rm` | Delete a project |
@@ -99,6 +102,12 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task trash` | | List tasks in trash |
 | `task search <query>` | | Keyword search (server-side); `--project --tag --status --due-from --due-to` |
 | `task filter` | | Filter by `--project --start-date --end-date --priority --tag --status --kind` (server-side) |
+
+| `task comment list <project> <task_id>` | `task comment ls` | List a task's comments |
+| `task comment add <project> <task_id> <text>` | | Add a comment to a task |
+| `task comment delete <project> <task_id> <comment_id>` | `task comment rm` | Delete a task comment |
+
+| `countdown list` | | List countdowns (read-only; the API has no writes) |
 | `tag list` | | List all tags |
 | `tag add <names...>` | | Create tags |
 | `tag delete <names...>` | `tag rm` | Delete tags |
@@ -155,7 +164,8 @@ All five task mutation commands (`add`, `edit`, `complete`, `delete`, `move`) ac
 | `--desc` | `add`, `edit` | Task description |
 | `--tag` | `add`, `edit` | Tag (repeatable) |
 | `--item` | `add`, `edit` | Checklist item (repeatable) |
-| `--reminder` | `add`, `edit` | Reminder trigger (repeatable, e.g. `TRIGGER:PT0S`) |
+| `--reminder` | `add`, `edit` | Reminder trigger (repeatable, e.g. `TRIGGER:PT0S`). `add` with a date and no `--reminder` defaults to `TRIGGER:PT0S` (timed) or `TRIGGER:P0DT9H0M0S` (all-day) |
+| `--no-reminder` | `add` | Skip the default reminder |
 | `--repeat` | `add`, `edit` | Recurrence rule (e.g. `RRULE:FREQ=DAILY;INTERVAL=1`) |
 | `--clear-due` | `edit` | Remove due date |
 | `--clear-start` | `edit` | Remove start date |
@@ -359,6 +369,9 @@ Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick
 | **Projects** | `project add` | `project list`, `project get` | `project edit` | `project delete` |
 | **Completion** | `task complete` | — | — | — |
 | **Move** | — | — | `task move` | — |
+| **Comments** | `task comment add` | `task comment list` | — | `task comment delete` |
+
+| **Assignment** | — | `project members` | `task assign`, `task unassign` | — |
 | **Tags** | `tag add` | `tag list` | `tag edit`, `tag rename` | `tag delete` |
 | **Folders** | `folder add` | `folder list` | `folder rename` | `folder delete` |
 | **Habit Sections** | — | `habit section list` | — | — |
