@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `task complete` with several task IDs now uses `POST /open/v1/task/completeTasks` in batches of 50 instead of one request per task. A single ID still uses the per-task endpoint. IDs the API did not complete are reported as errors in the per-task results. Verified live.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)

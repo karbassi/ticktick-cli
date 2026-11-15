@@ -1434,6 +1434,24 @@ struct BulkResult {
     error: Option<String>,
 }
 
+fn bulk_ok(id: &str) -> BulkResult {
+    BulkResult {
+        id: id.to_string(),
+        status: "ok".into(),
+        data: None,
+        error: None,
+    }
+}
+
+fn bulk_err(id: &str, error: String) -> BulkResult {
+    BulkResult {
+        id: id.to_string(),
+        status: "error".into(),
+        data: None,
+        error: Some(error),
+    }
+}
+
 /// Output bulk results.
 ///
 /// - 1 item, success → output inner data (backward compat)
@@ -2037,25 +2055,24 @@ pub fn run() -> Result<(), String> {
                 let token = crate::config::get_access_token()?;
                 let project_id = crate::api::project::resolve_id(&project)?;
 
-                let results: Vec<BulkResult> = inputs
-                    .iter()
-                    .map(
-                        |task_id| match crate::api::task::complete(&token, &project_id, task_id) {
-                            Ok(()) => BulkResult {
-                                id: task_id.clone(),
-                                status: "ok".into(),
-                                data: None,
-                                error: None,
-                            },
-                            Err(e) => BulkResult {
-                                id: task_id.clone(),
-                                status: "error".into(),
-                                data: None,
-                                error: Some(e),
-                            },
+                let results: Vec<BulkResult> = if inputs.len() == 1 {
+                    let task_id = &inputs[0];
+                    vec![
+                        match crate::api::task::complete(&token, &project_id, task_id) {
+                            Ok(()) => bulk_ok(task_id),
+                            Err(e) => bulk_err(task_id, e),
                         },
-                    )
-                    .collect();
+                    ]
+                } else {
+                    // Several tasks: batch endpoint, 50 per request
+                    crate::api::task::complete_many(&token, &project_id, &inputs)
+                        .into_iter()
+                        .map(|(id, r)| match r {
+                            Ok(()) => bulk_ok(&id),
+                            Err(e) => bulk_err(&id, e),
+                        })
+                        .collect()
+                };
 
                 output_results(&results)
             }
