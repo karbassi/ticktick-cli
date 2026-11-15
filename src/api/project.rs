@@ -191,6 +191,28 @@ pub fn get_by_id(project_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// List a project's members (`GET /project/{id}/members`).
+pub fn members(project_id: &str) -> Result<(), String> {
+    let token = config::get_access_token()?;
+    let resp = super::get(&format!("/project/{project_id}/members"), &token)?;
+    let members: Vec<ProjectMember> = resp
+        .into_json()
+        .map_err(|e| format!("failed to parse project members: {e}"))?;
+    crate::output::success(&members);
+    Ok(())
+}
+
+/// A member of a project, as returned by `GET /project/{id}/members`.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectMember {
+    pub username: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default, rename = "self", skip_serializing_if = "Option::is_none")]
+    pub is_self: Option<bool>,
+}
+
 pub fn create(fields: &ProjectFields) -> Result<(), String> {
     let name = fields
         .name
@@ -257,4 +279,25 @@ pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
 
     crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
+}
+
+#[cfg(test)]
+mod member_tests {
+    use super::ProjectMember;
+
+    #[test]
+    fn project_member_round_trips_self_flag() {
+        let m: ProjectMember = serde_json::from_value(serde_json::json!(
+            { "username": "a@b.c", "displayName": "A", "self": true }
+        ))
+        .unwrap();
+        assert_eq!(m.is_self, Some(true));
+        assert_eq!(
+            serde_json::to_value(&m).unwrap(),
+            serde_json::json!({ "username": "a@b.c", "displayName": "A", "self": true })
+        );
+        let other: ProjectMember =
+            serde_json::from_value(serde_json::json!({ "username": "x" })).unwrap();
+        assert!(other.is_self.is_none());
+    }
 }

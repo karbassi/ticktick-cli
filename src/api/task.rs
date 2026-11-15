@@ -721,6 +721,46 @@ pub fn move_tasks(token: &str, moves: &[TaskMove]) -> Result<(), String> {
     Ok(())
 }
 
+/// Request body for `POST /task/assign`.
+pub fn assign_body(project_id: &str, task_id: &str, assignee: &str) -> serde_json::Value {
+    serde_json::json!({
+        "projectId": project_id,
+        "taskId": task_id,
+        "assigneeUsername": assignee,
+    })
+}
+
+/// Request body for `POST /task/unassign`.
+pub fn unassign_body(project_id: &str, task_id: &str) -> serde_json::Value {
+    serde_json::json!({ "projectId": project_id, "taskId": task_id })
+}
+
+/// Assign a task to a member of its (shared) project. Returns the updated task.
+pub fn assign(
+    token: &str,
+    project_id: &str,
+    task_id: &str,
+    assignee: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = super::post(
+        "/task/assign",
+        token,
+        &assign_body(project_id, task_id, assignee),
+    )
+    .map_err(|e| {
+        format!("{e} (the assignee must be a member of a shared project; see 'project members')")
+    })?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse assign response: {e}"))
+}
+
+/// Remove the assignee from a task. Returns the updated task.
+pub fn unassign(token: &str, project_id: &str, task_id: &str) -> Result<serde_json::Value, String> {
+    let resp = super::post("/task/unassign", token, &unassign_body(project_id, task_id))?;
+    resp.into_json()
+        .map_err(|e| format!("failed to parse unassign response: {e}"))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -739,6 +779,18 @@ mod tests {
         assert_eq!(
             serde_json::to_value(moves).unwrap(),
             serde_json::json!([{ "taskId": "t1", "fromProjectId": "inbox1", "toProjectId": "p2" }])
+        );
+    }
+
+    #[test]
+    fn assign_bodies_use_v1_shape() {
+        assert_eq!(
+            assign_body("p1", "t1", "bob@example.com"),
+            serde_json::json!({ "projectId": "p1", "taskId": "t1", "assigneeUsername": "bob@example.com" })
+        );
+        assert_eq!(
+            unassign_body("p1", "t1"),
+            serde_json::json!({ "projectId": "p1", "taskId": "t1" })
         );
     }
 
