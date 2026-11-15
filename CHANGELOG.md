@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `task add` now applies a default reminder when a date is given and no `--reminder` is passed, matching TickTick's own connector: `TRIGGER:PT0S` for timed tasks, `TRIGGER:P0DT9H0M0S` (9am) for all-day tasks. New `--no-reminder` opts out. Before this, dated tasks created here got no reminder, so TickTick never notified. `task edit` is unchanged.
 
+### Added
+
+- `task comment list|add|delete` manage task comments via the official v1 API (`GET .../task/{t}/comments`, `POST .../task/{t}/comment`, `DELETE .../task/{t}/comment/{id}`). There is no `edit`: the API has no edit endpoint (`PUT`/`POST`/`PATCH` on `.../comment/{id}` return 405), so delete and re-add instead.
+
+### Added
+
+- `project members <project>` (`GET /open/v1/project/{id}/members`), `task assign <project> <task_id> --assignee <username>` (`POST /open/v1/task/assign`) and `task unassign <project> <task_id>` (`POST /open/v1/task/unassign`). Members and unassign verified live; assign is mock-only (request body unit-tested) because it needs a project shared with another person.
+
+### Added
+
+- `countdown list` via `GET /open/v1/countdown`. Read-only: `POST`, `PUT` and `DELETE` on `/open/v1/countdown` return 405, so there are no write commands.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)
