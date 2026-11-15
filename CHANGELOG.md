@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.2]
+
 ### Changed — official API migration (#21)
 
 These commands now call TickTick's official Open API (`/open/v1`) instead of the private v2 API, so they no longer need a v2 session cookie. Each one was verified live against v2 before switching.
