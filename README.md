@@ -100,6 +100,10 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task subtask <project> <parent> <ids...>` | | Set tasks as subtasks |
 | `task unparent <project> <ids...>` | | Remove subtask relationships |
 | `task trash` | | List tasks in trash |
+| `task comment list <project> <task_id>` | `task comment ls` | List a task's comments |
+| `task comment add <project> <task_id> <text>` | | Add a comment to a task |
+| `task comment delete <project> <task_id> <comment_id>` | `task comment rm` | Delete a task comment |
+
 | `countdown list` | | List countdowns (read-only; the API has no writes) |
 | `tag list` | | List all tags |
 | `tag add <names...>` | | Create tags |
@@ -361,6 +365,8 @@ Full coverage of the [TickTick OpenAPI specification](https://developer.ticktick
 | **Projects** | `project add` | `project list`, `project get` | `project edit` | `project delete` |
 | **Completion** | `task complete` | — | — | — |
 | **Move** | — | — | `task move` | — |
+| **Comments** | `task comment add` | `task comment list` | — | `task comment delete` |
+
 | **Assignment** | — | `project members` | `task assign`, `task unassign` | — |
 | **Tags** | `tag add` | `tag list` | `tag edit`, `tag rename` | `tag delete` |
 | **Folders** | `folder add` | `folder list` | `folder rename` | `folder delete` |

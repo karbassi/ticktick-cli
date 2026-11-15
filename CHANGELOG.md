@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `task comment list|add|delete` manage task comments via the official v1 API (`GET .../task/{t}/comments`, `POST .../task/{t}/comment`, `DELETE .../task/{t}/comment/{id}`). There is no `edit`: the API has no edit endpoint (`PUT`/`POST`/`PATCH` on `.../comment/{id}` return 405), so delete and re-add instead.
+
+### Added
+
 - `project members <project>` (`GET /open/v1/project/{id}/members`), `task assign <project> <task_id> --assignee <username>` (`POST /open/v1/task/assign`) and `task unassign <project> <task_id>` (`POST /open/v1/task/unassign`). Members and unassign verified live; assign is mock-only (request body unit-tested) because it needs a project shared with another person.
 
 ### Added
