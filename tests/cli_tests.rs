@@ -88,6 +88,7 @@ fn top_level_subcommand_help_exits_zero() {
 fn task_subcommand_help_exits_zero() {
     for subcmd in [
         "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent", "trash",
+        "search", "filter",
     ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
@@ -113,6 +114,44 @@ fn complete_missing_args_exits_two() {
 #[test]
 fn delete_missing_args_exits_two() {
     cmd().args(["task", "delete"]).assert().failure().code(2);
+}
+
+#[test]
+fn search_missing_query_exits_two() {
+    cmd().args(["task", "search"]).assert().failure().code(2);
+}
+
+#[test]
+fn search_and_filter_reject_invalid_enum_values() {
+    cmd()
+        .args(["task", "search", "x", "--status", "done"])
+        .assert()
+        .failure()
+        .code(2);
+    cmd()
+        .args(["task", "filter", "--priority", "urgent"])
+        .assert()
+        .failure()
+        .code(2);
+    cmd()
+        .args(["task", "filter", "--kind", "todo"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn search_and_filter_reject_bad_date_before_any_request() {
+    for args in [
+        vec!["task", "search", "x", "--due-from", "not-a-date"],
+        vec!["task", "filter", "--start-date", "not-a-date"],
+    ] {
+        cmd()
+            .args(&args)
+            .env("TICKTICK_ACCESS_TOKEN", "fake")
+            .assert()
+            .failure();
+    }
 }
 
 #[test]

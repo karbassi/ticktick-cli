@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `task search <query>` — server-side keyword search via `POST /open/v1/task/search`. Whole-word, case-insensitive match; narrow with `--project`, `--tag`, `--status`, `--due-from`, `--due-to`.
+- `task filter` — server-side filtering via `POST /open/v1/task/filter` by `--project`, `--start-date`, `--end-date`, `--priority`, `--tag`, `--status`, `--kind`. The endpoint calls plain tasks `TASK`, so `--kind text` sends that. Verified live; unrelated to the saved `filter` command.
+
 ## [1.0.0-rc.2]
 
 ### Changed — official API migration (#21)

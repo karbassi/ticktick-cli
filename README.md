@@ -97,6 +97,8 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `task subtask <project> <parent> <ids...>` | | Set tasks as subtasks |
 | `task unparent <project> <ids...>` | | Remove subtask relationships |
 | `task trash` | | List tasks in trash |
+| `task search <query>` | | Keyword search (server-side); `--project --tag --status --due-from --due-to` |
+| `task filter` | | Filter by `--project --start-date --end-date --priority --tag --status --kind` (server-side) |
 | `tag list` | | List all tags |
 | `tag add <names...>` | | Create tags |
 | `tag delete <names...>` | `tag rm` | Delete tags |
