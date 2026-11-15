@@ -69,6 +69,7 @@ fn top_level_subcommand_help_exits_zero() {
         "task",
         "project",
         "tag",
+        "countdown",
         "folder",
         "habit",
         "filter",
@@ -87,7 +88,8 @@ fn top_level_subcommand_help_exits_zero() {
 #[test]
 fn task_subcommand_help_exits_zero() {
     for subcmd in [
-        "list", "get", "add", "edit", "complete", "delete", "move", "subtask", "unparent", "trash",
+        "list", "get", "add", "edit", "complete", "delete", "move", "assign", "unassign",
+        "subtask", "unparent", "trash",
     ] {
         cmd().args(["task", subcmd, "--help"]).assert().success();
     }
@@ -309,6 +311,9 @@ fn usage_lists_subcommands() {
         "task complete",
         "task delete",
         "task move",
+        "task assign",
+        "task unassign",
+        "project members",
         "task subtask",
         "task unparent",
         "task trash",
@@ -1116,6 +1121,23 @@ fn task_list_completed_with_limit() {
         .code(predicate::ne(2));
 }
 
+// -- Countdown commands --
+
+#[test]
+fn countdown_list_help_exits_zero() {
+    cmd()
+        .args(["countdown", "list", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn countdown_has_no_write_subcommands() {
+    for subcmd in ["add", "delete", "edit"] {
+        cmd().args(["countdown", subcmd]).assert().failure().code(2);
+    }
+}
+
 // -- Tag commands --
 
 #[test]
@@ -1516,4 +1538,34 @@ fn task_comment_has_no_edit_subcommand() {
         .assert()
         .failure()
         .code(2);
+}
+
+// -- Assign / members --
+
+#[test]
+fn assign_help_shows_assignee_flag() {
+    let output = cmd()
+        .args(["task", "assign", "--help"])
+        .output()
+        .expect("failed to run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--assignee"));
+}
+
+#[test]
+fn assign_missing_args_exits_two() {
+    cmd()
+        .args(["task", "assign", "p", "t"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn project_members_help_exits_zero() {
+    cmd()
+        .args(["project", "members", "--help"])
+        .assert()
+        .success();
 }
