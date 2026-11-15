@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `task add` now applies a default reminder when a date is given and no `--reminder` is passed, matching TickTick's own connector: `TRIGGER:PT0S` for timed tasks, `TRIGGER:P0DT9H0M0S` (9am) for all-day tasks. New `--no-reminder` opts out. Before this, dated tasks created here got no reminder, so TickTick never notified. `task edit` is unchanged.
+
+### Added
+
 - `task comment list|add|delete` manage task comments via the official v1 API (`GET .../task/{t}/comments`, `POST .../task/{t}/comment`, `DELETE .../task/{t}/comment/{id}`). There is no `edit`: the API has no edit endpoint (`PUT`/`POST`/`PATCH` on `.../comment/{id}` return 405), so delete and re-add instead.
 
 ### Added

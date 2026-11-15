@@ -1509,6 +1509,61 @@ fn focus_log_accepts_date_range() {
         .code(predicate::ne(2));
 }
 
+fn dry_run_body(args: &[&str]) -> serde_json::Value {
+    let mut full = vec!["task", "add", "--dry-run", "x"];
+    full.extend_from_slice(args);
+    let output = cmd().args(&full).output().expect("failed to run");
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).expect("valid JSON")
+}
+
+#[test]
+fn add_dry_run_timed_gets_default_reminder() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--tz", "America/Chicago"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:PT0S"]));
+}
+
+#[test]
+fn add_dry_run_all_day_gets_9am_reminder() {
+    let v = dry_run_body(&["--due", "2027-03-01", "--tz", "America/Chicago"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:P0DT9H0M0S"]));
+}
+
+#[test]
+fn add_dry_run_no_date_has_no_reminders() {
+    let v = dry_run_body(&[]);
+    assert!(v.get("reminders").is_none());
+}
+
+#[test]
+fn add_dry_run_no_reminder_flag_sends_empty_list() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--no-reminder"]);
+    assert_eq!(v["reminders"], serde_json::json!([]));
+}
+
+#[test]
+fn add_dry_run_explicit_reminder_wins() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--reminder", "TRIGGER:-PT15M"]);
+    assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:-PT15M"]));
+}
+
+#[test]
+fn add_no_reminder_conflicts_with_reminder() {
+    cmd()
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "x",
+            "--no-reminder",
+            "--reminder",
+            "TRIGGER:PT0S",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
 #[test]
 fn task_comment_help_lists_subcommands() {
     cmd()
