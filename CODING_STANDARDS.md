@@ -1,5 +1,9 @@
 # Coding Standards
 
+## Comments
+
+Keep comments short, and only say what cannot be discerned from the code. Delete any claim that is derivable from the code.
+
 ## Testing
 
 Tautological tests considered harmful.
