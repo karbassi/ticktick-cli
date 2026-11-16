@@ -189,6 +189,34 @@ fn env_access_token_probes_the_inbox_instead_of_using_config() {
     assert_eq!(fs::read_to_string(cfg.file()).unwrap(), original);
 }
 
+fn trash_error(status: u16) -> String {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v2/project/all/trash/page");
+        then.status(status);
+    });
+    let mut c = McpBuilder::new(&server).start();
+    let res = c.call_tool("list_trash", json!({}));
+    assert!(res.is_error, "{}", res.text);
+    res.text
+}
+
+#[test]
+fn v2_forbidden_means_premium_required() {
+    // ticktick-mcp's client.py `_check_v2_response`.
+    let text = trash_error(403);
+    assert!(
+        text.contains("This feature requires a TickTick Premium subscription."),
+        "{text}"
+    );
+}
+
+#[test]
+fn v2_unauthorized_hint_names_the_env_var() {
+    let text = trash_error(401);
+    assert!(text.contains("TICKTICK_V2_SESSION_TOKEN"), "{text}");
+}
+
 #[test]
 fn stalled_token_refresh_times_out() {
     let server = MockServer::start();
