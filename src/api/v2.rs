@@ -1,7 +1,12 @@
 use crate::config;
 use serde::{Deserialize, Serialize};
 
-const V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
+const DEFAULT_V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
+
+/// Base URL of the private v2 API (`TICKTICK_V2_BASE` overrides it).
+pub fn v2_base_url() -> String {
+    super::env_url("TICKTICK_V2_BASE", DEFAULT_V2_BASE_URL)
+}
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
@@ -51,7 +56,7 @@ pub fn v2_post(
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
     let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
+    let url = format!("{}{endpoint}", v2_base_url());
 
     if crate::output::verbose() >= 1 {
         eprintln!("> POST {url}");
@@ -69,7 +74,7 @@ pub fn v2_post(
 /// Make a GET request to the v2 API with session auth.
 pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
+    let url = format!("{}{endpoint}", v2_base_url());
 
     if crate::output::verbose() >= 1 {
         eprintln!("> GET {url}");
@@ -90,7 +95,7 @@ pub fn v2_put(
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
     let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
+    let url = format!("{}{endpoint}", v2_base_url());
 
     if crate::output::verbose() >= 1 {
         eprintln!("> PUT {url}");

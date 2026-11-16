@@ -14,7 +14,21 @@ pub mod v2;
 
 use crate::config;
 
-const BASE_URL: &str = "https://api.ticktick.com/open/v1";
+const DEFAULT_BASE_URL: &str = "https://api.ticktick.com/open/v1";
+
+/// Read a base URL from `var`, falling back to `default`. Tests point these at a
+/// mock server; a trailing slash is dropped so endpoints can start with `/`.
+pub fn env_url(var: &str, default: &str) -> String {
+    match std::env::var(var) {
+        Ok(v) if !v.trim().is_empty() => v.trim().trim_end_matches('/').to_string(),
+        _ => default.to_string(),
+    }
+}
+
+/// Base URL of the official Open API (`TICKTICK_API_BASE` overrides it).
+pub fn base_url() -> String {
+    env_url("TICKTICK_API_BASE", DEFAULT_BASE_URL)
+}
 
 fn is_unauthorized(err: &ureq::Error) -> bool {
     matches!(err, ureq::Error::Status(401, _))
@@ -40,10 +54,11 @@ fn try_refresh_token() -> Option<String> {
 }
 
 pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    let base = base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> GET {BASE_URL}{endpoint}");
+        eprintln!("> GET {base}{endpoint}");
     }
-    let result = ureq::get(&format!("{BASE_URL}{endpoint}"))
+    let result = ureq::get(&format!("{base}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
 
@@ -51,7 +66,7 @@ pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
             if let Some(new_token) = try_refresh_token() {
-                ureq::get(&format!("{BASE_URL}{endpoint}"))
+                ureq::get(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
@@ -71,10 +86,11 @@ pub fn post(
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
+    let base = base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> POST {BASE_URL}{endpoint}");
+        eprintln!("> POST {base}{endpoint}");
     }
-    let result = ureq::post(&format!("{BASE_URL}{endpoint}"))
+    let result = ureq::post(&format!("{base}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .set("Content-Type", "application/json")
         .send_json(body.clone());
@@ -83,7 +99,7 @@ pub fn post(
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
             if let Some(new_token) = try_refresh_token() {
-                ureq::post(&format!("{BASE_URL}{endpoint}"))
+                ureq::post(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .set("Content-Type", "application/json")
                     .send_json(body.clone())
@@ -100,10 +116,11 @@ pub fn post(
 }
 
 pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    let base = base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> POST {BASE_URL}{endpoint}");
+        eprintln!("> POST {base}{endpoint}");
     }
-    let result = ureq::post(&format!("{BASE_URL}{endpoint}"))
+    let result = ureq::post(&format!("{base}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
 
@@ -111,7 +128,7 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
             if let Some(new_token) = try_refresh_token() {
-                ureq::post(&format!("{BASE_URL}{endpoint}"))
+                ureq::post(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))
@@ -133,11 +150,12 @@ fn send_json(
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
+    let base = base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> {method} {BASE_URL}{endpoint}");
+        eprintln!("> {method} {base}{endpoint}");
     }
     let call = |t: &str| {
-        ureq::request(method, &format!("{BASE_URL}{endpoint}"))
+        ureq::request(method, &format!("{base}{endpoint}"))
             .set("Authorization", &format!("Bearer {t}"))
             .set("Content-Type", "application/json")
             .send_json(body.clone())
@@ -173,10 +191,11 @@ pub fn delete_json(
 }
 
 pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    let base = base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> DELETE {BASE_URL}{endpoint}");
+        eprintln!("> DELETE {base}{endpoint}");
     }
-    let result = ureq::delete(&format!("{BASE_URL}{endpoint}"))
+    let result = ureq::delete(&format!("{base}{endpoint}"))
         .set("Authorization", &format!("Bearer {token}"))
         .call();
 
@@ -184,7 +203,7 @@ pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
             if let Some(new_token) = try_refresh_token() {
-                ureq::delete(&format!("{BASE_URL}{endpoint}"))
+                ureq::delete(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()
                     .map_err(|e| format!("API request failed: {e}"))

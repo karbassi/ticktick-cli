@@ -141,7 +141,13 @@ pub fn save(config: &Config) -> Result<(), String> {
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    // Check for access token in env vars / .env file
+    // An access token in the environment wins on its own; it does not need the
+    // OAuth client ID/secret, which only `login` and token refresh use.
+    if let Some(token) = env_nonempty("TICKTICK_ACCESS_TOKEN") {
+        return Ok(token);
+    }
+
+    // Then an access token in the .env file
     if let Ok(env) = load_env()
         && let Some(token) = env.access_token
     {
@@ -270,8 +276,17 @@ pub fn get_or_create_device_id() -> String {
     id
 }
 
+/// The v2 session cookie. `TICKTICK_V2_SESSION_TOKEN` wins over config.json, so a
+/// long-running process (the MCP server) can be fed a fresh cookie by env alone.
 pub fn get_v2_session_token() -> Option<String> {
-    load().v2_session_token
+    env_nonempty("TICKTICK_V2_SESSION_TOKEN").or_else(|| load().v2_session_token)
+}
+
+fn env_nonempty(var: &str) -> Option<String> {
+    std::env::var(var)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 const AUTH_URL: &str = "https://ticktick.com/oauth/authorize";
-const TOKEN_URL: &str = "https://ticktick.com/oauth/token";
+const DEFAULT_TOKEN_URL: &str = "https://ticktick.com/oauth/token";
+
+/// OAuth token endpoint (`TICKTICK_OAUTH_TOKEN_URL` overrides it).
+fn token_url() -> String {
+    super::env_url("TICKTICK_OAUTH_TOKEN_URL", DEFAULT_TOKEN_URL)
+}
 const SCOPE: &str = "tasks:read tasks:write";
 
 fn redirect_uri() -> String {
@@ -113,7 +118,7 @@ fn exchange_code(
 
     let auth = base64_encode(&format!("{client_id}:{client_secret}"));
 
-    let resp = ureq::post(TOKEN_URL)
+    let resp = ureq::post(&token_url())
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)
@@ -133,7 +138,7 @@ pub fn refresh_token(refresh_token: &str) -> Result<(String, Option<String>), St
 
     let auth = base64_encode(&format!("{}:{}", env.client_id, env.client_secret));
 
-    let resp = ureq::post(TOKEN_URL)
+    let resp = ureq::post(&token_url())
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)
