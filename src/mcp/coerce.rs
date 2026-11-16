@@ -1,5 +1,6 @@
-//! FastMCP validates arguments with lax pydantic, which accepts `"50"` for an
-//! int, `25.0` for an int and `"true"` for a bool. Callers written against it
+//! FastMCP validates arguments with lax pydantic, which accepts `"50"` or `25.0`
+//! for an int, `true` for an int or float, and `"yes"`, `"off"`, `1` or `0.0`
+//! for a bool. Callers written against it
 //! send those, and serde rejects them, so arguments are coerced against the
 //! tool's input schema first. Anything not convertible is left for serde to report.
 
@@ -91,9 +92,17 @@ fn convert(t: &str, v: &Value) -> Option<Value> {
             .ok()
             .filter(|f| f.is_finite())
             .map(Value::from),
-        ("boolean", Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
-            "true" => Some(Value::Bool(true)),
-            "false" => Some(Value::Bool(false)),
+        ("number", Value::Bool(b)) => Some(Value::from(if *b { 1.0 } else { 0.0 })),
+        ("integer", Value::Bool(b)) => Some(Value::from(i64::from(*b))),
+        ("boolean", Value::Number(n)) => match n.as_f64() {
+            Some(0.0) => Some(Value::Bool(false)),
+            Some(1.0) => Some(Value::Bool(true)),
+            _ => None,
+        },
+        // Unlike its int and float parsing, pydantic doesn't trim these.
+        ("boolean", Value::String(s)) => match s.to_ascii_lowercase().as_str() {
+            "1" | "on" | "t" | "true" | "y" | "yes" => Some(Value::Bool(true)),
+            "0" | "off" | "f" | "false" | "n" | "no" => Some(Value::Bool(false)),
             _ => None,
         },
         _ => None,
@@ -130,10 +139,50 @@ mod tests {
             coerced(json!({"type": "number"}), json!("nan")),
             json!("nan")
         );
+    }
+
+    /// Cases checked against pydantic 2.12 lax `validate_python`, as FastMCP runs it.
+    #[test]
+    fn booleans_like_pydantic() {
         let b = json!({"type": "boolean"});
-        assert_eq!(coerced(b.clone(), json!("true")), json!(true));
-        assert_eq!(coerced(b.clone(), json!("False")), json!(false));
-        assert_eq!(coerced(b, json!("yes")), json!("yes"));
+        for (input, want) in [
+            (json!("true"), json!(true)),
+            (json!("False"), json!(false)),
+            (json!("YES"), json!(true)),
+            (json!("y"), json!(true)),
+            (json!("On"), json!(true)),
+            (json!("t"), json!(true)),
+            (json!("1"), json!(true)),
+            (json!("no"), json!(false)),
+            (json!("off"), json!(false)),
+            (json!("f"), json!(false)),
+            (json!("n"), json!(false)),
+            (json!("0"), json!(false)),
+            (json!(1), json!(true)),
+            (json!(0), json!(false)),
+            (json!(1.0), json!(true)),
+            (json!(0.0), json!(false)),
+        ] {
+            assert_eq!(coerced(b.clone(), input.clone()), want, "{input}");
+        }
+        for unchanged in [
+            json!(" yes "),
+            json!("2"),
+            json!("1.0"),
+            json!(""),
+            json!(2),
+            json!(-1),
+            json!(1.5),
+        ] {
+            assert_eq!(coerced(b.clone(), unchanged.clone()), unchanged);
+        }
+    }
+
+    #[test]
+    fn booleans_to_numbers() {
+        assert_eq!(coerced(json!({"type": "integer"}), json!(true)), json!(1));
+        assert_eq!(coerced(json!({"type": "integer"}), json!(false)), json!(0));
+        assert_eq!(coerced(json!({"type": "number"}), json!(true)), json!(1.0));
     }
 
     #[test]
