@@ -280,6 +280,59 @@ fn add_task_rejects_timezone_paths() {
     create.assert_calls(0);
 }
 
+#[test]
+fn add_and_edit_task_send_the_canonical_timezone_name() {
+    let server = MockServer::start();
+    let create = mock_create(
+        &server,
+        json!({
+            "title": "x",
+            "dueDate": "2027-03-01T10:00:00.000-0500",
+            "isAllDay": false,
+            "timeZone": "America/New_York",
+            "reminders": ["TRIGGER:PT0S"],
+        }),
+    );
+    let edit = server.mock(|when, then| {
+        when.method(POST).path(v1("/task/t1")).json_body(json!({
+            "taskId": "t1",
+            "projectId": HEX_PROJECT,
+            "timeZone": "Europe/London",
+        }));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    c.call_tool(
+        "add_task",
+        json!({"title": "x", "due": "2027-03-01T10:00", "timezone": "america/new_york"}),
+    )
+    .ok();
+    c.call_tool(
+        "edit_task",
+        json!({"task_id": "t1", "project": HEX_PROJECT, "timezone": "EUROPE/LONDON"}),
+    )
+    .ok();
+    create.assert();
+    edit.assert();
+}
+
+#[test]
+fn etc_unknown_timezone_is_rejected() {
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "add_task",
+        json!({"title": "x", "due": "2027-03-01T10:00", "timezone": "Etc/Unknown"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "Unknown timezone 'Etc/Unknown'");
+    create.assert_calls(0);
+}
+
 /// "today" at midnight in `tz`, as the API string.
 fn today_midnight_in(tz: &str) -> String {
     let zone = jiff::tz::TimeZone::get(tz).unwrap();

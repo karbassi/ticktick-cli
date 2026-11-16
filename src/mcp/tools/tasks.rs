@@ -33,11 +33,7 @@ fn default_priority() -> String {
 }
 
 fn timezone(tz: Option<String>) -> Result<Option<String>, String> {
-    let tz = nonempty(tz);
-    if let Some(ref t) = tz {
-        check_timezone(t)?;
-    }
-    Ok(tz)
+    nonempty(tz).map(|tz| check_timezone(&tz)).transpose()
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

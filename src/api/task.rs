@@ -140,12 +140,22 @@ pub fn add_days(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
 // Time zones
 // ---------------------------------------------------------------------------
 
-/// The named tz database zone, else [`system_zone`].
+/// The named IANA zone, else [`system_zone`]. jiff matches names
+/// case-insensitively and accepts `Etc/Unknown`, which has no IANA name.
 pub fn time_zone(name: Option<&str>) -> Result<TimeZone, String> {
     match name {
-        Some(name) => TimeZone::get(name).map_err(|_| format!("Unknown timezone '{name}'")),
+        Some(name) => TimeZone::get(name)
+            .ok()
+            .filter(|zone| zone.iana_name().is_some())
+            .ok_or_else(|| format!("Unknown timezone '{name}'")),
         None => Ok(system_zone()),
     }
+}
+
+/// The IANA spelling of `name`, e.g. "america/chicago" -> "America/Chicago".
+pub fn canonical_timezone(name: &str) -> Result<String, String> {
+    let zone = time_zone(Some(name))?;
+    Ok(zone.iana_name().unwrap_or(name).to_string())
 }
 
 /// jiff reads a set-but-empty `TZ` as UTC; libc and Python read it as unset.

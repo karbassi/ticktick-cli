@@ -332,9 +332,9 @@ pub fn resolve_folder_id(folder: &str) -> Result<(String, String), String> {
 
 pub use api::task::{ParsedDateTime, parse_datetime_in, parse_duration};
 
-/// Rejects paths too, not just unknown names.
-pub fn check_timezone(tz: &str) -> Result<(), String> {
-    api::task::time_zone(Some(tz)).map(|_| ())
+/// The canonical IANA name. Rejects paths too, not just unknown names.
+pub fn check_timezone(tz: &str) -> Result<String, String> {
+    api::task::canonical_timezone(tz)
 }
 
 /// `TICKTICK_TIMEZONE` (IANA name) if set, else the system zone like Python.
@@ -444,11 +444,14 @@ mod tests {
 
     #[test]
     fn timezone_check() {
-        assert!(check_timezone("America/Chicago").is_ok());
-        assert!(check_timezone("UTC").is_ok());
-        assert!(check_timezone("Asia/Kolkata").is_ok());
+        assert_eq!(
+            check_timezone("america/CHICAGO").unwrap(),
+            "America/Chicago"
+        );
+        assert_eq!(check_timezone("utc").unwrap(), "UTC");
         for bad in [
             "Mars/Olympus",
+            "Etc/Unknown",
             "../etc/passwd",
             "/etc/hosts",
             "/usr/share/zoneinfo/America/Chicago",

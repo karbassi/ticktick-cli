@@ -2181,6 +2181,9 @@ pub fn run() -> Result<(), String> {
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
+                let timezone = timezone
+                    .map(|tz| crate::api::task::canonical_timezone(&tz))
+                    .transpose()?;
                 let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (due_date, start_date, is_all_day, time_zone) = resolve_timeblock(
                     due.as_deref(),
@@ -2335,6 +2338,9 @@ pub fn run() -> Result<(), String> {
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
+                let timezone = timezone
+                    .map(|tz| crate::api::task::canonical_timezone(&tz))
+                    .transpose()?;
                 let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (mut resolved_due, mut resolved_start, is_all_day, time_zone) =
                     resolve_timeblock(

@@ -1588,3 +1588,20 @@ fn add_dry_run_today_is_taken_in_the_tz_zone() {
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["dueDate"], format!("{today}T00:00:00.000+1400"));
 }
+
+#[test]
+fn add_dry_run_sends_the_canonical_tz_name() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--tz", "europe/LONDON"]);
+    assert_eq!(v["timeZone"], "Europe/London");
+    assert_eq!(v["dueDate"], "2027-03-01T10:00:00.000+0000");
+}
+
+#[test]
+fn add_rejects_etc_unknown_tz() {
+    cmd()
+        .args(["task", "add", "--dry-run", "x", "--due", "2027-03-01T10:00"])
+        .args(["--tz", "Etc/Unknown"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown timezone 'Etc/Unknown'"));
+}
