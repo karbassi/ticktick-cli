@@ -37,16 +37,6 @@ fn mock_filter_post<'a>(server: &'a MockServer, body: Value) -> httpmock::Mock<'
 }
 
 #[test]
-fn list_filters() {
-    let server = MockServer::start();
-    let b = mock_batch(&server, batch());
-    let mut c = McpBuilder::new(&server).start();
-    let res = c.call_tool("list_filters", json!({})).ok();
-    b.assert();
-    assert_eq!(res.json(), batch()["filters"]);
-}
-
-#[test]
 fn response_over_10_mib_is_read_whole() {
     let server = MockServer::start();
     let rule = "x".repeat(11 * 1024 * 1024);

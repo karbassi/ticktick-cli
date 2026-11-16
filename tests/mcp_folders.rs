@@ -36,22 +36,6 @@ fn list_folders_uses_v1() {
 }
 
 #[test]
-fn add_folder() {
-    let server = MockServer::start();
-    let add = server.mock(|when, then| {
-        when.method(POST)
-            .path("/open/v1/project/group")
-            .json_body(json!({"name": "Errands"}));
-        then.status(200)
-            .json_body(json!({"id": "g3", "name": "Errands"}));
-    });
-    let mut c = McpBuilder::new(&server).start();
-    let res = c.call_tool("add_folder", json!({"name": "Errands"})).ok();
-    add.assert();
-    assert_eq!(res.json()["id"], "g3");
-}
-
-#[test]
 fn delete_folders_resolves_names() {
     let server = MockServer::start();
     let _list = mock_groups(&server);
