@@ -1,23 +1,13 @@
 mod common;
 
-use common::McpBuilder;
+use common::{McpBuilder, V1, mock_projects};
 use httpmock::prelude::*;
 use serde_json::json;
-
-const V1: &str = "/open/v1";
-
-fn mock_projects(server: &MockServer) {
-    server.mock(|when, then| {
-        when.method(GET).path(format!("{V1}/project"));
-        then.status(200)
-            .json_body(json!([{"id": "p1", "name": "Work"}]));
-    });
-}
 
 #[test]
 fn list_comments_resolves_project_and_null_body_is_empty_list() {
     let server = MockServer::start();
-    mock_projects(&server);
+    mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
     let list = server.mock(|when, then| {
         when.method(GET)
             .path(format!("{V1}/project/p1/task/t1/comments"));
@@ -34,7 +24,7 @@ fn list_comments_resolves_project_and_null_body_is_empty_list() {
 #[test]
 fn add_comment_sends_text_as_title() {
     let server = MockServer::start();
-    mock_projects(&server);
+    mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
     let add = server.mock(|when, then| {
         when.method(POST)
             .path(format!("{V1}/project/p1/task/t1/comment"))
@@ -53,7 +43,7 @@ fn add_comment_sends_text_as_title() {
 #[test]
 fn delete_comment_resolves_project_and_confirms() {
     let server = MockServer::start();
-    mock_projects(&server);
+    mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
     let del = server.mock(|when, then| {
         when.method(DELETE)
             .path(format!("{V1}/project/p1/task/t1/comment/c1"));

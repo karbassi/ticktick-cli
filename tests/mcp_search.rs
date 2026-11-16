@@ -3,19 +3,9 @@
 
 mod common;
 
-use common::McpBuilder;
+use common::{McpBuilder, V1, mock_projects};
 use httpmock::prelude::*;
 use serde_json::json;
-
-const V1: &str = "/open/v1";
-
-fn mock_projects(server: &MockServer) {
-    server.mock(|when, then| {
-        when.method(GET).path(format!("{V1}/project"));
-        then.status(200)
-            .json_body(json!([{"id": "p1", "name": "Work"}]));
-    });
-}
 
 #[test]
 fn search_keyword_only() {
@@ -35,7 +25,7 @@ fn search_keyword_only() {
 #[test]
 fn search_all_options() {
     let server = MockServer::start();
-    mock_projects(&server);
+    mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
     let m = server.mock(|when, then| {
         when.method(POST)
             .path(format!("{V1}/task/search"))
@@ -168,7 +158,7 @@ fn search_bad_status_rejected() {
 #[test]
 fn filter_all_options() {
     let server = MockServer::start();
-    mock_projects(&server);
+    mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
     let m = server.mock(|when, then| {
         when.method(POST)
             .path(format!("{V1}/task/filter"))

@@ -2,16 +2,12 @@
 
 mod common;
 
-use common::{ACCESS_TOKEN, McpBuilder};
+use common::{ACCESS_TOKEN, McpBuilder, v1};
 use httpmock::prelude::*;
 use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-
-fn v1(path: &str) -> String {
-    format!("/open/v1{path}")
-}
 
 /// A config dir the test can read and rewrite while the server runs.
 struct ConfigDir(tempfile::TempDir);

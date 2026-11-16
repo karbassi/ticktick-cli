@@ -18,7 +18,31 @@ pub const SESSION_TOKEN: &str = "test-session-token";
 /// A 24-char hex project ID: resolved without a `GET /project` lookup.
 pub const HEX_PROJECT: &str = "aaaaaaaaaaaaaaaaaaaaaaaa";
 
+pub const V1: &str = "/open/v1";
+pub const V2: &str = "/api/v2";
+
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+pub fn v1(path: &str) -> String {
+    format!("{V1}{path}")
+}
+
+pub fn v2(path: &str) -> String {
+    format!("{V2}{path}")
+}
+
+pub fn start(server: &MockServer) -> McpClient {
+    McpBuilder::new(server).start()
+}
+
+pub fn mock_projects(server: &MockServer, projects: Value) -> httpmock::Mock<'_> {
+    server.mock(|when, then| {
+        when.method(httpmock::Method::GET)
+            .path(v1("/project"))
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"));
+        then.status(200).json_body(projects);
+    })
+}
 
 pub fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_ticktick-cli")
@@ -62,7 +86,6 @@ pub fn write_config(dir: &Path, config: &Value) {
 pub struct McpBuilder {
     dir: tempfile::TempDir,
     envs: Vec<(String, String)>,
-    args: Vec<String>,
 }
 
 impl McpBuilder {
@@ -76,7 +99,6 @@ impl McpBuilder {
                 ("TICKTICK_V2_BASE".into(), server.url("/api/v2")),
                 ("TICKTICK_MS_BASE".into(), server.url("/ms")),
             ],
-            args: vec!["mcp".into()],
         }
     }
 
@@ -91,11 +113,6 @@ impl McpBuilder {
         self
     }
 
-    pub fn arg(mut self, arg: &str) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
     pub fn start(self) -> McpClient {
         let mut client = self.spawn();
         client.initialize();
@@ -104,7 +121,7 @@ impl McpBuilder {
 
     pub fn spawn(self) -> McpClient {
         let mut cmd = isolated_command(self.dir.path());
-        cmd.args(&self.args)
+        cmd.arg("mcp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -127,7 +144,7 @@ impl McpBuilder {
 
 /// Lines from `pipe`. It is drained for the child's lifetime, even after the
 /// receiver is dropped, so the child never blocks on a full pipe or gets EPIPE.
-fn read_lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
+pub fn read_lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         for line in BufReader::new(pipe).split(b'\n') {
@@ -142,11 +159,16 @@ fn drain(pipe: impl Read + Send + 'static) {
     drop(read_lines(pipe));
 }
 
+pub fn first_line(pipe: impl Read + Send + 'static) -> String {
+    read_lines(pipe)
+        .recv_timeout(TIMEOUT)
+        .expect("no line before the timeout")
+}
+
 #[derive(Debug)]
 pub struct ToolCall {
     pub is_error: bool,
     pub text: String,
-    pub raw: Value,
 }
 
 impl ToolCall {
@@ -236,7 +258,6 @@ impl McpClient {
         ToolCall {
             is_error: result["isError"].as_bool().unwrap_or(false),
             text,
-            raw: result,
         }
     }
 

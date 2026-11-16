@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    HttpResponse, HttpServer, http_post, http_post_with, initialize_request, isolated_command,
+    HttpResponse, HttpServer, first_line, http_post, http_post_with, initialize_request,
+    isolated_command,
 };
 use httpmock::prelude::*;
 use serde_json::json;
@@ -280,9 +281,7 @@ fn http_transport_and_port_from_env() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn().unwrap();
-    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-    let mut line = String::new();
-    std::io::BufRead::read_line(&mut stderr, &mut line).unwrap();
+    let line = first_line(child.stderr.take().unwrap());
     let _ = child.kill();
     let _ = child.wait();
     assert!(line.contains("listening on http://127.0.0.1:"), "{line}");
@@ -344,9 +343,7 @@ fn port_flag_applies_when_the_env_picks_http() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-    let mut line = String::new();
-    std::io::BufRead::read_line(&mut stderr, &mut line).unwrap();
+    let line = first_line(child.stderr.take().unwrap());
     let _ = child.kill();
     let _ = child.wait();
     assert!(line.contains("listening on http://127.0.0.1:"), "{line}");

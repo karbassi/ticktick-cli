@@ -4,33 +4,9 @@
 
 mod common;
 
-use common::{ACCESS_TOKEN, HEX_PROJECT, McpBuilder, McpClient, SESSION_TOKEN};
+use common::{ACCESS_TOKEN, HEX_PROJECT, McpBuilder, SESSION_TOKEN, mock_projects, start, v1, v2};
 use httpmock::prelude::*;
 use serde_json::{Value, json};
-
-const V1: &str = "/open/v1";
-const V2: &str = "/api/v2";
-
-fn v1(path: &str) -> String {
-    format!("{V1}{path}")
-}
-
-fn v2(path: &str) -> String {
-    format!("{V2}{path}")
-}
-
-fn start(server: &MockServer) -> McpClient {
-    McpBuilder::new(server).start()
-}
-
-fn mock_projects(server: &MockServer, projects: Value) -> httpmock::Mock<'_> {
-    server.mock(|when, then| {
-        when.method(GET)
-            .path(v1("/project"))
-            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"));
-        then.status(200).json_body(projects);
-    })
-}
 
 fn mock_create(server: &MockServer, body: Value) -> httpmock::Mock<'_> {
     let mut reply = body.clone();

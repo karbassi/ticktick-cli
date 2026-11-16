@@ -2,16 +2,9 @@
 
 mod common;
 
-use common::{McpBuilder, McpClient, SESSION_TOKEN};
+use common::{McpBuilder, McpClient, SESSION_TOKEN, V1, V2, start};
 use httpmock::prelude::*;
 use serde_json::{Value, json};
-
-const V1: &str = "/open/v1";
-const V2: &str = "/api/v2";
-
-fn start(server: &MockServer) -> McpClient {
-    McpBuilder::new(server).start()
-}
 
 fn habits() -> Value {
     json!([
