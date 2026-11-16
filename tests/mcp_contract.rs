@@ -33,12 +33,6 @@ const PENDING_TOOLS: &[&str] = &[
     "add_filter",
     "edit_filter",
     "delete_filters",
-    // focus.py
-    "focus_status",
-    "focus_stats",
-    "focus_log",
-    "focus_timeline",
-    "focus_save",
     // folders.py
     "list_folders",
     "add_folder",
