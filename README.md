@@ -345,7 +345,7 @@ When the token expires, you'll see a "v2 session expired" error with instruction
 
 `ticktick-cli mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server. It is a drop-in replacement for the Python `ticktick-mcp` server: tool names, parameter names and types are the same, so clients that call `mcp__ticktick__<tool>` keep working. It also serves the resources `ticktick://projects`, `ticktick://tags`, `ticktick://settings` and `ticktick://profile`.
 
-Auth comes from the environment, so no config file is needed: `TICKTICK_ACCESS_TOKEN` (or a stored `login`) for the Open API, and `TICKTICK_V2_SESSION_TOKEN` for tools that use the v2 API.
+Auth comes from the environment, so no config file is needed: `TICKTICK_ACCESS_TOKEN` (or a stored `login`) for the Open API, and `TICKTICK_V2_SESSION_TOKEN` for tools that use the v2 API. To refresh an expired access token without a config file, also set `TICKTICK_REFRESH_TOKEN`, `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET`; the refreshed token is kept in memory for the life of the server.
 
 Not every tool from the Python server is ported yet; `tests/mcp_contract.rs` lists the pending ones in `PENDING_TOOLS`.
 

@@ -678,6 +678,44 @@ fn api_error_surfaces_as_is_error_not_protocol_error() {
 }
 
 #[test]
+fn refreshed_token_replaces_the_stale_env_token_for_later_calls() {
+    let server = MockServer::start();
+    let stale = server.mock(|when, then| {
+        when.method(GET)
+            .path(v1("/project"))
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"));
+        then.status(401);
+    });
+    let refresh = server.mock(|when, then| {
+        when.method(POST)
+            .path("/oauth/token")
+            .header("Authorization", "Basic Y2lkOnNlYw==")
+            .body("grant_type=refresh_token&refresh_token=r1");
+        then.status(200)
+            .json_body(json!({"access_token": "fresh", "refresh_token": "r2"}));
+    });
+    let fresh = server.mock(|when, then| {
+        when.method(GET)
+            .path(v1("/project"))
+            .header("Authorization", "Bearer fresh");
+        then.status(200).json_body(json!([]));
+    });
+    // An unwritable config dir: the refresh must not depend on config.json.
+    let mut c = McpBuilder::new(&server)
+        .env("TICKTICK_REFRESH_TOKEN", "r1")
+        .env("TICKTICK_CLIENT_ID", "cid")
+        .env("TICKTICK_CLIENT_SECRET", "sec")
+        .env("TICKTICK_OAUTH_TOKEN_URL", &server.url("/oauth/token"))
+        .env("XDG_CONFIG_HOME", "/dev/null/config")
+        .start();
+    c.call_tool("list_projects", json!({})).ok();
+    c.call_tool("list_projects", json!({})).ok();
+    stale.assert_calls(1);
+    refresh.assert_calls(1);
+    fresh.assert_calls(2);
+}
+
+#[test]
 fn v2_tool_uses_env_session_token_over_config() {
     let server = MockServer::start();
     let trash = server.mock(|when, then| {

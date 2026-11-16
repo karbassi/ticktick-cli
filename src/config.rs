@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -140,7 +141,37 @@ pub fn save(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Tokens from a refresh in this process. The env and files still hold the
+/// expired access token, so these win over them.
+#[derive(Clone)]
+pub struct RefreshedTokens {
+    pub access: String,
+    pub refresh: Option<String>,
+    /// Whether rotations are written back to config.json.
+    pub persist: bool,
+}
+
+static REFRESHED: Mutex<Option<RefreshedTokens>> = Mutex::new(None);
+
+/// The refreshed tokens. Hold the guard across a refresh so concurrent 401s
+/// refresh once.
+pub fn refreshed_tokens() -> MutexGuard<'static, Option<RefreshedTokens>> {
+    REFRESHED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `TICKTICK_REFRESH_TOKEN`, else config.json's (true when from config.json).
+pub fn get_refresh_token() -> Option<(String, bool)> {
+    if let Some(token) = env_nonempty("TICKTICK_REFRESH_TOKEN") {
+        return Some((token, false));
+    }
+    load().refresh_token.map(|t| (t, true))
+}
+
 pub fn get_access_token() -> Result<String, String> {
+    if let Some(tokens) = refreshed_tokens().as_ref() {
+        return Ok(tokens.access.clone());
+    }
+
     // An access token in the environment wins on its own; it does not need the
     // OAuth client ID/secret, which only `login` and token refresh use.
     if let Some(token) = env_nonempty("TICKTICK_ACCESS_TOKEN") {

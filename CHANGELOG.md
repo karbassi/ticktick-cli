@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `TICKTICK_V2_SESSION_TOKEN` in the environment now wins over `v2_session_token` in config.json.
 - `TICKTICK_ACCESS_TOKEN` in the environment is now used on its own. Before, it was ignored unless `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET` were also set.
+- After a 401, the refreshed access token is kept in memory and wins over `TICKTICK_ACCESS_TOKEN` and config.json for the rest of the process, so a long-running `mcp` server stops retrying the expired env token. The refresh token comes from the new `TICKTICK_REFRESH_TOKEN`, else config.json; config.json is rewritten only when its refresh token was used.
 - MCP `list_events` returns a tool error (`isError`) with the real message, such as the missing v2 session token hint. This intentionally differs from the Python server, which returns `[]` on any error.
 
 ## [1.0.0-rc.3]

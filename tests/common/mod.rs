@@ -38,6 +38,7 @@ pub fn isolated_command(dir: &Path) -> Command {
         .env("TZ", "America/Chicago");
     for var in [
         "TICKTICK_ACCESS_TOKEN",
+        "TICKTICK_REFRESH_TOKEN",
         "TICKTICK_V2_SESSION_TOKEN",
         "TICKTICK_CLIENT_ID",
         "TICKTICK_CLIENT_SECRET",
