@@ -215,6 +215,39 @@ Examples:
 ")]
     Sync,
 
+    /// Run an MCP server exposing TickTick tools and resources
+    ///
+    /// Serves the Model Context Protocol over stdio (default) or streamable
+    /// HTTP at /mcp. Tool names and parameters match the Python ticktick-mcp
+    /// server, so it is a drop-in replacement.
+    ///
+    /// Auth comes from TICKTICK_ACCESS_TOKEN (or the stored login) and, for
+    /// v2 tools, TICKTICK_V2_SESSION_TOKEN; no config file is needed.
+    ///
+    /// The HTTP endpoint has no auth, so --host must be loopback. Env
+    /// fallbacks: TICKTICK_MCP_TRANSPORT=stdio|http, TICKTICK_MCP_HOST,
+    /// TICKTICK_MCP_PORT. Extra trusted Host headers and Origins come from
+    /// FASTMCP_HTTP_ALLOWED_HOSTS / FASTMCP_HTTP_ALLOWED_ORIGINS (JSON arrays).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli mcp                          # stdio, for an MCP client config
+  ticktick-cli mcp --http                   # http://127.0.0.1:8502/mcp
+  ticktick-cli mcp --http --port 9000       # another port
+")]
+    Mcp {
+        /// Serve streamable HTTP instead of stdio
+        #[arg(long)]
+        http: bool,
+
+        /// HTTP bind address; must be loopback [default: 127.0.0.1]
+        #[arg(long)]
+        host: Option<String>,
+
+        /// HTTP port [default: 8502]
+        #[arg(long)]
+        port: Option<u16>,
+    },
+
     /// Initialize a .env configuration file with required variables
     ///
     /// Creates a .env template with the TickTick API credentials fields.
@@ -3414,6 +3447,9 @@ pub fn run() -> Result<(), String> {
             let data = crate::api::v2::batch_check()?;
             crate::output::success(&data);
             Ok(())
+        }
+        Commands::Mcp { http, host, port } => {
+            crate::mcp::run(crate::mcp::McpOptions { http, host, port })
         }
         Commands::Init { local, force } => crate::config::init(local, force),
         Commands::Completions { shell } => {
