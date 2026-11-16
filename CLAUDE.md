@@ -16,18 +16,30 @@ src/
     project.rs   — project CRUD + fuzzy name resolution (case-insensitive, partial match)
     column.rs    — kanban column list/create/update via v1 API (no delete endpoint), name resolution
     project_group.rs — project folder/group CRUD via v1 API (list, create, delete, rename, resolve)
-    task.rs      — task CRUD, date/time parsing, duration parsing
+    task.rs      — task CRUD, batch complete, search/filter, assign, date/time parsing (jiff), duration parsing
+    comment.rs   — task comments via v1 API (list, add, delete)
+    countdown.rs — countdown list via v1 API (read-only)
     tag.rs       — tag CRUD via v1 API (list, create, delete, rename, edit); merge via v2
     filter.rs    — saved filter CRUD via v2 API (list, create, update, delete, fuzzy resolve)
     calendar.rs  — calendar accounts and events (read-only) via v2 API
     focus.rs     — focus log via v1; timer control and statistics via v2 + ms.ticktick.com APIs
     habit.rs     — habit CRUD, check-in, query, section writes via v2 API; section list via v1
     v2.rs        — v2 API session auth (cookie-based), HTTP helpers (get/post/put), batch check, completed tasks, subtask parent batch, profile, settings, trash
-  config.rs      — XDG config storage, .env loading, v2 session/device management
+  config.rs      — XDG config storage (locked load-modify-save via `update`), .env loading, v2 session/device management
   output.rs      — JSON output helpers (success to stdout, errors to stderr)
+  mcp/           — `ticktick-cli mcp`, a drop-in for the Python `ticktick-mcp` server (see mcp/README.md)
+    mod.rs       — TickTickServer, resources, stdio and streamable-HTTP transports
+    util.rs      — raw-JSON API calls, name resolution, dates, tool result helpers
+    tools/       — one file per Python tools module, each with its own router
 tests/
   api_tests.rs   — integration tests hitting real API (#[ignore])
   cli_tests.rs   — CLI argument parsing, dry-run, and error case tests
+  env_override_tests.rs — env token/base-URL overrides against a mock server
+  common/mod.rs  — McpBuilder/McpClient: spawn `mcp` against an httpmock server
+  mcp_contract.rs — tool names, params and types vs fixtures/mcp-contract.json (Python's tools/list)
+  mcp_stdio.rs   — task/project/tag tools end to end over stdio
+  mcp_http.rs    — HTTP transport, Host/Origin checks
+  mcp_<module>.rs — per-module tool tests (calendar, columns, comments, filters, focus, folders, habits, search)
 ```
 
 ## Output Contract
@@ -41,7 +53,9 @@ All output is JSON. No exceptions.
 ## Dependencies
 
 Intentionally minimal. Do not add new dependencies without good reason. Current set:
-- `clap` (CLI parsing), `ureq` (HTTP, sync), `serde`/`serde_json` (JSON), `libc` (timezone/signal), `strsim` (fuzzy matching)
+- `clap` (CLI parsing), `ureq` (HTTP, sync), `serde`/`serde_json` (JSON), `libc` (signal handling only), `strsim` (fuzzy matching)
+- `jiff` (tz database: UTC offsets and DST for dates)
+- `rmcp` (MCP server protocol and tool macros), `tokio` (async runtime for the MCP server; API calls stay sync on the blocking pool), `axum` (HTTP transport for `mcp --http`), `schemars` (JSON Schemas for MCP tool parameters)
 
 ## Error Handling
 
@@ -56,7 +70,7 @@ Intentionally minimal. Do not add new dependencies without good reason. Current 
 
 ## Testing
 
-Always write tests for every change. No exceptions.
+Always write tests for every change. No exceptions. Follow `CODING_STANDARDS.md`: no tautological tests, and comments only say what the code can't.
 
 - **Unit tests**: Add to the relevant `#[cfg(test)] mod tests` block in the source file
 - **Integration tests** (real API): Add to `tests/api_tests.rs` with `#[ignore]` (run with `cargo test -- --ignored --test-threads=1`)

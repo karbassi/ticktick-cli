@@ -12,9 +12,9 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs (they drop fields) or that print (`api::project::{list,get_by_id,members,create,update,delete}` write to stdout, which corrupts the stdio transport).
 
-  - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_column_id`, `resolve_folder_id` (returns etag), and the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys.
+  - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_project_ids` (several names, one `/project` fetch), `resolve_column_id`, `resolve_folder_id` (returns etag), and the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys.
 
-  - Dates like `dates.py`: `parse_datetime`, `parse_duration`, `api_date(&parsed, tz)`, `check_timezone`. Also `priority_value` and `nonempty`.
+  - Dates like `dates.py`: `parse_datetime`, `parse_duration`, `api_date(&parsed, tz)`, `check_timezone`, and `local_zone()` (account timezone if valid, else system) for when no `timezone` is given. Also `priority_value` and `nonempty`.
 
 - `tools/<module>.rs`: one file per Python `tools/<module>.py`, each with its own router. `tools/mod.rs` adds the routers together.
 
