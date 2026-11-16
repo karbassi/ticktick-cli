@@ -371,12 +371,9 @@ pub fn date_to_stamp_in(
 ) -> Result<i64, String> {
     let trimmed = input.trim().to_lowercase();
 
-    let (year, month, day) = match trimmed.as_str() {
+    let date = match trimmed.as_str() {
         "today" => today_in(&zone()?),
-        "yesterday" => {
-            let (y, m, d) = today_in(&zone()?);
-            sub_day(y, m, d)
-        }
+        "yesterday" => today_in(&zone()?).yesterday().map_err(|e| e.to_string())?,
         _ => {
             let parts: Vec<&str> = trimmed.split('-').collect();
             if parts.len() != 3 {
@@ -401,24 +398,11 @@ pub fn date_to_stamp_in(
             let Some(date) = real else {
                 return Err(format!("Invalid date '{input}': no such calendar day"));
             };
-            (date.year() as i32, month as u32, day as u32)
+            date
         }
     };
 
-    Ok(year as i64 * 10000 + month as i64 * 100 + day as i64)
-}
-
-/// Subtract one day from the given date.
-fn sub_day(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
-    if day > 1 {
-        (year, month, day - 1)
-    } else if month > 1 {
-        let prev_month = month - 1;
-        let d = super::task::days_in_month(year, prev_month);
-        (year, prev_month, d)
-    } else {
-        (year - 1, 12, 31)
-    }
+    Ok(i64::from(date.year()) * 10000 + i64::from(date.month()) * 100 + i64::from(date.day()))
 }
 
 // ---------------------------------------------------------------------------
@@ -533,21 +517,5 @@ mod tests {
         assert!(date_to_stamp("2026-02-30").is_err());
         assert!(date_to_stamp("2025-02-29").is_err());
         assert_eq!(date_to_stamp("2024-02-29").unwrap(), 20240229);
-    }
-
-    #[test]
-    fn sub_day_normal() {
-        assert_eq!(sub_day(2026, 2, 18), (2026, 2, 17));
-    }
-
-    #[test]
-    fn sub_day_first_of_month() {
-        assert_eq!(sub_day(2026, 3, 1), (2026, 2, 28));
-        assert_eq!(sub_day(2024, 3, 1), (2024, 2, 29)); // leap year
-    }
-
-    #[test]
-    fn sub_day_first_of_year() {
-        assert_eq!(sub_day(2026, 1, 1), (2025, 12, 31));
     }
 }

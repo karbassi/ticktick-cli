@@ -1,4 +1,4 @@
-use jiff::civil::DateTime;
+use jiff::civil::{Date, DateTime};
 use jiff::tz::{AmbiguousOffset, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -90,50 +90,6 @@ pub fn list_by_project(token: &str, project_id: Option<&str>) -> Result<Vec<Task
 struct ProjectData {
     #[serde(default)]
     tasks: Vec<Task>,
-}
-
-// ---------------------------------------------------------------------------
-// Date/time helpers
-// ---------------------------------------------------------------------------
-
-pub fn is_leap_year(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-}
-
-pub fn days_in_month(year: i32, month: u32) -> u32 {
-    match month {
-        1 => 31,
-        2 => {
-            if is_leap_year(year) {
-                29
-            } else {
-                28
-            }
-        }
-        3 => 31,
-        4 => 30,
-        5 => 31,
-        6 => 30,
-        7 => 31,
-        8 => 31,
-        9 => 30,
-        10 => 31,
-        11 => 30,
-        12 => 31,
-        _ => 0,
-    }
-}
-
-/// Adds one day to the given date, handling month and year overflow.
-pub fn add_days(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
-    let dim = days_in_month(year, month);
-    if day < dim {
-        (year, month, day + 1)
-    } else if month < 12 {
-        (year, month + 1, 1)
-    } else {
-        (year + 1, 1, 1)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,16 +185,10 @@ pub fn local_iana_timezone() -> Option<String> {
     system_zone().iana_name().map(str::to_string)
 }
 
-/// Today's date in `zone` as (year, month, day).
-pub fn today_in(zone: &TimeZone) -> (i32, u32, u32) {
-    let today = jiff::Timestamp::now()
+pub fn today_in(zone: &TimeZone) -> Date {
+    jiff::Timestamp::now()
         .to_zoned_datetime(zone.clone())
-        .date();
-    (
-        today.year().into(),
-        today.month().unsigned_abs().into(),
-        today.day().unsigned_abs().into(),
-    )
+        .date()
 }
 
 // ---------------------------------------------------------------------------
@@ -433,26 +383,18 @@ pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
 pub fn parse_datetime_in(input: &str, zone: &TimeZone) -> Result<ParsedDateTime, String> {
     let trimmed = input.trim().to_lowercase();
 
+    let date_only = |date: Date| ParsedDateTime {
+        year: date.year().into(),
+        month: date.month().unsigned_abs().into(),
+        day: date.day().unsigned_abs().into(),
+        time: None,
+    };
     match trimmed.as_str() {
-        "today" => {
-            let (year, month, day) = today_in(zone);
-            Ok(ParsedDateTime {
-                year,
-                month,
-                day,
-                time: None,
-            })
-        }
-        "tomorrow" => {
-            let (year, month, day) = today_in(zone);
-            let (year, month, day) = add_days(year, month, day);
-            Ok(ParsedDateTime {
-                year,
-                month,
-                day,
-                time: None,
-            })
-        }
+        "today" => Ok(date_only(today_in(zone))),
+        "tomorrow" => today_in(zone)
+            .tomorrow()
+            .map(date_only)
+            .map_err(|e| e.to_string()),
         _ => {
             // Check for YYYY-MM-DDTHH:MM
             if let Some((date_part, time_part)) = trimmed.split_once('t') {
@@ -1542,27 +1484,5 @@ mod tests {
             time: Some((0, 0)),
         };
         assert!(!dt.is_all_day());
-    }
-
-    // -- is_leap_year ---------------------------------------------------------
-
-    #[test]
-    fn test_is_leap_year() {
-        assert!(is_leap_year(2024));
-        assert!(is_leap_year(2000));
-        assert!(!is_leap_year(2023));
-        assert!(!is_leap_year(1900));
-        assert!(is_leap_year(2400));
-    }
-
-    // -- days_in_month --------------------------------------------------------
-
-    #[test]
-    fn test_days_in_month() {
-        assert_eq!(days_in_month(2026, 1), 31);
-        assert_eq!(days_in_month(2026, 2), 28);
-        assert_eq!(days_in_month(2024, 2), 29);
-        assert_eq!(days_in_month(2026, 4), 30);
-        assert_eq!(days_in_month(2026, 12), 31);
     }
 }
