@@ -1,6 +1,4 @@
-//! Project folder tools (Python `tools/folders.py`): list_folders, add_folder,
-//! delete_folders, rename_folder. Folder name resolution is
-//! `util::resolve_folder_id`.
+//! Python `tools/folders.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

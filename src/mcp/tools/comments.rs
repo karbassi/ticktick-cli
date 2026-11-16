@@ -1,4 +1,4 @@
-//! Comment tools (Python `tools/comments.py`).
+//! Python `tools/comments.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

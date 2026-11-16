@@ -1,5 +1,4 @@
-//! Saved filter tools (Python `tools/filters.py`): list_filters, add_filter,
-//! edit_filter, delete_filters. Filters come from the v2 `batch/check` state.
+//! Python `tools/filters.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
@@ -10,7 +9,6 @@ use serde_json::{Value, json};
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, resolve_name_with_etag, run};
 
-/// The `filters` list of the v2 account state (`null` or missing is empty).
 fn batch_filters() -> Result<Vec<Value>, String> {
     let data = util::v2_get("/batch/check/0")?;
     Ok(util::as_list(
@@ -18,7 +16,6 @@ fn batch_filters() -> Result<Vec<Value>, String> {
     ))
 }
 
-/// Resolve a filter name or ID to `(id, etag)`.
 fn resolve_filter(name_or_id: &str) -> Result<(String, String), String> {
     resolve_name_with_etag(name_or_id, &batch_filters()?, "filter")
 }

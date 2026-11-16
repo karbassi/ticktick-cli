@@ -1,6 +1,5 @@
-//! End-to-end tests for `search_tasks` and `filter_tasks`; cases follow Python
-//! `tests/test_tools/test_search.py`. The server runs with `TZ=America/Chicago`
-//! (January and February are `-0600`).
+//! Cases follow Python `test_search.py`. `TZ=America/Chicago`, so January and
+//! February are `-0600`.
 
 mod common;
 

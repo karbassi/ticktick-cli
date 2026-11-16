@@ -1,5 +1,4 @@
-//! Countdown tools (Python `tools/countdowns.py`). Read-only: the official API
-//! has no create, update, or delete for countdowns.
+//! Python `tools/countdowns.py`. Read-only: the official API has no write endpoints.
 
 use rmcp::{tool, tool_router};
 use serde_json::json;

@@ -16,8 +16,7 @@ use crate::config;
 
 const DEFAULT_BASE_URL: &str = "https://api.ticktick.com/open/v1";
 
-/// Read a base URL from `var`, falling back to `default`. Tests point these at a
-/// mock server; a trailing slash is dropped so endpoints can start with `/`.
+/// Overridable so tests can use a mock server.
 pub fn env_url(var: &str, default: &str) -> String {
     match std::env::var(var) {
         Ok(v) if !v.trim().is_empty() => v.trim().trim_end_matches('/').to_string(),
@@ -25,7 +24,6 @@ pub fn env_url(var: &str, default: &str) -> String {
     }
 }
 
-/// Base URL of the official Open API (`TICKTICK_API_BASE` overrides it).
 pub fn base_url() -> String {
     env_url("TICKTICK_API_BASE", DEFAULT_BASE_URL)
 }

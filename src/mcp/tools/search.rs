@@ -60,7 +60,7 @@ pub struct FilterTasksParams {
     pub kind: Option<Vec<String>>,
 }
 
-/// Python `_project_ids`: None or empty means no filter.
+/// Python `_project_ids`.
 fn project_ids(projects: Option<Vec<String>>) -> Result<Option<Value>, String> {
     match projects {
         Some(list) if !list.is_empty() => {
@@ -74,7 +74,6 @@ fn project_ids(projects: Option<Vec<String>>) -> Result<Option<Value>, String> {
     }
 }
 
-/// Map each name through `lookup`; None or empty means no filter.
 fn mapped(
     items: Option<Vec<String>>,
     lookup: impl Fn(&str) -> Result<Value, String>,
@@ -119,7 +118,7 @@ fn kinds(kind: Option<Vec<String>>) -> Result<Option<Value>, String> {
     })
 }
 
-/// Python `_date`: empty or missing means no bound.
+/// Python `_date`.
 fn date(value: Option<String>) -> Result<Option<Value>, String> {
     match util::nonempty(value) {
         Some(v) => Ok(Some(json!(api_date(&parse_datetime(&v)?, None)))),

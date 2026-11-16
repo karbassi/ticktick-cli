@@ -1,5 +1,4 @@
-//! End-to-end tests for the column tools, ported from the Python server's
-//! `test_columns.py`.
+//! Ported from Python `test_columns.py`.
 
 mod common;
 

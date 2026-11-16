@@ -1,5 +1,4 @@
-//! End-to-end tests for the folder tools, ported from the Python server's
-//! `test_folders.py`.
+//! Ported from Python `test_folders.py`.
 
 mod common;
 

@@ -1,5 +1,4 @@
-//! Kanban column tools (Python `tools/columns.py`): list_columns, add_column,
-//! edit_column. Column name resolution is `util::resolve_column_id`.
+//! Python `tools/columns.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

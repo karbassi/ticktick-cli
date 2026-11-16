@@ -1,7 +1,4 @@
-//! End-to-end tests of `ticktick-cli mcp` over stdio: real JSON-RPC against the
-//! built binary, with the TickTick API mocked by httpmock. Each test asserts the
-//! exact HTTP requests sent and the tool result. Cases follow the Python
-//! server's tests (`ticktick-mcp/tests/test_tools/test_tasks.py` and friends).
+//! Cases follow the Python server's `test_tasks.py` and friends.
 //!
 //! The child runs with `TZ=America/Chicago`, so 2027-03-01 is `-0600`.
 
@@ -26,7 +23,6 @@ fn start(server: &MockServer) -> McpClient {
     McpBuilder::new(server).start()
 }
 
-/// Mock `GET /project` returning `projects`.
 fn mock_projects(server: &MockServer, projects: Value) -> httpmock::Mock<'_> {
     server.mock(|when, then| {
         when.method(GET)
@@ -36,7 +32,6 @@ fn mock_projects(server: &MockServer, projects: Value) -> httpmock::Mock<'_> {
     })
 }
 
-/// Mock `POST /task` expecting exactly `body`, answering `{"id": "t1", ...body}`.
 fn mock_create(server: &MockServer, body: Value) -> httpmock::Mock<'_> {
     let mut reply = body.clone();
     reply["id"] = json!("t1");
@@ -48,10 +43,6 @@ fn mock_create(server: &MockServer, body: Value) -> httpmock::Mock<'_> {
         then.status(200).json_body(reply);
     })
 }
-
-// ---------------------------------------------------------------------------
-// add_task
-// ---------------------------------------------------------------------------
 
 #[test]
 fn add_task_timed_gets_at_due_time_reminder() {
@@ -74,7 +65,6 @@ fn add_task_timed_gets_at_due_time_reminder() {
         )
         .ok();
     create.assert();
-    // The API's JSON comes back untouched.
     assert_eq!(res.json()["id"], "t1");
     assert_eq!(res.json()["reminders"], json!(["TRIGGER:PT0S"]));
 }
@@ -250,10 +240,6 @@ fn add_task_rejects_bad_input_as_tool_errors() {
     assert!(res.is_error, "{}", res.text);
 }
 
-// ---------------------------------------------------------------------------
-// edit_task
-// ---------------------------------------------------------------------------
-
 #[test]
 fn edit_task_sends_only_passed_fields() {
     let server = MockServer::start();
@@ -314,10 +300,6 @@ fn edit_task_sends_only_passed_fields() {
     clear.assert();
     dated.assert();
 }
-
-// ---------------------------------------------------------------------------
-// complete_task
-// ---------------------------------------------------------------------------
 
 #[test]
 fn complete_task_single_uses_single_endpoint() {
@@ -382,10 +364,6 @@ fn complete_task_requires_an_id() {
     assert!(res.is_error);
     assert_eq!(res.text, "Provide task_id or task_ids");
 }
-
-// ---------------------------------------------------------------------------
-// list_tasks and project resolution
-// ---------------------------------------------------------------------------
 
 #[test]
 fn list_tasks_by_fuzzy_project_name() {
@@ -495,10 +473,6 @@ fn project_resolution_errors_match_python() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Other task tools
-// ---------------------------------------------------------------------------
-
 #[test]
 fn move_task_posts_v1_move() {
     let server = MockServer::start();
@@ -588,7 +562,6 @@ fn api_error_surfaces_as_is_error_not_protocol_error() {
     let res = c.call_tool("get_task", json!({"task_id": "t1", "project": HEX_PROJECT}));
     assert!(res.is_error);
     assert!(res.text.contains("404"), "{}", res.text);
-    // The server keeps working after an error.
     let res = c.call_tool("complete_task", json!({"project": HEX_PROJECT}));
     assert!(res.is_error);
 }
@@ -630,10 +603,6 @@ fn v2_tool_without_session_token_is_a_tool_error() {
         res.text
     );
 }
-
-// ---------------------------------------------------------------------------
-// Projects and tags
-// ---------------------------------------------------------------------------
 
 #[test]
 fn project_tools() {
@@ -758,10 +727,6 @@ fn tag_tools() {
         m.assert();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Resources
-// ---------------------------------------------------------------------------
 
 #[test]
 fn profile_resource_merges_status() {

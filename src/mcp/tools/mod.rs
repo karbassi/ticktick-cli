@@ -1,8 +1,4 @@
-//! MCP tool modules, one per Python `tools/<module>.py`. Each module defines a
-//! `#[tool_router(router = <module>_router, vis = "pub(crate)")]` impl block on
-//! `TickTickServer`; [`router`] adds them together. Every module is already
-//! declared and wired below (unported ones are empty stubs), so filling one in
-//! touches only its own file. See `src/mcp/README.md`.
+//! One module per Python `tools/<module>.py`. See `src/mcp/README.md`.
 
 mod calendar;
 mod columns;
@@ -22,7 +18,6 @@ use rmcp::handler::server::router::tool::ToolRouter;
 
 use super::TickTickServer;
 
-/// Every tool the server exposes.
 pub fn router() -> ToolRouter<TickTickServer> {
     TickTickServer::tasks_router()
         + TickTickServer::projects_router()

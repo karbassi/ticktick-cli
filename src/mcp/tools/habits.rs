@@ -1,6 +1,4 @@
-//! Habit tools (Python `tools/habits.py`): list_habits, add_habit, edit_habit,
-//! delete_habits, checkin_habit, habit_log, archive_habits,
-//! manage_habit_sections.
+//! Python `tools/habits.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
@@ -23,26 +21,22 @@ fn default_value() -> f64 {
     1.0
 }
 
-/// Resolve a habit name or ID to (id, etag) via `GET /habits` (v2).
 fn resolve_habit(name_or_id: &str) -> Result<(String, String), String> {
     let habits = util::as_list(util::v2_get("/habits")?);
     resolve_name_with_etag(name_or_id, &habits, "habit")
 }
 
-/// Resolve several habits, in order, to their IDs and etags.
 fn resolve_habits(names: &[String]) -> Result<Vec<(String, String)>, String> {
     names.iter().map(|n| resolve_habit(n)).collect()
 }
 
-/// Resolve a habit section name or ID to its ID (Python `_resolve_section`).
-/// Always fetches `GET /habit/sections` (v1) first, like Python.
+/// Python `_resolve_section`; like Python, always fetches the sections first.
 fn resolve_section(name_or_id: &str) -> Result<String, String> {
     let sections = util::as_list(util::v1_get("/habit/sections")?);
     let id_of = |s: &Value| s["id"].as_str().unwrap_or("").to_string();
     let name_of = |s: &Value| s["name"].as_str().unwrap_or("").to_string();
 
     if looks_like_id(name_or_id) {
-        // An unknown hex ID is passed through as-is.
         return Ok(name_or_id.to_string());
     }
 
@@ -70,7 +64,7 @@ fn resolve_section(name_or_id: &str) -> Result<String, String> {
     }
 }
 
-/// Python `date_to_stamp`: "today", "yesterday" or "YYYY-MM-DD" to YYYYMMDD.
+/// Python `date_to_stamp`.
 fn date_to_stamp(input: &str) -> Result<i64, String> {
     let s = input.trim().to_lowercase();
     if s == "today" || s == "yesterday" {
@@ -434,7 +428,6 @@ impl TickTickServer {
     }
 }
 
-/// Private sum of the two output shapes `manage_habit_sections` returns.
 enum Out {
     Json(Value),
     Text(String),

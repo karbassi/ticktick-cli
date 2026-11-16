@@ -141,13 +141,11 @@ pub fn save(config: &Config) -> Result<(), String> {
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    // An access token in the environment wins on its own; it does not need the
-    // OAuth client ID/secret, which only `login` and token refresh use.
+    // Needs no client ID/secret; only `login` and token refresh use those.
     if let Some(token) = env_nonempty("TICKTICK_ACCESS_TOKEN") {
         return Ok(token);
     }
 
-    // Then an access token in the .env file
     if let Ok(env) = load_env()
         && let Some(token) = env.access_token
     {
@@ -276,8 +274,7 @@ pub fn get_or_create_device_id() -> String {
     id
 }
 
-/// The v2 session cookie. `TICKTICK_V2_SESSION_TOKEN` wins over config.json, so a
-/// long-running process (the MCP server) can be fed a fresh cookie by env alone.
+/// Env wins so the long-running MCP server can be fed a fresh cookie.
 pub fn get_v2_session_token() -> Option<String> {
     env_nonempty("TICKTICK_V2_SESSION_TOKEN").or_else(|| load().v2_session_token)
 }

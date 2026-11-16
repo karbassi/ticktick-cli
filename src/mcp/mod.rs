@@ -1,9 +1,5 @@
-//! `ticktick-cli mcp`: an MCP server exposing TickTick as tools and resources.
-//!
-//! It is a drop-in replacement for the Python `ticktick-mcp` server: tool names,
-//! parameter names, required sets and JSON types match it (see
-//! `tests/fixtures/mcp-contract.json` and `tests/mcp_contract.rs`). See
-//! `src/mcp/README.md` for how to add a tool module.
+//! Drop-in replacement for the Python `ticktick-mcp` server (contract:
+//! `tests/mcp_contract.rs`). See `src/mcp/README.md` for adding a tool module.
 
 mod tools;
 pub mod util;
@@ -24,7 +20,6 @@ use rmcp::transport::streamable_http_server::{
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 use serde_json::Value;
 
-/// The MCP server. Tools live in `tools/<module>.rs`, one router per module.
 #[derive(Clone)]
 pub struct TickTickServer {
     tool_router: ToolRouter<Self>,
@@ -44,7 +39,6 @@ impl TickTickServer {
     }
 }
 
-/// `(uri, name, description)` of each resource.
 const RESOURCES: &[(&str, &str, &str)] = &[
     (
         "ticktick://projects",
@@ -68,7 +62,6 @@ const RESOURCES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Fetch a resource's JSON (blocking).
 fn read_resource_json(uri: &str) -> Result<Value, String> {
     match uri {
         "ticktick://projects" => util::v1_get("/project"),
@@ -141,15 +134,9 @@ impl ServerHandler for TickTickServer {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Transports
-// ---------------------------------------------------------------------------
-
-/// Hosts the HTTP transport may bind. The endpoint has no auth, so anything
-/// else would hand the TickTick account to the network.
+/// The endpoint has no auth, so only loopback may be bound.
 const LOOPBACK_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
 
-/// Options for `ticktick-cli mcp`; `None` falls back to env, then the default.
 pub struct McpOptions {
     pub http: bool,
     pub host: Option<String>,
@@ -168,8 +155,6 @@ fn env_var(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Resolve the transport: flags win over `TICKTICK_MCP_TRANSPORT`,
-/// `TICKTICK_MCP_HOST` and `TICKTICK_MCP_PORT`.
 fn transport(opts: McpOptions) -> Result<Transport, String> {
     let http = if opts.http {
         true
@@ -209,7 +194,7 @@ fn transport(opts: McpOptions) -> Result<Transport, String> {
     Ok(Transport::Http { host, port })
 }
 
-/// A JSON array of strings from an env var (FastMCP's `FASTMCP_HTTP_ALLOWED_*`).
+/// Same env format as FastMCP's `FASTMCP_HTTP_ALLOWED_*`.
 fn env_json_list(name: &str) -> Result<Vec<String>, String> {
     match env_var(name) {
         None => Ok(Vec::new()),
@@ -218,8 +203,7 @@ fn env_json_list(name: &str) -> Result<Vec<String>, String> {
     }
 }
 
-/// Run the server until the client disconnects (stdio) or the process is
-/// stopped (HTTP). Logs go to stderr only.
+/// Logs go to stderr only: stdout carries the stdio transport.
 pub fn run(opts: McpOptions) -> Result<(), String> {
     let transport = transport(opts)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -262,11 +246,10 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let bound = listener
         .local_addr()
         .map_err(|e| format!("failed to read bound address: {e}"))?;
-    // Port 0 asks the OS for a free port; the allow-lists use the real one.
+    // Port 0 is OS-assigned; the allow-lists need the real one.
     let port = bound.port();
 
-    // DNS-rebinding protection: only loopback Host headers on our port, plus
-    // the extra hosts (e.g. the reverse proxy's name) from the env.
+    // DNS-rebinding protection; env hosts cover e.g. a reverse proxy's name.
     let mut hosts = vec![
         format!("127.0.0.1:{port}"),
         format!("localhost:{port}"),

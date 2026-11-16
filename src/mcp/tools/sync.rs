@@ -1,4 +1,4 @@
-//! Full account sync (Python `sync_account`, which lives in `tools/calendar.py`).
+//! Python `sync_account`, which lives in `tools/calendar.py`.
 
 use rmcp::{tool, tool_router};
 

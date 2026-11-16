@@ -1,5 +1,4 @@
-//! `list_events` swallows API errors into an empty list, as the Python server
-//! does. The other calendar tools are pure pass-through and have no e2e test.
+//! `list_events` swallows API errors into an empty list, as Python does.
 
 mod common;
 

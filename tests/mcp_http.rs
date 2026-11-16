@@ -1,6 +1,3 @@
-//! `ticktick-cli mcp --http`: streamable HTTP on loopback, with Host/Origin
-//! allow-lists against DNS rebinding, and refusal of non-loopback binds.
-
 mod common;
 
 use common::{HttpServer, http_post, http_post_with, initialize_request, isolated_command};
@@ -90,7 +87,6 @@ fn http_allows_hosts_and_origins_from_env() {
 #[test]
 fn http_transport_and_port_from_env() {
     let dir = tempfile::tempdir().unwrap();
-    // TICKTICK_MCP_TRANSPORT=http without --http; port 0 from env.
     let mut cmd = isolated_command(dir.path());
     cmd.args(["mcp"])
         .env("TICKTICK_MCP_TRANSPORT", "http")
@@ -118,7 +114,6 @@ fn non_loopback_host_is_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("loopback"), "{stderr}");
 
-    // The env fallback is checked too.
     let out = isolated_command(dir.path())
         .args(["mcp"])
         .env("TICKTICK_MCP_TRANSPORT", "http")

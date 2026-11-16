@@ -1,6 +1,4 @@
-//! End-to-end tests of the habit tools over stdio, with the API mocked by
-//! httpmock. Cases follow `ticktick-mcp/tests/test_tools/test_habits.py`, with
-//! exact request bodies asserted.
+//! Cases follow Python `test_habits.py`.
 
 mod common;
 
@@ -45,7 +43,6 @@ fn mock_sections(server: &MockServer) -> httpmock::Mock<'_> {
     })
 }
 
-/// Mock a v2 POST expecting exactly `body`.
 fn mock_post<'a>(
     server: &'a MockServer,
     path: &str,

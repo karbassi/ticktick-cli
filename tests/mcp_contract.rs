@@ -1,8 +1,5 @@
-//! The MCP server must be a drop-in replacement for the Python ticktick-mcp
-//! server: `tests/fixtures/mcp-contract.json` is the Python server's
-//! `tools/list` (with input schemas) and resource list. Every tool registered
-//! here must match it by name, parameter names, required set and JSON types,
-//! and every fixture tool must be registered.
+//! `tests/fixtures/mcp-contract.json` is the Python server's `tools/list` and
+//! resource list.
 
 mod common;
 
@@ -26,8 +23,6 @@ fn by_name(tools: &[Value]) -> BTreeMap<String, Value> {
         .collect()
 }
 
-/// The JSON types a property schema allows, from `type` (string or array)
-/// or `anyOf`, e.g. `{"string", "null"}`.
 fn types(schema: &Value) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     match &schema["type"] {
@@ -45,7 +40,6 @@ fn types(schema: &Value) -> BTreeSet<String> {
     out
 }
 
-/// The item types of an array-typed property (from `items` or `anyOf`).
 fn item_types(schema: &Value) -> BTreeSet<String> {
     let mut out = types(&schema["items"]);
     if let Some(any) = schema["anyOf"].as_array() {
@@ -75,7 +69,6 @@ fn required(schema: &Value) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-/// Every difference between a registered tool's schema and the fixture's.
 fn schema_diffs(name: &str, ours: &Value, theirs: &Value) -> Vec<String> {
     let mut diffs = Vec::new();
     let (ours, theirs) = (&ours["inputSchema"], &theirs["inputSchema"]);

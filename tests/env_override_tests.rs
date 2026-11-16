@@ -1,11 +1,7 @@
-//! Base URLs and the v2 session token can come from the environment, so the
-//! binary runs against a mock server and without a config file.
-
 use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use httpmock::prelude::*;
 use std::fs;
 
-/// The binary with an empty config dir, no `.env`, and no real credentials.
 fn isolated(tmp: &tempfile::TempDir) -> Command {
     let mut c = cargo_bin_cmd!("ticktick-cli");
     c.current_dir(tmp.path())

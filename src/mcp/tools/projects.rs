@@ -1,4 +1,4 @@
-//! Project tools (Python `tools/projects.py`).
+//! Python `tools/projects.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

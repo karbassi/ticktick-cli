@@ -1,6 +1,3 @@
-//! Comment tools: project name resolution into the request path, the `text` to
-//! `title` mapping, a null body becoming `[]`, and the delete confirmation.
-
 mod common;
 
 use common::McpBuilder;

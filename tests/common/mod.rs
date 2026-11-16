@@ -1,10 +1,5 @@
-//! Shared harness for MCP server tests: spawn `ticktick-cli mcp` against an
-//! httpmock server (stdio JSON-RPC client), plus small HTTP helpers for the
-//! streamable HTTP transport.
-//!
-//! Every spawned server runs isolated: a temp dir is its cwd, `HOME` and
-//! `XDG_CONFIG_HOME` (so no real `.env` or config.json leaks in), `TZ` is
-//! `America/Chicago`, and the API base URLs point at the mock server.
+//! Spawned servers run isolated (temp dir as cwd, `HOME` and `XDG_CONFIG_HOME`)
+//! so no real `.env` or config.json leaks in. `TZ` is `America/Chicago`.
 
 #![allow(dead_code)]
 
@@ -29,7 +24,6 @@ pub fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_ticktick-cli")
 }
 
-/// A `Command` for the binary with an isolated home/config/cwd in `dir`.
 pub fn isolated_command(dir: &Path) -> Command {
     let mut cmd = Command::new(bin());
     cmd.current_dir(dir)
@@ -56,14 +50,12 @@ pub fn isolated_command(dir: &Path) -> Command {
     cmd
 }
 
-/// Write `config.json` into an isolated dir (as `XDG_CONFIG_HOME`).
 pub fn write_config(dir: &Path, config: &Value) {
     let cfg_dir = dir.join("ticktick-cli");
     std::fs::create_dir_all(&cfg_dir).unwrap();
     std::fs::write(cfg_dir.join("config.json"), config.to_string()).unwrap();
 }
 
-/// Builder for a stdio MCP server process.
 pub struct McpBuilder {
     dir: tempfile::TempDir,
     envs: Vec<(String, String)>,
@@ -71,7 +63,6 @@ pub struct McpBuilder {
 }
 
 impl McpBuilder {
-    /// Tokens and base URLs pointing at `server` (`/open/v1`, `/api/v2`).
     pub fn new(server: &MockServer) -> Self {
         Self {
             dir: tempfile::tempdir().unwrap(),
@@ -102,14 +93,12 @@ impl McpBuilder {
         self
     }
 
-    /// Spawn and complete the initialize handshake.
     pub fn start(self) -> McpClient {
         let mut client = self.spawn();
         client.initialize();
         client
     }
 
-    /// Spawn without initializing.
     pub fn spawn(self) -> McpClient {
         let mut cmd = isolated_command(self.dir.path());
         cmd.args(&self.args)
@@ -141,7 +130,6 @@ impl McpBuilder {
     }
 }
 
-/// The result of `tools/call`.
 #[derive(Debug)]
 pub struct ToolCall {
     pub is_error: bool,
@@ -150,20 +138,17 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    /// The text content parsed as JSON.
     pub fn json(&self) -> Value {
         serde_json::from_str(&self.text)
             .unwrap_or_else(|e| panic!("tool output is not JSON ({e}): {}", self.text))
     }
 
-    /// Panic unless the call succeeded.
     pub fn ok(self) -> Self {
         assert!(!self.is_error, "tool call failed: {}", self.text);
         self
     }
 }
 
-/// A JSON-RPC client speaking to `ticktick-cli mcp` over stdio.
 pub struct McpClient {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -173,14 +158,13 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    /// Write one JSON-RPC message.
     pub fn send(&mut self, msg: &Value) {
         let stdin = self.stdin.as_mut().expect("stdin open");
         writeln!(stdin, "{msg}").unwrap();
         stdin.flush().unwrap();
     }
 
-    /// Read the next stdout line as JSON. Every stdout line must be JSON-RPC.
+    /// Every stdout line must be JSON-RPC.
     pub fn recv(&mut self) -> Value {
         let line = self
             .lines
@@ -189,7 +173,6 @@ impl McpClient {
         serde_json::from_str(&line).unwrap_or_else(|e| panic!("non-JSON on stdout ({e}): {line}"))
     }
 
-    /// Send a request and return its full response (skipping notifications).
     pub fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;
@@ -202,7 +185,6 @@ impl McpClient {
         }
     }
 
-    /// `result` of a request; panics on a JSON-RPC error.
     pub fn result(&mut self, method: &str, params: Value) -> Value {
         let resp = self.request(method, params);
         assert!(resp.get("error").is_none(), "{method} failed: {resp}");
@@ -251,7 +233,6 @@ impl McpClient {
         result["resources"].as_array().unwrap().clone()
     }
 
-    /// Read a resource and parse its text as JSON.
     pub fn read_resource(&mut self, uri: &str) -> Value {
         let result = self.result("resources/read", json!({"uri": uri}));
         let text = result["contents"][0]["text"].as_str().unwrap();
@@ -267,11 +248,6 @@ impl Drop for McpClient {
     }
 }
 
-// ---------------------------------------------------------------------------
-// HTTP transport helpers
-// ---------------------------------------------------------------------------
-
-/// `ticktick-cli mcp --http` on a free loopback port, killed on drop.
 pub struct HttpServer {
     child: Child,
     pub port: u16,
@@ -279,8 +255,6 @@ pub struct HttpServer {
 }
 
 impl HttpServer {
-    /// Start with `--http --port 0` plus `args`, and `envs` on top of the
-    /// isolated environment. Waits for the "listening on" line on stderr.
     pub fn start(args: &[&str], envs: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let mut cmd = isolated_command(dir.path());
@@ -319,7 +293,6 @@ impl HttpServer {
         }
     }
 
-    /// `127.0.0.1:<port>`, an allowed Host header.
     pub fn host(&self) -> String {
         format!("127.0.0.1:{}", self.port)
     }
@@ -332,7 +305,6 @@ impl Drop for HttpServer {
     }
 }
 
-/// The JSON-RPC `initialize` request used by the HTTP tests.
 pub fn initialize_request(id: u64) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -346,7 +318,6 @@ pub fn initialize_request(id: u64) -> Value {
     })
 }
 
-/// A raw HTTP response.
 #[derive(Debug)]
 pub struct HttpResponse {
     pub status: u16,
@@ -362,8 +333,6 @@ impl HttpResponse {
             .map(|(_, v)| v.as_str())
     }
 
-    /// The JSON-RPC message in the body: plain JSON, or the first SSE `data:`
-    /// line that holds JSON.
     pub fn json(&self) -> Value {
         if let Ok(v) = serde_json::from_str(&self.body) {
             return v;
@@ -377,8 +346,7 @@ impl HttpResponse {
     }
 }
 
-/// POST a JSON-RPC message over a raw socket, so the `Host` header can be set
-/// to anything. Reads until the server closes or a full SSE event arrives.
+/// Raw socket so the `Host` header can be anything.
 pub fn http_post(
     port: u16,
     host_header: &str,
@@ -388,7 +356,6 @@ pub fn http_post(
     http_post_with(port, host_header, session, &[], body)
 }
 
-/// [`http_post`] with extra request headers (e.g. `Origin`).
 pub fn http_post_with(
     port: u16,
     host_header: &str,
@@ -415,8 +382,7 @@ pub fn http_post_with(
     req.push_str(&body);
     stream.write_all(req.as_bytes()).unwrap();
 
-    // Read until the connection closes, or until an SSE event carrying a
-    // JSON-RPC response has arrived (SSE streams may stay open).
+    // SSE streams may stay open, so also stop at a complete response event.
     let mut raw = Vec::new();
     let mut buf = [0u8; 8192];
     loop {
@@ -435,7 +401,6 @@ pub fn http_post_with(
     parse_http(&String::from_utf8_lossy(&raw))
 }
 
-/// True once an SSE response holds a complete `data:` line with a result or error.
 fn sse_done(text: &str) -> bool {
     text.lines().any(|l| {
         l.strip_prefix("data:")
@@ -472,7 +437,6 @@ fn parse_http(raw: &str) -> HttpResponse {
     }
 }
 
-/// Decode a (possibly truncated) chunked body.
 fn dechunk(mut body: &str) -> String {
     let mut out = String::new();
     while let Some((size, rest)) = body.split_once("\r\n") {

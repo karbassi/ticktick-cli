@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
 
-/// Base URL of the private v2 API (`TICKTICK_V2_BASE` overrides it).
 pub fn v2_base_url() -> String {
     super::env_url("TICKTICK_V2_BASE", DEFAULT_V2_BASE_URL)
 }

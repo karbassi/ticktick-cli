@@ -1,4 +1,4 @@
-//! Task tools (Python `tools/tasks.py`).
+//! Python `tools/tasks.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
@@ -29,7 +29,6 @@ fn default_priority() -> String {
     "none".to_string()
 }
 
-/// A validated timezone parameter.
 fn timezone(tz: Option<String>) -> Result<Option<String>, String> {
     let tz = nonempty(tz);
     if let Some(ref t) = tz {
@@ -198,7 +197,6 @@ pub struct SetSubtaskParams {
     pub project: String,
 }
 
-/// The `tasks` array of a `/project/{id}/data` (or trash) response.
 fn tasks_of(data: Value) -> Vec<Value> {
     match data {
         Value::Object(mut obj) => as_list(obj.remove("tasks").unwrap_or(Value::Null)),
@@ -223,8 +221,7 @@ fn list_tasks(p: ListTasksParams) -> Result<Value, String> {
             "/project/{pid}/data"
         ))?)));
     }
-    // All projects, then the inbox (which /project does not list). A project
-    // that fails to load is skipped, like the Python server does.
+    // /project does not list the inbox. A project that fails to load is skipped, like Python.
     let mut all = Vec::new();
     for project in as_list(util::v1_get("/project")?) {
         let Some(id) = project.get("id").and_then(Value::as_str) else {
@@ -435,7 +432,6 @@ fn complete_task(p: CompleteTaskParams) -> Result<String, String> {
     Ok(msg)
 }
 
-/// The HTTP status code in an API error message, if there is one.
 fn status_code(err: &str) -> Option<u16> {
     let rest = &err[err.find("status code ")? + "status code ".len()..];
     rest.split(|c: char| !c.is_ascii_digit())

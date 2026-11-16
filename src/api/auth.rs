@@ -5,7 +5,6 @@ use std::net::TcpListener;
 const AUTH_URL: &str = "https://ticktick.com/oauth/authorize";
 const DEFAULT_TOKEN_URL: &str = "https://ticktick.com/oauth/token";
 
-/// OAuth token endpoint (`TICKTICK_OAUTH_TOKEN_URL` overrides it).
 fn token_url() -> String {
     super::env_url("TICKTICK_OAUTH_TOKEN_URL", DEFAULT_TOKEN_URL)
 }

@@ -1,4 +1,4 @@
-//! Tag tools (Python `tools/tags.py`).
+//! Python `tools/tags.py`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

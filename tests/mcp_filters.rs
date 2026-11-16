@@ -1,5 +1,5 @@
-//! End-to-end tests for the filter tools. The Python tests only exercise the
-//! client; these assert the tool-level request bodies built in `filters.py`.
+//! The Python tests only exercise the client; these assert the request bodies
+//! built in `filters.py`.
 
 mod common;
 

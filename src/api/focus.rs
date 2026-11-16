@@ -2,7 +2,6 @@ use super::v2;
 
 const DEFAULT_MS_BASE_URL: &str = "https://ms.ticktick.com";
 
-/// Base URL of the focus (ms) API (`TICKTICK_MS_BASE` overrides it).
 fn ms_base_url() -> String {
     super::env_url("TICKTICK_MS_BASE", DEFAULT_MS_BASE_URL)
 }

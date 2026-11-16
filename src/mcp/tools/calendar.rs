@@ -1,5 +1,4 @@
-//! Calendar tools (Python `tools/calendar.py`): list_calendars, list_events.
-//! `sync_account` from that file is in `sync.rs`.
+//! Python `tools/calendar.py`; its `sync_account` is in `sync.rs`.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};

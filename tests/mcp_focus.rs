@@ -1,5 +1,4 @@
-//! End-to-end tests for the focus tools, ported from the Python suite
-//! (`ticktick-mcp/tests/test_tools/test_focus.py`).
+//! Ported from Python `test_focus.py`.
 
 mod common;
 
@@ -7,7 +6,6 @@ use common::{ACCESS_TOKEN, McpBuilder};
 use httpmock::prelude::*;
 use serde_json::{Value, json};
 
-/// A GET mock on v1 `/focus` for one exact `from`/`to`/`type`.
 fn focus_chunk<'a>(
     server: &'a MockServer,
     from: &str,
@@ -78,7 +76,6 @@ fn log_queries_both_types_in_30_day_chunks() {
         m.assert();
     }
     v2_pomodoros.assert_calls(0);
-    // Duplicates across chunks collapse; sorted by start.
     let ids: Vec<Value> = res
         .json()
         .as_array()
@@ -92,7 +89,6 @@ fn log_queries_both_types_in_30_day_chunks() {
 #[test]
 fn log_keeps_records_without_id() {
     let server = MockServer::start();
-    // One chunk x two types, no ids: both kept, no crash.
     let focus = server.mock(|when, then| {
         when.method(GET).path("/open/v1/focus");
         then.status(200)
@@ -167,7 +163,6 @@ fn log_accepts_today_and_yesterday() {
             json!({"from_date": " Yesterday ", "to_date": "TODAY"}),
         )
         .ok();
-    // Two full days: a single chunk, two types.
     focus.assert_calls(2);
     assert_eq!(res.json(), json!([]));
 }

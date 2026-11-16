@@ -1,9 +1,5 @@
-//! Focus/pomodoro tools (Python `tools/focus.py`): focus_status, focus_stats,
-//! focus_log, focus_timeline, focus_save. `focus_log` and `focus_save` use the
-//! v1 `/focus` endpoints; the rest use v2.
-//!
-//! The date helpers below are private copies of what Python gets from
-//! `datetime` (`date_to_epoch_ms`, `fromisoformat`, `_to_iso`).
+//! Python `tools/focus.py`. The date helpers are private copies of what Python
+//! gets from `datetime`.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -96,7 +92,6 @@ impl TickTickServer {
     async fn focus_log(&self, Parameters(p): Parameters<FocusLogParams>) -> ToolResult {
         run(move || {
             let start = date_to_epoch_ms(&p.from_date)?;
-            // End of day.
             let end = date_to_epoch_ms(&p.to_date)? + MS_PER_DAY - 1;
             v1_focus_records(start, end)
         })
@@ -171,11 +166,8 @@ impl TickTickServer {
     }
 }
 
-/// All focus records (both types) in `[start, end]` (epoch ms), paged to the
-/// v1 30-day cap. Records spanning a chunk boundary come back in both chunks,
-/// so they are deduplicated by id (last copy wins, first position kept).
-/// Records without an id can't be matched, so they are always kept. Sorted by
-/// start time.
+/// Records spanning a chunk boundary come back in both chunks, so dedupe by id
+/// (last copy wins, first position kept). Records without an id are always kept.
 fn v1_focus_records(start: i64, end: i64) -> Result<Value, String> {
     let mut records = Vec::new();
     let mut chunk_start = start;
@@ -215,7 +207,7 @@ fn v1_focus_records(start: i64, end: i64) -> Result<Value, String> {
     Ok(Value::Array(unique))
 }
 
-/// Python truthiness of a JSON value (for `if r.get("id")`).
+/// Python truthiness, for `if r.get("id")`.
 fn is_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -231,10 +223,6 @@ fn start_time(r: &Value) -> &str {
     r.get("startTime").and_then(Value::as_str).unwrap_or("")
 }
 
-// ---------------------------------------------------------------------------
-// Dates
-// ---------------------------------------------------------------------------
-
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -242,7 +230,6 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Days since 1970-01-01 for a proleptic Gregorian date.
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -252,7 +239,6 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// (year, month, day) for days since 1970-01-01.
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -275,8 +261,7 @@ fn days_in_month(y: i64, m: i64) -> i64 {
     }
 }
 
-/// Format epoch milliseconds like Python `_to_iso`:
-/// `yyyy-MM-ddTHH:mm:ss.SSS+0000` (UTC).
+/// Matches Python `_to_iso`.
 fn to_iso(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
@@ -290,7 +275,7 @@ fn to_iso(ms: i64) -> String {
     )
 }
 
-/// Today's date in the system's local timezone (Python `date.today()`).
+/// Python `date.today()`.
 fn local_today() -> (i64, i64, i64) {
     let now = (now_ms() / 1000) as libc::time_t;
     // SAFETY: `tm` is plain data and `localtime_r` fully initializes it.
@@ -317,7 +302,7 @@ fn check_date(y: i64, m: i64, d: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// Digits-only slice to number (rejects signs, spaces and non-ASCII).
+/// Unlike `str::parse`, rejects signs, spaces and non-ASCII.
 fn digits(s: &str) -> Option<i64> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -325,8 +310,7 @@ fn digits(s: &str) -> Option<i64> {
     s.parse().ok()
 }
 
-/// Python `date_to_epoch_ms`: "today", "yesterday" or "YYYY-MM-DD" to epoch
-/// ms at midnight UTC.
+/// Python `date_to_epoch_ms`; midnight UTC.
 fn date_to_epoch_ms(input: &str) -> Result<i64, String> {
     let s = input.trim().to_lowercase();
     let (y, m, d) = match s.as_str() {
@@ -350,12 +334,8 @@ fn date_to_epoch_ms(input: &str) -> Result<i64, String> {
     Ok(days_from_civil(y, m, d) * MS_PER_DAY)
 }
 
-/// A subset of Python's `datetime.fromisoformat` (3.11+) converted to epoch
-/// ms: `YYYY-MM-DD`, optionally followed by a one-character separator, a time
-/// (`HH`, `HH:MM`, `HH:MM:SS`, optional fraction, or the compact `HHMM[SS]`)
-/// and a `Z` / `+HH[:MM[:SS]]` / `+HHMM` offset. Without an offset the value
-/// is local time, like Python's `astimezone`. Sub-millisecond digits are
-/// truncated.
+/// Subset of Python 3.11+ `datetime.fromisoformat`. Without an offset the value
+/// is local time, like Python's `astimezone`. Sub-millisecond digits are truncated.
 fn parse_iso_datetime(input: &str) -> Option<i64> {
     let s = input;
     if !s.is_ascii() || s.len() < 10 {
@@ -372,7 +352,7 @@ fn parse_iso_datetime(input: &str) -> Option<i64> {
     let mut offset: Option<i64> = None;
     let rest = &s[10..];
     if !rest.is_empty() {
-        // One separator character, then the time.
+        // The separator character is ignored.
         let time_and_tz = rest.get(1..).filter(|t| !t.is_empty())?;
         let tz_at = time_and_tz.find(['Z', 'z', '+', '-']);
         let (time, tz) = match tz_at {
@@ -398,7 +378,6 @@ fn parse_iso_datetime(input: &str) -> Option<i64> {
         mi = fields.get(1).map_or(Some(0), |f| digits(f))?;
         sec = fields.get(2).map_or(Some(0), |f| digits(f))?;
         if let Some(frac) = frac {
-            // A fraction needs a seconds field.
             if fields.len() < 3 || frac.is_empty() || digits(frac).is_none() {
                 return None;
             }
@@ -422,7 +401,7 @@ fn parse_iso_datetime(input: &str) -> Option<i64> {
     Some(epoch_secs * 1000 + frac_ms)
 }
 
-/// `Z`, `+HH`, `+HH:MM`, `+HH:MM:SS` or `+HHMM[SS]` to seconds east of UTC.
+/// Seconds east of UTC.
 fn parse_offset_secs(tz: &str) -> Option<i64> {
     if tz.eq_ignore_ascii_case("z") {
         return Some(0);
@@ -455,7 +434,6 @@ fn parse_offset_secs(tz: &str) -> Option<i64> {
     Some(sign * (h * 3600 + m * 60 + s))
 }
 
-/// Epoch seconds for a wall-clock time in the system's local timezone.
 fn local_to_epoch_secs(y: i64, mo: i64, d: i64, h: i64, mi: i64, sec: i64) -> i64 {
     // SAFETY: `tm` is plain data; `mktime` normalizes it in place.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
