@@ -325,9 +325,12 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     };
 
     eprintln!("ticktick-cli MCP server listening on http://{bound}/mcp");
-    let serve = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .into_future();
+    let serve = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .into_future();
     tokio::pin!(serve);
     tokio::select! {
         res = &mut serve => return res.map_err(|e| format!("MCP HTTP server failed: {e}")),

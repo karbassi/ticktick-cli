@@ -74,6 +74,39 @@ fn http_loopback_hosts_and_origins_on_any_port() {
         status(&server, &server.host(), Some("http://[::1]:9999")),
         200
     );
+    // Python's `urlsplit(...).hostname` survives a malformed port.
+    assert_eq!(
+        status(&server, &server.host(), Some("http://localhost:1:2")),
+        200
+    );
+}
+
+#[test]
+fn http_skips_an_empty_origin() {
+    let server = HttpServer::start(&[], &[]);
+    assert_eq!(status(&server, "evil.example", Some("")), 421);
+    assert_eq!(status(&server, &server.host(), Some("")), 200);
+}
+
+#[test]
+fn http_same_origin_honors_forwarded_proto_from_a_loopback_proxy() {
+    let server = HttpServer::start(&[], &[("FASTMCP_HTTP_ALLOWED_HOSTS", r#"["mcp.ali.fyi"]"#)]);
+    let with = |origin: &str, proto: Option<&str>| {
+        let mut headers = vec![("Origin", origin)];
+        headers.extend(proto.map(|p| ("X-Forwarded-Proto", p)));
+        http_post_with(
+            server.port,
+            "mcp.ali.fyi",
+            None,
+            &headers,
+            &initialize_request(1),
+        )
+        .status
+    };
+    assert_eq!(with("https://mcp.ali.fyi", Some("https")), 200);
+    assert_eq!(with("https://mcp.ali.fyi", None), 403);
+    assert_eq!(with("http://mcp.ali.fyi", Some("https")), 403);
+    assert_eq!(with("https://mcp.ali.fyi", Some("HTTPS")), 403);
 }
 
 #[test]

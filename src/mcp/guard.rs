@@ -4,10 +4,10 @@
 //! loopback Origin is accepted whenever the Host is loopback. rmcp's own check
 //! matches exactly, so it is disabled in favor of this one.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use axum::extract::Request;
+use axum::extract::{ConnectInfo, Request};
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -37,9 +37,22 @@ impl Guard {
         if !self.host_allowed(&host) {
             return (StatusCode::MISDIRECTED_REQUEST, "Misdirected Request").into_response();
         }
-        if let Some(origin) = req.headers().get(header::ORIGIN) {
+        if let Some(origin) = req.headers().get(header::ORIGIN)
+            && !origin.is_empty()
+        {
             let origin = String::from_utf8_lossy(origin.as_bytes());
-            if !self.origin_allowed(&origin, &host) {
+            let peer = req
+                .extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|c| c.0.ip());
+            let forwarded = req
+                .headers()
+                .get_all("x-forwarded-proto")
+                .iter()
+                .next_back()
+                .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned());
+            let scheme = request_scheme(peer, forwarded.as_deref());
+            if !self.origin_allowed(&origin, scheme, &host) {
                 return (StatusCode::FORBIDDEN, "Forbidden Origin").into_response();
             }
         }
@@ -54,7 +67,7 @@ impl Guard {
         })
     }
 
-    fn origin_allowed(&self, origin: &str, host: &str) -> bool {
+    fn origin_allowed(&self, origin: &str, scheme: &str, host: &str) -> bool {
         let normalized = normalize_origin(origin);
         if self.origins.iter().any(|allowed| {
             let pattern = normalize_origin(allowed);
@@ -62,11 +75,24 @@ impl Guard {
         }) {
             return true;
         }
-        let origin_host = split_url(origin.trim()).map(|u| u.host).unwrap_or_default();
-        if is_loopback(&origin_host) && is_loopback(host) {
+        if is_loopback(&split_url(origin.trim()).host) && is_loopback(host) {
             return true;
         }
-        normalized == normalize_origin(&format!("http://{host}"))
+        normalized == normalize_origin(&format!("{scheme}://{host}"))
+    }
+}
+
+/// uvicorn's ASGI scheme: `X-Forwarded-Proto` (its last occurrence, exactly one
+/// of these values after trimming) counts only from a trusted proxy. uvicorn
+/// trusts 127.0.0.1 by default; any loopback peer is trusted here.
+fn request_scheme(peer: Option<IpAddr>, forwarded_proto: Option<&str>) -> &str {
+    match forwarded_proto.map(str::trim) {
+        Some(proto @ ("http" | "https" | "ws" | "wss"))
+            if peer.is_some_and(|ip| ip.is_loopback()) =>
+        {
+            proto
+        }
+        _ => "http",
     }
 }
 
@@ -93,13 +119,13 @@ fn is_loopback(host: &str) -> bool {
 struct Url {
     scheme: String,
     host: String,
-    port: Option<u16>,
+    /// `None` where Python's `.port` would raise; `.hostname` still works.
+    port: Option<Option<u16>>,
     has_tail: bool,
 }
 
-/// Python's `urlsplit` for `scheme://host[:port][tail]`; `None` where its
-/// `.port` would raise.
-fn split_url(url: &str) -> Option<Url> {
+/// Python's `urlsplit` for `scheme://host[:port][tail]`.
+fn split_url(url: &str) -> Url {
     let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (netloc, tail) = rest.split_at(end);
@@ -115,22 +141,23 @@ fn split_url(url: &str) -> Option<Url> {
         },
     };
     let port = match port {
-        None | Some("") => None,
-        Some(p) if p.bytes().all(|b| b.is_ascii_digit()) => Some(p.parse::<u16>().ok()?),
-        Some(_) => return None,
+        None | Some("") => Some(None),
+        Some(p) if p.bytes().all(|b| b.is_ascii_digit()) => p.parse::<u16>().ok().map(Some),
+        Some(_) => None,
     };
-    Some(Url {
+    Url {
         scheme: scheme.to_lowercase(),
         host: host.to_lowercase(),
         port,
         has_tail: !tail.is_empty(),
-    })
+    }
 }
 
 /// `scheme://host:port` with the default port filled in, else the input lowercased.
 fn normalize_origin(origin: &str) -> String {
     let origin = origin.trim().trim_end_matches('/');
-    let Some(url) = split_url(origin) else {
+    let url = split_url(origin);
+    let Some(port) = url.port else {
         return origin.to_lowercase();
     };
     if url.scheme.is_empty() || url.host.is_empty() || url.has_tail {
@@ -140,7 +167,7 @@ fn normalize_origin(origin: &str) -> String {
     if host.contains(':') {
         host = format!("[{host}]");
     }
-    let port = url.port.or(match url.scheme.as_str() {
+    let port = port.or(match url.scheme.as_str() {
         "http" => Some(80),
         "https" => Some(443),
         _ => None,
@@ -246,10 +273,44 @@ mod tests {
     #[test]
     fn origin_falls_back_to_loopback_and_same_origin() {
         let guard = Guard::new(vec!["mcp.ali.fyi".into()], vec![]);
-        assert!(guard.origin_allowed("http://localhost:9999", "127.0.0.1:8502"));
-        assert!(!guard.origin_allowed("https://mcp.ali.fyi:80", "mcp.ali.fyi:80"));
-        assert!(guard.origin_allowed("http://mcp.ali.fyi", "mcp.ali.fyi"));
-        assert!(!guard.origin_allowed("http://localhost:9999", "mcp.ali.fyi"));
-        assert!(!guard.origin_allowed("https://evil.example", "127.0.0.1:8502"));
+        assert!(guard.origin_allowed("http://localhost:9999", "http", "127.0.0.1:8502"));
+        assert!(!guard.origin_allowed("https://mcp.ali.fyi:80", "http", "mcp.ali.fyi:80"));
+        assert!(guard.origin_allowed("http://mcp.ali.fyi", "http", "mcp.ali.fyi"));
+        assert!(!guard.origin_allowed("http://localhost:9999", "http", "mcp.ali.fyi"));
+        assert!(!guard.origin_allowed("https://evil.example", "http", "127.0.0.1:8502"));
+        // An invalid port spoils the origin's port, not its hostname.
+        assert!(guard.origin_allowed("http://localhost:1:2", "http", "127.0.0.1:8502"));
+        assert!(guard.origin_allowed("http://localhost:99999", "http", "127.0.0.1:8502"));
+    }
+
+    #[test]
+    fn same_origin_uses_the_request_scheme() {
+        let guard = Guard::new(vec!["mcp.ali.fyi".into()], vec![]);
+        assert!(guard.origin_allowed("https://mcp.ali.fyi", "https", "mcp.ali.fyi"));
+        assert!(!guard.origin_allowed("https://mcp.ali.fyi", "http", "mcp.ali.fyi"));
+        assert!(!guard.origin_allowed("http://mcp.ali.fyi", "https", "mcp.ali.fyi"));
+    }
+
+    #[test]
+    fn forwarded_proto_only_from_a_loopback_peer() {
+        let local: Option<IpAddr> = Some("127.0.0.1".parse().unwrap());
+        let v6: Option<IpAddr> = Some("::1".parse().unwrap());
+        let remote: Option<IpAddr> = Some("192.168.1.10".parse().unwrap());
+        assert_eq!(request_scheme(local, Some("https")), "https");
+        assert_eq!(request_scheme(local, Some(" wss ")), "wss");
+        assert_eq!(request_scheme(v6, Some("https")), "https");
+        assert_eq!(request_scheme(remote, Some("https")), "http");
+        assert_eq!(request_scheme(None, Some("https")), "http");
+        assert_eq!(request_scheme(local, None), "http");
+        // uvicorn matches the whole value, case-sensitively.
+        assert_eq!(request_scheme(local, Some("HTTPS")), "http");
+        assert_eq!(request_scheme(local, Some("https, http")), "http");
+    }
+
+    #[test]
+    fn unbracketed_netloc_splits_at_the_first_colon() {
+        // Splitting at the last colon would read host `a:1`, port 2.
+        assert_eq!(normalize_origin("http://a:1:2"), "http://a:1:2");
+        assert_eq!(split_url("http://a:1:2").host, "a");
     }
 }
