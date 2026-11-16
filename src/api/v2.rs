@@ -61,7 +61,8 @@ pub fn v2_post(
         eprintln!("> POST {url}");
     }
 
-    ureq::post(&url)
+    super::agent()
+        .post(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
@@ -79,7 +80,8 @@ pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
         eprintln!("> GET {url}");
     }
 
-    ureq::get(&url)
+    super::agent()
+        .get(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))
@@ -100,7 +102,8 @@ pub fn v2_put(
         eprintln!("> PUT {url}");
     }
 
-    ureq::put(&url)
+    super::agent()
+        .put(&url)
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device_header(&device_id))
         .set("Cookie", &format!("t={token}"))

@@ -651,6 +651,30 @@ fn api_error_surfaces_as_is_error_not_protocol_error() {
 }
 
 #[test]
+fn stalled_request_times_out_as_a_tool_error() {
+    let server = MockServer::start();
+    let stalled = server.mock(|when, then| {
+        when.method(GET)
+            .path(v1(&format!("/project/{HEX_PROJECT}/data")));
+        then.status(200)
+            .delay(std::time::Duration::from_secs(10))
+            .json_body(json!({"tasks": []}));
+    });
+    let mut c = McpBuilder::new(&server)
+        .env("TICKTICK_HTTP_TIMEOUT_SECS", "1")
+        .start();
+    let started = std::time::Instant::now();
+    let res = c.call_tool("list_tasks", json!({"project": HEX_PROJECT}));
+    let elapsed = started.elapsed();
+    stalled.assert();
+    assert!(res.is_error, "{}", res.text);
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "took {elapsed:?}"
+    );
+}
+
+#[test]
 fn refreshed_token_replaces_the_stale_env_token_for_later_calls() {
     let server = MockServer::start();
     let stale = server.mock(|when, then| {

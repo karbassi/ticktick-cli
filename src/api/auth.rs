@@ -117,7 +117,8 @@ fn exchange_code(
 
     let auth = base64_encode(&format!("{client_id}:{client_secret}"));
 
-    let resp = ureq::post(&token_url())
+    let resp = super::agent()
+        .post(&token_url())
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)
@@ -137,7 +138,8 @@ pub fn refresh_token(refresh_token: &str) -> Result<(String, Option<String>), St
 
     let auth = base64_encode(&format!("{}:{}", env.client_id, env.client_secret));
 
-    let resp = ureq::post(&token_url())
+    let resp = super::agent()
+        .post(&token_url())
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)

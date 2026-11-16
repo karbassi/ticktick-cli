@@ -125,7 +125,8 @@ pub fn focus_op(ops: &[serde_json::Value]) -> Result<serde_json::Value, String> 
         eprintln!("> POST {ms_base}/focus/batch/focusOp");
     }
 
-    let resp = ureq::post(&format!("{ms_base}/focus/batch/focusOp"))
+    let resp = super::agent()
+        .post(&format!("{ms_base}/focus/batch/focusOp"))
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device)
         .set("Cookie", &format!("t={token}"))

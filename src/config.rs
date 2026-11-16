@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -153,10 +153,12 @@ pub struct RefreshedTokens {
 
 static REFRESHED: Mutex<Option<RefreshedTokens>> = Mutex::new(None);
 
-/// The refreshed tokens. Hold the guard across a refresh so concurrent 401s
-/// refresh once.
-pub fn refreshed_tokens() -> MutexGuard<'static, Option<RefreshedTokens>> {
-    REFRESHED.lock().unwrap_or_else(|e| e.into_inner())
+pub fn refreshed_tokens() -> Option<RefreshedTokens> {
+    REFRESHED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub fn set_refreshed_tokens(tokens: RefreshedTokens) {
+    *REFRESHED.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens);
 }
 
 /// `TICKTICK_REFRESH_TOKEN`, else config.json's (true when from config.json).
@@ -168,8 +170,8 @@ pub fn get_refresh_token() -> Option<(String, bool)> {
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    if let Some(tokens) = refreshed_tokens().as_ref() {
-        return Ok(tokens.access.clone());
+    if let Some(tokens) = refreshed_tokens() {
+        return Ok(tokens.access);
     }
 
     // Needs no client ID/secret; only `login` and token refresh use those.

@@ -1,7 +1,7 @@
 //! Mirrors the Python server's `client.py`, `resolve.py` and `dates.py` so tool
 //! output and errors match it.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, ContentBlock};
@@ -230,16 +230,20 @@ pub fn resolve_name_with_etag(
 }
 
 /// Discovered by creating and deleting a probe task, so cached per process.
+/// Discovery is serialized so concurrent callers don't each create a probe.
 pub fn inbox_id() -> Result<String, String> {
-    static INBOX: Mutex<Option<String>> = Mutex::new(None);
-    let mut cached = INBOX.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(id) = cached.as_ref() {
+    static INBOX: OnceLock<String> = OnceLock::new();
+    static DISCOVERING: Mutex<()> = Mutex::new(());
+    if let Some(id) = INBOX.get() {
+        return Ok(id.clone());
+    }
+    let _discovering = DISCOVERING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(id) = INBOX.get() {
         return Ok(id.clone());
     }
     let id = api::project::get_inbox_id()
         .map_err(|e| format!("Could not discover inbox project ID: {e}"))?;
-    *cached = Some(id.clone());
-    Ok(id)
+    Ok(INBOX.get_or_init(|| id).clone())
 }
 
 pub fn resolve_project_id(project: &str) -> Result<String, String> {
