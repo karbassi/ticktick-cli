@@ -58,7 +58,7 @@ All output is JSON. No exceptions.
 Intentionally minimal. Do not add new dependencies without good reason. Current set:
 - `clap` (CLI parsing), `ureq` (HTTP, sync), `serde`/`serde_json` (JSON), `libc` (signal handling only), `strsim` (fuzzy matching)
 - `jiff` (tz database: UTC offsets and DST for dates)
-- `rmcp` (MCP server protocol and tool macros), `tokio` (async runtime for the MCP server; API calls stay sync on the blocking pool), `axum` (HTTP transport for `mcp --http`), `schemars` (JSON Schemas for MCP tool parameters)
+- `rmcp` (MCP server protocol and tool macros), `tokio` (async runtime for the MCP server; API calls stay sync on the blocking pool), `axum` (HTTP transport for `mcp --http`), `http-body` (axum's body trait, to track in-flight responses for graceful shutdown), `schemars` (JSON Schemas for MCP tool parameters)
 
 ## Error Handling
 

@@ -8,8 +8,15 @@ pub mod util;
 
 use std::future::IntoFuture;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
+
+use axum::body::{Bytes, HttpBody};
+use axum::http::Method;
+use axum::response::Response;
+use http_body::{Frame, SizeHint};
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -25,6 +32,7 @@ use rmcp::transport::streamable_http_server::{
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct TickTickServer {
@@ -291,12 +299,15 @@ pub fn run(opts: McpOptions) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|e| format!("failed to start async runtime: {e}"))?;
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         match transport {
             Transport::Stdio => serve_stdio().await,
             Transport::Http { host, port } => serve_http(&host, port).await,
         }
-    })
+    });
+    // Dropping the runtime would wait for blocking tool bodies without limit.
+    runtime.shutdown_timeout(SHUTDOWN_BACKSTOP);
+    result
 }
 
 async fn serve_stdio() -> Result<(), String> {
@@ -341,10 +352,15 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let server = TickTickServer::new();
     let service =
         StreamableHttpService::new(move || Ok(server.clone()), Arc::new(sessions), config);
+    let in_flight = InFlight::default();
+    let tracked = in_flight.clone();
     let app = axum::Router::new()
         .nest_service("/mcp", service)
         .layer(axum::middleware::from_fn(move |req, next| {
             guard.clone().check(req, next)
+        }))
+        .layer(axum::middleware::from_fn(move |req, next| {
+            tracked.clone().track(req, next)
         }));
 
     // Registered before the address is printed, so a supervisor that signals
@@ -353,37 +369,113 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
         .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
     let mut sigint =
         signal(SignalKind::interrupt()).map_err(|e| format!("failed to listen for SIGINT: {e}"))?;
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let shutdown = async move {
+    let (stop_tx, mut stop_rx) = watch::channel(false);
+    tokio::spawn(async move {
         tokio::select! {
             _ = sigint.recv() => {}
             _ = sigterm.recv() => {}
         }
-        // Open SSE streams would otherwise hold the graceful drain forever.
-        cancel.cancel();
-        let _ = stop_tx.send(());
-    };
+        let _ = stop_tx.send(true);
+        let code = tokio::select! {
+            _ = sigint.recv() => 128 + libc::SIGINT,
+            _ = sigterm.recv() => 128 + libc::SIGTERM,
+        };
+        std::process::exit(code);
+    });
+    let mut stopping = stop_rx.clone();
 
     eprintln!("ticktick-cli MCP server listening on http://{bound}/mcp");
     let serve = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
+    .with_graceful_shutdown(async move {
+        let _ = stopping.wait_for(|stop| *stop).await;
+    })
     .into_future();
     tokio::pin!(serve);
+    let failed = |e: std::io::Error| format!("MCP HTTP server failed: {e}");
     tokio::select! {
-        res = &mut serve => return res.map_err(|e| format!("MCP HTTP server failed: {e}")),
-        _ = stop_rx => {}
+        res = &mut serve => return res.map_err(failed),
+        _ = stop_rx.wait_for(|stop| *stop) => {}
     }
-    match tokio::time::timeout(SHUTDOWN_GRACE, serve).await {
-        Ok(res) => res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+    // New connections are refused now. Cancelling right away would cut off
+    // in-flight tool calls whose API writes still land.
+    tokio::select! {
+        res = &mut serve => return res.map_err(failed),
+        _ = tokio::time::timeout(SHUTDOWN_GRACE, in_flight.idle()) => {}
+    }
+    // Open SSE streams would otherwise hold the graceful drain forever.
+    cancel.cancel();
+    match tokio::time::timeout(SHUTDOWN_BACKSTOP, serve).await {
+        Ok(res) => res.map_err(failed),
         Err(_) => Ok(()),
     }
 }
 
 /// How long in-flight requests get to finish after SIGINT/SIGTERM.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// How long each later shutdown step may take once the grace period is over.
+const SHUTDOWN_BACKSTOP: Duration = Duration::from_millis(500);
+
+/// Counts non-GET requests until hyper drops their response body, i.e. until
+/// a tool call's response has been written. GETs are standalone SSE streams,
+/// which never finish on their own.
+#[derive(Clone, Default)]
+struct InFlight(Arc<watch::Sender<usize>>);
+
+struct InFlightGuard(Arc<watch::Sender<usize>>);
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.send_modify(|n| *n -= 1);
+    }
+}
+
+impl InFlight {
+    async fn track(self, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+        if req.method() == Method::GET {
+            return next.run(req).await;
+        }
+        self.0.send_modify(|n| *n += 1);
+        let guard = InFlightGuard(self.0);
+        next.run(req).await.map(|inner| {
+            axum::body::Body::new(TrackedBody {
+                inner,
+                _guard: guard,
+            })
+        })
+    }
+
+    async fn idle(&self) {
+        let _ = self.0.subscribe().wait_for(|n| *n == 0).await;
+    }
+}
+
+struct TrackedBody {
+    inner: axum::body::Body,
+    _guard: InFlightGuard,
+}
+
+impl HttpBody for TrackedBody {
+    type Data = Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, axum::Error>>> {
+        Pin::new(&mut self.inner).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.inner.size_hint()
+    }
+}
 
 #[cfg(test)]
 mod tests {

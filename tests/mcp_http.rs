@@ -1,6 +1,9 @@
 mod common;
 
-use common::{HttpServer, http_post, http_post_with, initialize_request, isolated_command};
+use common::{
+    HttpResponse, HttpServer, http_post, http_post_with, initialize_request, isolated_command,
+};
+use httpmock::prelude::*;
 use serde_json::json;
 use std::time::Duration;
 
@@ -155,6 +158,77 @@ fn sigterm_and_sigint_shut_down_with_an_sse_stream_open() {
             "signal {sig}: {status:?}"
         );
     }
+}
+
+/// An HTTP server whose `GET /project` answers after `delay`, with a
+/// `list_projects` call to it in flight.
+fn slow_call(
+    api: &MockServer,
+    delay: Duration,
+) -> (HttpServer, std::thread::JoinHandle<HttpResponse>) {
+    api.mock(|when, then| {
+        when.method(GET).path("/open/v1/project");
+        then.status(200)
+            .json_body(json!([{"id": "p1", "name": "Work"}]))
+            .delay(delay);
+    });
+    let server = HttpServer::start(&[], &[("TICKTICK_API_BASE", &api.url("/open/v1"))]);
+    let session = server.session();
+    let (port, host) = (server.port, server.host());
+    let call = std::thread::spawn(move || {
+        let req = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                         "params": {"name": "list_projects", "arguments": {}}});
+        http_post(port, &host, Some(&session), &req)
+    });
+    std::thread::sleep(Duration::from_millis(400));
+    (server, call)
+}
+
+#[test]
+fn sigterm_lets_an_in_flight_call_finish_then_exits() {
+    let api = MockServer::start();
+    let (mut server, call) = slow_call(&api, Duration::from_millis(1500));
+    server.signal(libc::SIGTERM);
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", server.port)).is_err(),
+        "still accepting connections"
+    );
+    let resp = call.join().unwrap();
+    assert_eq!(resp.status, 200, "{resp:?}");
+    let result = &resp.json()["result"];
+    assert_eq!(result["isError"], false, "{resp:?}");
+    assert_eq!(
+        result["content"][0]["text"],
+        r#"[{"id":"p1","name":"Work"}]"#
+    );
+    let status = server.wait_exit(Duration::from_secs(2));
+    assert!(status.is_some_and(|s| s.success()), "{status:?}");
+}
+
+#[test]
+fn a_stuck_call_does_not_hold_shutdown_past_the_grace_period() {
+    let api = MockServer::start();
+    let (mut server, _call) = slow_call(&api, Duration::from_secs(30));
+    server.signal(libc::SIGTERM);
+    // 5s grace, plus the backstops.
+    let status = server.wait_exit(Duration::from_secs(8));
+    assert!(status.is_some(), "still running");
+}
+
+#[test]
+fn a_second_signal_exits_at_once() {
+    use std::os::unix::process::ExitStatusExt;
+    let api = MockServer::start();
+    let (mut server, _call) = slow_call(&api, Duration::from_secs(30));
+    server.signal(libc::SIGTERM);
+    std::thread::sleep(Duration::from_millis(300));
+    server.signal(libc::SIGINT);
+    let status = server
+        .wait_exit(Duration::from_secs(1))
+        .expect("still running");
+    assert_eq!(status.code(), Some(130), "{status:?}");
+    assert_eq!(status.signal(), None);
 }
 
 #[test]

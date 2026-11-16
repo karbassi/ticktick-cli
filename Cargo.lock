@@ -1761,6 +1761,7 @@ dependencies = [
  "axum",
  "clap",
  "clap_complete",
+ "http-body",
  "httpmock",
  "jiff",
  "libc",
