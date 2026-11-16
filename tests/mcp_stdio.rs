@@ -280,6 +280,94 @@ fn add_task_rejects_timezone_paths() {
     create.assert_calls(0);
 }
 
+/// "today" at midnight in `tz`, as the API string.
+fn today_midnight_in(tz: &str) -> String {
+    let zone = jiff::tz::TimeZone::get(tz).unwrap();
+    jiff::Timestamp::now()
+        .to_zoned_datetime(zone.clone())
+        .date()
+        .to_zoned_datetime(zone)
+        .unwrap()
+        .strftime("%Y-%m-%dT%H:%M:%S.000%z")
+        .to_string()
+}
+
+#[test]
+fn add_task_today_uses_ticktick_timezone_for_date_and_offset() {
+    // Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+    for (system, env) in [
+        ("UTC", "America/Chicago"),
+        ("Pacific/Pago_Pago", "Pacific/Kiritimati"),
+    ] {
+        let server = MockServer::start();
+        let create = mock_create(
+            &server,
+            json!({
+                "title": "x",
+                "dueDate": today_midnight_in(env),
+                "isAllDay": true,
+                "reminders": ["TRIGGER:P0DT9H0M0S"],
+            }),
+        );
+        let mut c = McpBuilder::new(&server)
+            .env("TZ", system)
+            .env("TICKTICK_TIMEZONE", env)
+            .start();
+        c.call_tool("add_task", json!({"title": "x", "due": "today"}))
+            .ok();
+        create.assert();
+    }
+}
+
+#[test]
+fn add_task_ignores_config_account_timezone() {
+    let server = MockServer::start();
+    let create = mock_create(
+        &server,
+        json!({
+            "title": "x",
+            "dueDate": "2027-03-01T10:00:00.000-0600",
+            "isAllDay": false,
+            "reminders": ["TRIGGER:PT0S"],
+        }),
+    );
+    let mut c = McpBuilder::new(&server)
+        .config(json!({"account_timezone": "Asia/Tokyo"}))
+        .start();
+    c.call_tool("add_task", json!({"title": "x", "due": "2027-03-01T10:00"}))
+        .ok();
+    create.assert();
+}
+
+#[test]
+fn invalid_ticktick_timezone_errors_unless_timezone_is_given() {
+    let server = MockServer::start();
+    let create = mock_create(
+        &server,
+        json!({
+            "title": "x",
+            "dueDate": "2027-03-01T10:00:00.000-0500",
+            "isAllDay": false,
+            "timeZone": "America/New_York",
+            "reminders": ["TRIGGER:PT0S"],
+        }),
+    );
+    let mut c = McpBuilder::new(&server)
+        .env("TICKTICK_TIMEZONE", "Not/AZone")
+        .start();
+    let res = c.call_tool("add_task", json!({"title": "x", "due": "2027-03-01T10:00"}));
+    assert!(res.is_error);
+    assert_eq!(res.text, "TICKTICK_TIMEZONE: Unknown timezone 'Not/AZone'");
+    create.assert_calls(0);
+
+    c.call_tool(
+        "add_task",
+        json!({"title": "x", "due": "2027-03-01T10:00", "timezone": "America/New_York"}),
+    )
+    .ok();
+    create.assert();
+}
+
 #[test]
 fn edit_task_sends_only_passed_fields() {
     let server = MockServer::start();

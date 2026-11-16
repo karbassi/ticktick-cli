@@ -345,7 +345,7 @@ fn save_naive_end_is_local_time() {
     save.assert();
 }
 
-fn naive_save_end_with_account_timezone(account_tz: &str, end: &str) {
+fn naive_save_end(config: Value, env: Option<&str>, end: &str) {
     let server = MockServer::start();
     let save = mock_save(
         &server,
@@ -358,24 +358,48 @@ fn naive_save_end_with_account_timezone(account_tz: &str, end: &str) {
             "note": "",
         }),
     );
-    let mut mcp = McpBuilder::new(&server)
-        .config(json!({"account_timezone": account_tz}))
-        .start();
-    mcp.call_tool("focus_save", json!({"duration_minutes": 25, "end": end}))
+    let mut mcp = McpBuilder::new(&server).config(config);
+    if let Some(tz) = env {
+        mcp = mcp.env("TICKTICK_TIMEZONE", tz);
+    }
+    mcp.start()
+        .call_tool("focus_save", json!({"duration_minutes": 25, "end": end}))
         .ok();
     save.assert();
 }
 
 #[test]
-fn save_naive_end_follows_account_timezone() {
+fn save_naive_end_follows_ticktick_timezone() {
     // Asia/Tokyo is +09:00, so 23:25 there is 14:25Z (the system zone would give 05:25Z).
-    naive_save_end_with_account_timezone("Asia/Tokyo", "2026-02-22T23:25:00");
+    naive_save_end(json!({}), Some("Asia/Tokyo"), "2026-02-22T23:25:00");
 }
 
 #[test]
-fn save_naive_end_ignores_unknown_account_timezone() {
-    // Falls back to the system zone, America/Chicago (-06:00).
-    naive_save_end_with_account_timezone("Not/AZone", "2026-02-22T08:25:00");
+fn save_naive_end_ignores_config_account_timezone() {
+    naive_save_end(
+        json!({"account_timezone": "Asia/Tokyo"}),
+        None,
+        "2026-02-22T08:25:00",
+    );
+}
+
+#[test]
+fn save_naive_end_with_invalid_ticktick_timezone_is_an_error() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.any_request();
+        then.status(200).json_body(json!({}));
+    });
+    let mut mcp = McpBuilder::new(&server)
+        .env("TICKTICK_TIMEZONE", "Not/AZone")
+        .start();
+    let res = mcp.call_tool(
+        "focus_save",
+        json!({"duration_minutes": 25, "end": "2026-02-22T08:25:00"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "TICKTICK_TIMEZONE: Unknown timezone 'Not/AZone'");
+    save.assert_calls(0);
 }
 
 #[test]

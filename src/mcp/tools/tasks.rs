@@ -14,9 +14,11 @@ use crate::api::v2::TaskParent;
 use crate::config;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{
-    self, ToolResult, api_date, as_list, check_timezone, nonempty, parse_datetime, parse_duration,
-    priority_value, resolve_column_id, resolve_project_id, resolve_project_ids, run,
+    self, ParsedDateTime, ToolResult, api_date, as_list, check_timezone, nonempty,
+    parse_datetime_in, parse_duration, priority_value, resolve_column_id, resolve_project_id,
+    resolve_project_ids, run,
 };
+use jiff::tz::TimeZone;
 
 fn default_status() -> String {
     "active".to_string()
@@ -301,14 +303,21 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
     let tz = timezone(p.timezone)?;
     let due = nonempty(p.due);
     let start = nonempty(p.start);
-    let parsed_due = due.as_deref().map(parse_datetime).transpose()?;
-    let parsed_start = start.as_deref().map(parse_datetime).transpose()?;
+    let zone = if due.is_some() || start.is_some() {
+        util::zone(tz.as_deref())?
+    } else {
+        TimeZone::UTC
+    };
+    let set = |d: &ParsedDateTime| d.to_api_string_in(&zone).map(DateField::Set);
+    let parse = |s: &str| parse_datetime_in(s, &zone);
+    let parsed_due = due.as_deref().map(parse).transpose()?;
+    let parsed_start = start.as_deref().map(parse).transpose()?;
 
     if let Some(ref d) = parsed_due {
-        fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
+        fields.due_date = Some(set(d)?);
     }
     if let Some(ref s) = parsed_start {
-        fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())?));
+        fields.start_date = Some(set(s)?);
     }
     if let Some(date) = parsed_due.as_ref().or(parsed_start.as_ref()) {
         fields.is_all_day = Some(p.all_day.unwrap_or(date.is_all_day()));
@@ -327,11 +336,11 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
         let end = base.add_duration(&dur)?;
         match (&parsed_start, &parsed_due) {
             (Some(_), None) => {
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
+                fields.due_date = Some(set(&end)?);
             }
             (None, Some(d)) => {
-                fields.start_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
+                fields.start_date = Some(set(d)?);
+                fields.due_date = Some(set(&end)?);
             }
             // Both given: Python leaves them as they are.
             _ => {}
@@ -382,15 +391,16 @@ fn edit_task(p: EditTaskParams) -> Result<Value, String> {
     if p.clear_due {
         fields.due_date = Some(DateField::Clear);
     } else if let Some(due) = nonempty(p.due) {
-        let parsed = parse_datetime(&due)?;
-        fields.due_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
+        let zone = util::zone(tz.as_deref())?;
+        let parsed = parse_datetime_in(&due, &zone)?;
+        fields.due_date = Some(DateField::Set(parsed.to_api_string_in(&zone)?));
         fields.is_all_day = Some(parsed.is_all_day());
     }
     if p.clear_start {
         fields.start_date = Some(DateField::Clear);
     } else if let Some(start) = nonempty(p.start) {
-        let parsed = parse_datetime(&start)?;
-        fields.start_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
+        let zone = util::zone(tz.as_deref())?;
+        fields.start_date = Some(DateField::Set(api_date(&start, &zone)?));
     }
     if let Some(tz) = tz {
         fields.time_zone = Some(tz);

@@ -2003,15 +2003,17 @@ fn resolve_timeblock(
     timezone: Option<String>,
     tz_for_offset: Option<&str>,
 ) -> Result<TimeblockResult, String> {
-    use crate::api::task::{DateField, parse_datetime, parse_duration};
+    use crate::api::task::{DateField, parse_datetime_in, parse_duration};
 
     // --duration requires --start
     if duration.is_some() && start.is_none() {
         return Err("--duration requires --start".to_string());
     }
 
-    let parsed_start = start.map(parse_datetime).transpose()?;
-    let parsed_due = due.map(parse_datetime).transpose()?;
+    let zone = crate::api::task::time_zone(tz_for_offset)?;
+    let parse = |s: &str| parse_datetime_in(s, &zone);
+    let parsed_start = start.map(parse).transpose()?;
+    let parsed_due = due.map(parse).transpose()?;
 
     // --duration with date-only --start is an error
     if duration.is_some()
@@ -2027,13 +2029,12 @@ fn resolve_timeblock(
         let ps = parsed_start.as_ref().unwrap(); // guaranteed by check above
         let end = ps.add_duration(&dur)?;
         (
-            Some(DateField::Set(end.to_api_string(tz_for_offset)?)),
-            Some(DateField::Set(ps.to_api_string(tz_for_offset)?)),
+            Some(DateField::Set(end.to_api_string_in(&zone)?)),
+            Some(DateField::Set(ps.to_api_string_in(&zone)?)),
         )
     } else {
-        let api = |d: &crate::api::task::ParsedDateTime| {
-            d.to_api_string(tz_for_offset).map(DateField::Set)
-        };
+        let api =
+            |d: &crate::api::task::ParsedDateTime| d.to_api_string_in(&zone).map(DateField::Set);
         (
             parsed_due.as_ref().map(api).transpose()?,
             parsed_start.as_ref().map(api).transpose()?,

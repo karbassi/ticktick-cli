@@ -7,9 +7,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::mcp::TickTickServer;
-use crate::mcp::util::{
-    self, ToolResult, api_date, parse_datetime, priority_value, resolve_project_ids, run,
-};
+use crate::mcp::util::{self, ToolResult, api_date, priority_value, resolve_project_ids, run};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -115,7 +113,7 @@ fn kinds(kind: Option<Vec<String>>) -> Result<Option<Value>, String> {
 /// Python `_date`.
 fn date(value: Option<String>) -> Result<Option<Value>, String> {
     match util::nonempty(value) {
-        Some(v) => Ok(Some(json!(api_date(&parse_datetime(&v)?, None)?))),
+        Some(v) => Ok(Some(json!(api_date(&v, &util::local_zone()?)?))),
         None => Ok(None),
     }
 }

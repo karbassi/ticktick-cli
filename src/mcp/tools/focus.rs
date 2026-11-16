@@ -130,7 +130,7 @@ impl TickTickServer {
             let end_ms = if p.end == "now" {
                 Timestamp::now().as_millisecond()
             } else {
-                parse_iso_datetime(&p.end).ok_or_else(|| {
+                parse_iso_datetime(&p.end)?.ok_or_else(|| {
                     format!(
                         "Invalid end time '{}'. Use 'now' or ISO format like '2026-02-22T14:30:00'.",
                         p.end
@@ -277,17 +277,19 @@ fn parse_date(s: &str) -> Option<Result<Date, String>> {
 
 /// Close to Python 3.11+ `datetime.fromisoformat`. Sub-millisecond digits are
 /// truncated.
-fn parse_iso_datetime(input: &str) -> Option<i64> {
-    let pieces = Pieces::parse(input).ok()?;
+fn parse_iso_datetime(input: &str) -> Result<Option<i64>, String> {
+    let Ok(pieces) = Pieces::parse(input) else {
+        return Ok(None);
+    };
     if pieces.time_zone_annotation().is_some() {
-        return None;
+        return Ok(None);
     }
     let dt = pieces
         .date()
         .to_datetime(pieces.time().unwrap_or(Time::midnight()));
     let ts = match pieces.to_numeric_offset() {
-        Some(offset) => offset.to_timestamp(dt).ok()?,
-        None => crate::mcp::util::local_zone().to_timestamp(dt).ok()?,
+        Some(offset) => offset.to_timestamp(dt),
+        None => crate::mcp::util::local_zone()?.to_timestamp(dt),
     };
-    Some(ts.as_millisecond())
+    Ok(ts.ok().map(|ts| ts.as_millisecond()))
 }

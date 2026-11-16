@@ -41,6 +41,7 @@ pub fn isolated_command(dir: &Path) -> Command {
         "TICKTICK_MS_BASE",
         "TICKTICK_OAUTH_TOKEN_URL",
         "TICKTICK_HTTP_TIMEOUT_SECS",
+        "TICKTICK_TIMEZONE",
         "TICKTICK_MCP_TRANSPORT",
         "TICKTICK_MCP_HOST",
         "TICKTICK_MCP_PORT",

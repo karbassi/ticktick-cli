@@ -422,11 +422,16 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
 ///   - `"YYYY-MM-DD"`      -> that date, no time
 ///   - `"YYYY-MM-DDTHH:MM"` -> that date + time
 pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
+    parse_datetime_in(input, &system_zone())
+}
+
+/// Like [`parse_datetime`], with "today" and "tomorrow" taken in `zone`.
+pub fn parse_datetime_in(input: &str, zone: &TimeZone) -> Result<ParsedDateTime, String> {
     let trimmed = input.trim().to_lowercase();
 
     match trimmed.as_str() {
         "today" => {
-            let (year, month, day) = local_today();
+            let (year, month, day) = today_in(zone);
             Ok(ParsedDateTime {
                 year,
                 month,
@@ -435,7 +440,7 @@ pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
             })
         }
         "tomorrow" => {
-            let (year, month, day) = local_today();
+            let (year, month, day) = today_in(zone);
             let (year, month, day) = add_days(year, month, day);
             Ok(ParsedDateTime {
                 year,

@@ -1572,3 +1572,19 @@ fn empty_tz_falls_back_to_etc_localtime() {
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["dueDate"], expected);
 }
+
+#[test]
+fn add_dry_run_today_is_taken_in_the_tz_zone() {
+    // Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+    let zone = jiff::tz::TimeZone::get("Pacific/Kiritimati").unwrap();
+    let today = jiff::Timestamp::now().to_zoned_datetime(zone).date();
+    let output = cmd()
+        .env("TZ", "Pacific/Pago_Pago")
+        .args(["task", "add", "--dry-run", "x", "--due", "today"])
+        .args(["--tz", "Pacific/Kiritimati"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["dueDate"], format!("{today}T00:00:00.000+1400"));
+}

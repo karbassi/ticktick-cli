@@ -330,25 +330,34 @@ pub fn resolve_folder_id(folder: &str) -> Result<(String, String), String> {
     resolve_name_with_etag(folder, &groups, "folder")
 }
 
-pub use api::task::{ParsedDateTime, parse_datetime, parse_duration};
+pub use api::task::{ParsedDateTime, parse_datetime_in, parse_duration};
 
 /// Rejects paths too, not just unknown names.
 pub fn check_timezone(tz: &str) -> Result<(), String> {
     api::task::time_zone(Some(tz)).map(|_| ())
 }
 
-/// The account timezone if known and valid, else the system zone.
-pub fn local_zone() -> TimeZone {
-    config::get_account_timezone()
-        .and_then(|tz| api::task::time_zone(Some(&tz)).ok())
-        .unwrap_or_else(TimeZone::system)
+/// `TICKTICK_TIMEZONE` (IANA name) if set, else the system zone like Python.
+pub fn local_zone() -> Result<TimeZone, String> {
+    match std::env::var("TICKTICK_TIMEZONE") {
+        Ok(name) if !name.is_empty() => {
+            api::task::time_zone(Some(&name)).map_err(|e| format!("TICKTICK_TIMEZONE: {e}"))
+        }
+        _ => Ok(api::task::system_zone()),
+    }
 }
 
-pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> Result<String, String> {
+/// The caller's `timezone`, else [`local_zone`].
+pub fn zone(tz: Option<&str>) -> Result<TimeZone, String> {
     match tz {
-        Some(tz) => date.to_api_string(Some(tz)),
-        None => date.to_api_string_in(&local_zone()),
+        Some(tz) => api::task::time_zone(Some(tz)),
+        None => local_zone(),
     }
+}
+
+/// Parses and formats in one zone, so "today" and the offset agree.
+pub fn api_date(input: &str, zone: &TimeZone) -> Result<String, String> {
+    parse_datetime_in(input, zone)?.to_api_string_in(zone)
 }
 
 /// Python checks with `if value:`, which treats "" like None.

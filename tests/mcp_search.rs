@@ -93,8 +93,8 @@ fn search_resolves_several_project_names_with_one_project_fetch() {
 }
 
 #[test]
-fn dates_without_timezone_use_the_account_zone_else_the_system_zone() {
-    for (account_tz, offset) in [("Asia/Kolkata", "+0530"), ("Mars/Olympus", "-0600")] {
+fn dates_use_ticktick_timezone_else_the_system_zone_never_the_account_zone() {
+    for (env_tz, offset) in [(Some("Asia/Kolkata"), "+0530"), (None, "-0600")] {
         let server = MockServer::start();
         let m = server.mock(|when, then| {
             when.method(POST)
@@ -105,14 +105,16 @@ fn dates_without_timezone_use_the_account_zone_else_the_system_zone() {
                 }));
             then.status(200).json_body(json!([]));
         });
-        let mut c = McpBuilder::new(&server)
-            .config(json!({"account_timezone": account_tz}))
-            .start();
-        c.call_tool(
-            "search_tasks",
-            json!({"query": "x", "due_from": "2030-01-01T09:00"}),
-        )
-        .ok();
+        let mut c = McpBuilder::new(&server).config(json!({"account_timezone": "Asia/Tokyo"}));
+        if let Some(tz) = env_tz {
+            c = c.env("TICKTICK_TIMEZONE", tz);
+        }
+        c.start()
+            .call_tool(
+                "search_tasks",
+                json!({"query": "x", "due_from": "2030-01-01T09:00"}),
+            )
+            .ok();
         m.assert();
     }
 }
