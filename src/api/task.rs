@@ -140,12 +140,29 @@ pub fn add_days(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
 // Time zones
 // ---------------------------------------------------------------------------
 
-/// The named tz database zone, else the system zone (`TZ`, else `/etc/localtime`).
+/// The named tz database zone, else [`system_zone`].
 pub fn time_zone(name: Option<&str>) -> Result<TimeZone, String> {
     match name {
         Some(name) => TimeZone::get(name).map_err(|_| format!("Unknown timezone '{name}'")),
-        None => Ok(TimeZone::system()),
+        None => Ok(system_zone()),
     }
+}
+
+/// jiff reads a set-but-empty `TZ` as UTC; libc and Python read it as unset.
+pub fn system_zone() -> TimeZone {
+    if std::env::var_os("TZ").is_some_and(|tz| tz.is_empty())
+        && let Some(zone) = localtime_zone()
+    {
+        return zone;
+    }
+    TimeZone::system()
+}
+
+fn localtime_zone() -> Option<TimeZone> {
+    let target = std::fs::read_link("/etc/localtime").ok()?;
+    let target = target.to_string_lossy();
+    let name = &target[target.find("zoneinfo/")? + "zoneinfo/".len()..];
+    TimeZone::get(name).ok()
 }
 
 /// UTC offset in seconds of a wall-clock time in `tz`. Inside a DST gap or
@@ -182,7 +199,6 @@ pub fn civil_datetime(
     .map_err(|_| invalid())
 }
 
-/// UTC offset in seconds of a wall-clock time in `tz` (None: the system zone).
 pub fn utc_offset_in(
     zone: &TimeZone,
     year: i32,
@@ -211,14 +227,19 @@ fn format_offset(offset_secs: i64) -> String {
     format!("{sign}{hours:02}{minutes:02}")
 }
 
-/// The system zone's IANA name (e.g. "America/Chicago").
 pub fn local_iana_timezone() -> Option<String> {
-    TimeZone::system().iana_name().map(str::to_string)
+    system_zone().iana_name().map(str::to_string)
 }
 
-/// Today's date in the system zone as (year, month, day).
 pub fn local_today() -> (i32, u32, u32) {
-    let today = jiff::ZonedDateTime::now().date();
+    today_in(&system_zone())
+}
+
+/// Today's date in `zone` as (year, month, day).
+pub fn today_in(zone: &TimeZone) -> (i32, u32, u32) {
+    let today = jiff::Timestamp::now()
+        .to_zoned_datetime(zone.clone())
+        .date();
     (
         today.year().into(),
         today.month().unsigned_abs().into(),
