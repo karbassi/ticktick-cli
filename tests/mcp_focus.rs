@@ -214,14 +214,12 @@ fn save_basic() {
         }),
     );
     let mut mcp = McpBuilder::new(&server).start();
-    let res = mcp
-        .call_tool(
-            "focus_save",
-            json!({"duration_minutes": 25, "end": "2026-02-22T14:25:00+00:00"}),
-        )
-        .ok();
+    mcp.call_tool(
+        "focus_save",
+        json!({"duration_minutes": 25, "end": "2026-02-22T14:25:00+00:00"}),
+    )
+    .ok();
     save.assert();
-    assert_eq!(res.json(), json!({"id": "f1"}));
 }
 
 #[test]

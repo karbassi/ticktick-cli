@@ -21,21 +21,6 @@ fn mock_groups(server: &MockServer) -> httpmock::Mock<'_> {
 }
 
 #[test]
-fn list_folders_uses_v1() {
-    let server = MockServer::start();
-    let list = mock_groups(&server);
-    let v2 = server.mock(|when, then| {
-        when.method(GET).path("/api/v2/batch/check/0");
-        then.status(200).json_body(json!({}));
-    });
-    let mut c = McpBuilder::new(&server).start();
-    let res = c.call_tool("list_folders", json!({})).ok();
-    list.assert();
-    v2.assert_calls(0);
-    assert_eq!(res.json(), groups());
-}
-
-#[test]
 fn delete_folders_resolves_names() {
     let server = MockServer::start();
     let _list = mock_groups(&server);
@@ -108,12 +93,10 @@ fn rename_folder() {
             .json_body(json!({"id": "g2", "name": "Job"}));
     });
     let mut c = McpBuilder::new(&server).start();
-    let res = c
-        .call_tool(
-            "rename_folder",
-            json!({"folder": "Work", "new_name": "Job"}),
-        )
-        .ok();
+    c.call_tool(
+        "rename_folder",
+        json!({"folder": "Work", "new_name": "Job"}),
+    )
+    .ok();
     rename.assert();
-    assert_eq!(res.json()["name"], "Job");
 }

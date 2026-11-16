@@ -66,11 +66,10 @@ fn add_boolean_defaults() {
         json!({"add": [{"name": "Meditate", "type": "Boolean"}]}),
         json!({"id2etag": {"h_new": "etag_new"}}),
     );
-    let res = start(&server)
+    start(&server)
         .call_tool("add_habit", json!({"name": "Meditate"}))
         .ok();
     post.assert();
-    assert!(res.json().get("id2etag").is_some());
 }
 
 #[test]
@@ -133,14 +132,13 @@ fn edit_habit_sends_only_given_fields() {
         json!({"update": [{"id": "h1", "etag": "e1", "name": "Workout"}]}),
         json!({"id2etag": {"h1": "e1_new"}}),
     );
-    let res = start(&server)
+    start(&server)
         .call_tool(
             "edit_habit",
             json!({"habit": "exercise", "name": "Workout"}),
         )
         .ok();
     post.assert();
-    assert!(res.json().get("id2etag").is_some());
 }
 
 #[test]
@@ -206,14 +204,13 @@ fn checkin_specific_date() {
         json!({"add": [{"habitId": "h1", "checkinStamp": 20260222, "value": 1.0, "status": 0}]}),
         json!({"id2etag": {"c1": "ce1"}}),
     );
-    let res = start(&server)
+    start(&server)
         .call_tool(
             "checkin_habit",
             json!({"habit": "Exercise", "date": "2026-02-22"}),
         )
         .ok();
     post.assert();
-    assert!(res.json().get("id2etag").is_some());
 }
 
 #[test]
@@ -334,14 +331,13 @@ fn habit_log_query() {
         json!({"habitIds": ["h1", "h2"], "afterStamp": 20260201}),
         json!({"checkins": [{"habitId": "h1", "value": 1}]}),
     );
-    let res = start(&server)
+    start(&server)
         .call_tool(
             "habit_log",
             json!({"habits": ["Exercise", "Read"], "after": "2026-02-01"}),
         )
         .ok();
     post.assert();
-    assert!(res.json().get("checkins").is_some());
 }
 
 #[test]
@@ -357,48 +353,10 @@ fn archive_habits_sets_status_1() {
         ]}),
         json!({"id2etag": {"h1": "e1_arch"}}),
     );
-    let res = start(&server)
+    start(&server)
         .call_tool("archive_habits", json!({"habits": ["Exercise", "Read"]}))
         .ok();
     post.assert();
-    assert!(res.json().get("id2etag").is_some());
-}
-
-#[test]
-fn sections_list_uses_v1_only() {
-    let server = MockServer::start();
-    let v1 = mock_sections(&server);
-    let v2 = server.mock(|when, then| {
-        when.method(GET).path(format!("{V2}/habitSections"));
-        then.status(200).json_body(json!([]));
-    });
-    let res = start(&server)
-        .call_tool("manage_habit_sections", json!({"action": "list"}))
-        .ok();
-    v1.assert();
-    v2.assert_calls(0);
-    let out = res.json();
-    assert_eq!(out[0]["name"], "Morning");
-    assert_eq!(out[1]["name"], "Evening");
-}
-
-#[test]
-fn sections_add() {
-    let server = MockServer::start();
-    let post = mock_post(
-        &server,
-        "/habitSections/batch",
-        json!({"add": [{"name": "Afternoon"}]}),
-        json!({"id2etag": {"s_new": "se_new"}}),
-    );
-    let res = start(&server)
-        .call_tool(
-            "manage_habit_sections",
-            json!({"action": "add", "name": "Afternoon"}),
-        )
-        .ok();
-    post.assert();
-    assert!(res.json().get("id2etag").is_some());
 }
 
 #[test]

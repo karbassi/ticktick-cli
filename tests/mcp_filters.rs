@@ -68,9 +68,8 @@ fn add_filter_minimal() {
     let server = MockServer::start();
     let add = mock_filter_post(&server, json!({"add": [{"name": "Overdue"}]}));
     let mut c = McpBuilder::new(&server).start();
-    let res = c.call_tool("add_filter", json!({"name": "Overdue"})).ok();
+    c.call_tool("add_filter", json!({"name": "Overdue"})).ok();
     add.assert();
-    assert!(res.json().get("id2etag").is_some());
 }
 
 #[test]

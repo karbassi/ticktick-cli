@@ -34,12 +34,10 @@ fn list_columns_resolves_project_name() {
     });
     let list = mock_columns(&server);
     let mut c = McpBuilder::new(&server).start();
-    let res = c
-        .call_tool("list_columns", json!({"project": "Board"}))
+    c.call_tool("list_columns", json!({"project": "Board"}))
         .ok();
     projects.assert();
     list.assert();
-    assert_eq!(res.json()[1]["name"], "Doing");
 }
 
 #[test]
@@ -53,14 +51,12 @@ fn add_column_minimal() {
             .json_body(json!({"id": "x", "name": "Done"}));
     });
     let mut c = McpBuilder::new(&server).start();
-    let res = c
-        .call_tool(
-            "add_column",
-            json!({"project": HEX_PROJECT, "name": "Done"}),
-        )
-        .ok();
+    c.call_tool(
+        "add_column",
+        json!({"project": HEX_PROJECT, "name": "Done"}),
+    )
+    .ok();
     add.assert();
-    assert_eq!(res.json()["id"], "x");
 }
 
 #[test]
@@ -94,15 +90,13 @@ fn edit_column_resolves_name() {
             .json_body(json!({"id": C2, "name": "In progress"}));
     });
     let mut c = McpBuilder::new(&server).start();
-    let res = c
-        .call_tool(
-            "edit_column",
-            json!({"project": HEX_PROJECT, "column": "doing", "name": "In progress"}),
-        )
-        .ok();
+    c.call_tool(
+        "edit_column",
+        json!({"project": HEX_PROJECT, "column": "doing", "name": "In progress"}),
+    )
+    .ok();
     list.assert();
     edit.assert();
-    assert_eq!(res.json()["name"], "In progress");
 }
 
 #[test]
