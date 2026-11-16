@@ -18,32 +18,18 @@ const PENDING_TOOLS: &[&str] = &[
     // calendar.py (sync_account is done, in tools/sync.rs)
     "list_calendars",
     "list_events",
-    // columns.py
-    "list_columns",
-    "add_column",
-    "edit_column",
     // comments.py
     "list_comments",
     "add_comment",
     "delete_comment",
     // countdowns.py
     "list_countdowns",
-    // filters.py
-    "list_filters",
-    "add_filter",
-    "edit_filter",
-    "delete_filters",
     // focus.py
     "focus_status",
     "focus_stats",
     "focus_log",
     "focus_timeline",
     "focus_save",
-    // folders.py
-    "list_folders",
-    "add_folder",
-    "delete_folders",
-    "rename_folder",
     // habits.py
     "list_habits",
     "add_habit",
