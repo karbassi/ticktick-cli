@@ -8,12 +8,14 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use jiff::tz::TimeZone;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::api::task;
 use crate::api::v2::url_encode;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, nonempty, run};
@@ -290,17 +292,10 @@ fn to_iso(ms: i64) -> String {
     )
 }
 
-/// Today's date in the system's local timezone (Python `date.today()`).
+/// Today's date in the system zone (Python `date.today()`).
 fn local_today() -> (i64, i64, i64) {
-    let now = (now_ms() / 1000) as libc::time_t;
-    // SAFETY: `tm` is plain data and `localtime_r` fully initializes it.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&now, &mut tm) };
-    (
-        i64::from(tm.tm_year) + 1900,
-        i64::from(tm.tm_mon) + 1,
-        i64::from(tm.tm_mday),
-    )
+    let (y, m, d) = crate::api::task::local_today();
+    (y.into(), m.into(), d.into())
 }
 
 /// Python `date(y, m, d)` validation, with its error messages.
@@ -415,11 +410,14 @@ fn parse_iso_datetime(input: &str) -> Option<i64> {
     }
 
     let local_secs = days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + sec;
-    let epoch_secs = match offset {
-        Some(off) => local_secs - off,
-        None => local_to_epoch_secs(y, mo, d, h, mi, sec),
+    let offset = match offset {
+        Some(off) => off,
+        None => task::wall_offset_secs(
+            &TimeZone::system(),
+            task::civil_datetime(y, mo, d, h, mi, sec).ok()?,
+        ),
     };
-    Some(epoch_secs * 1000 + frac_ms)
+    Some((local_secs - offset) * 1000 + frac_ms)
 }
 
 /// `Z`, `+HH`, `+HH:MM`, `+HH:MM:SS` or `+HHMM[SS]` to seconds east of UTC.
@@ -453,18 +451,4 @@ fn parse_offset_secs(tz: &str) -> Option<i64> {
         return None;
     }
     Some(sign * (h * 3600 + m * 60 + s))
-}
-
-/// Epoch seconds for a wall-clock time in the system's local timezone.
-fn local_to_epoch_secs(y: i64, mo: i64, d: i64, h: i64, mi: i64, sec: i64) -> i64 {
-    // SAFETY: `tm` is plain data; `mktime` normalizes it in place.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    tm.tm_year = (y - 1900) as i32;
-    tm.tm_mon = (mo - 1) as i32;
-    tm.tm_mday = d as i32;
-    tm.tm_hour = h as i32;
-    tm.tm_min = mi as i32;
-    tm.tm_sec = sec as i32;
-    tm.tm_isdst = -1; // let mktime work out DST
-    unsafe { libc::mktime(&mut tm) as i64 }
 }

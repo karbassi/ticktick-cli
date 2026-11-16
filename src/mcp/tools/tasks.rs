@@ -291,11 +291,11 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
     let parsed_start = start.as_deref().map(parse_datetime).transpose()?;
 
     if let Some(ref d) = parsed_due {
-        fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())));
+        fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
         fields.is_all_day = Some(p.all_day.unwrap_or(d.is_all_day()));
     }
     if let Some(ref s) = parsed_start {
-        fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())));
+        fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())?));
         if p.all_day.is_none() && fields.is_all_day.is_none() {
             fields.is_all_day = Some(s.is_all_day());
         }
@@ -314,11 +314,11 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
         let end = base.add_duration(&dur)?;
         match (&parsed_start, &parsed_due) {
             (Some(_), None) => {
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())));
+                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
             }
             (None, Some(d)) => {
-                fields.start_date = Some(DateField::Set(api_date(d, tz.as_deref())));
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())));
+                fields.start_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
+                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
             }
             // Both given: Python leaves them as they are.
             _ => {}
@@ -370,14 +370,14 @@ fn edit_task(p: EditTaskParams) -> Result<Value, String> {
         fields.due_date = Some(DateField::Clear);
     } else if let Some(due) = nonempty(p.due) {
         let parsed = parse_datetime(&due)?;
-        fields.due_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())));
+        fields.due_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
         fields.is_all_day = Some(parsed.is_all_day());
     }
     if p.clear_start {
         fields.start_date = Some(DateField::Clear);
     } else if let Some(start) = nonempty(p.start) {
         let parsed = parse_datetime(&start)?;
-        fields.start_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())));
+        fields.start_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
     }
     if let Some(tz) = tz {
         fields.time_zone = Some(tz);

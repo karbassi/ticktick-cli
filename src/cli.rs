@@ -1989,7 +1989,7 @@ fn resolve_project_ids(projects: &[String]) -> Result<Vec<String>, String> {
 /// Parse a user date (today, YYYY-MM-DD, YYYY-MM-DDTHH:MM) into an API datetime string.
 fn api_date(input: Option<&str>) -> Result<Option<String>, String> {
     input
-        .map(|s| crate::api::task::parse_datetime(s).map(|d| d.to_api_string(None)))
+        .map(|s| crate::api::task::parse_datetime(s)?.to_api_string(None))
         .transpose()
 }
 
@@ -2027,17 +2027,16 @@ fn resolve_timeblock(
         let ps = parsed_start.as_ref().unwrap(); // guaranteed by check above
         let end = ps.add_duration(&dur)?;
         (
-            Some(DateField::Set(end.to_api_string(tz_for_offset))),
-            Some(DateField::Set(ps.to_api_string(tz_for_offset))),
+            Some(DateField::Set(end.to_api_string(tz_for_offset)?)),
+            Some(DateField::Set(ps.to_api_string(tz_for_offset)?)),
         )
     } else {
+        let api = |d: &crate::api::task::ParsedDateTime| {
+            d.to_api_string(tz_for_offset).map(DateField::Set)
+        };
         (
-            parsed_due
-                .as_ref()
-                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
-            parsed_start
-                .as_ref()
-                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
+            parsed_due.as_ref().map(api).transpose()?,
+            parsed_start.as_ref().map(api).transpose()?,
         )
     };
 

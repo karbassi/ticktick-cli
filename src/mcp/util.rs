@@ -302,7 +302,7 @@ pub fn check_timezone(tz: &str) -> Result<(), String> {
 /// Format a parsed date for the API with a UTC offset. The offset comes from
 /// `tz` when given, else the stored TickTick account timezone, else the system
 /// timezone (`TZ` / `/etc/localtime`).
-pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> String {
+pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> Result<String, String> {
     match tz {
         Some(tz) => date.to_api_string(Some(tz)),
         None => match config::get_account_timezone() {
