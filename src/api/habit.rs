@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::task::local_today;
+use super::task::{system_zone, today_in};
 use super::v2;
+use jiff::tz::TimeZone;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -360,15 +361,20 @@ pub fn resolve_id(name_or_id: &str) -> Result<(String, String), String> {
 /// Convert a date string to a stamp integer (YYYYMMDD).
 /// Accepts: "YYYY-MM-DD", "today", "yesterday".
 pub fn date_to_stamp(input: &str) -> Result<i64, String> {
+    date_to_stamp_in(input, || Ok(system_zone()))
+}
+
+/// Like [`date_to_stamp`], with "today" and "yesterday" taken in `zone()`.
+pub fn date_to_stamp_in(
+    input: &str,
+    zone: impl FnOnce() -> Result<TimeZone, String>,
+) -> Result<i64, String> {
     let trimmed = input.trim().to_lowercase();
 
     let (year, month, day) = match trimmed.as_str() {
-        "today" => {
-            let (y, m, d) = local_today();
-            (y, m, d)
-        }
+        "today" => today_in(&zone()?),
         "yesterday" => {
-            let (y, m, d) = local_today();
+            let (y, m, d) = today_in(&zone()?);
             sub_day(y, m, d)
         }
         _ => {

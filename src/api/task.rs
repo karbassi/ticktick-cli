@@ -241,10 +241,6 @@ pub fn local_iana_timezone() -> Option<String> {
     system_zone().iana_name().map(str::to_string)
 }
 
-pub fn local_today() -> (i32, u32, u32) {
-    today_in(&system_zone())
-}
-
 /// Today's date in `zone` as (year, month, day).
 pub fn today_in(zone: &TimeZone) -> (i32, u32, u32) {
     let today = jiff::Timestamp::now()

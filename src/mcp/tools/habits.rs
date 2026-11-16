@@ -263,7 +263,7 @@ impl TickTickServer {
     async fn checkin_habit(&self, Parameters(p): Parameters<CheckinHabitParams>) -> ToolResult {
         run(move || {
             let (id, _) = resolve_habit(&p.habit)?;
-            let stamp = crate::api::habit::date_to_stamp(&p.date)?;
+            let stamp = crate::api::habit::date_to_stamp_in(&p.date, crate::mcp::util::local_zone)?;
             util::v2_post(
                 "/habitCheckins/batch",
                 &json!({
@@ -294,7 +294,8 @@ impl TickTickServer {
                 .into_iter()
                 .map(|(id, _)| id)
                 .collect();
-            let stamp = crate::api::habit::date_to_stamp(&p.after)?;
+            let stamp =
+                crate::api::habit::date_to_stamp_in(&p.after, crate::mcp::util::local_zone)?;
             util::v2_post(
                 "/habitCheckins/query",
                 &json!({ "habitIds": ids, "afterStamp": stamp }),
