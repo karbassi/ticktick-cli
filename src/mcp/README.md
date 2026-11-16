@@ -18,11 +18,11 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
 - `tools/<module>.rs`: one file per Python `tools/<module>.py`, each with its own router. `tools/mod.rs` adds the routers together.
 
-## Adding a module
+## Adding a tool
 
-Every Python module already has a stub, `src/mcp/tools/<module>.rs` (calendar, columns, comments, countdowns, filters, focus, folders, habits, search), declared and wired in `tools/mod.rs`. Filling one in touches only that file, the module's group in `PENDING_TOOLS`, and a new test file, so parallel work doesn't conflict. `sync_account` (from Python `calendar.py`) is already in `sync.rs`. Don't re-add it: a duplicate route would silently replace it.
+`sync_account` lives in `sync.rs`, not `calendar.rs`. A duplicate route would silently replace it.
 
-1. Fill in the stub. Drop `allow_empty` from its `#[tool_router(...)]`, then copy the shape of `tags.rs`:
+1. Add it to the module's file, following the shape of `tags.rs`:
 
    ```rust
    #[derive(Debug, Deserialize, JsonSchema)]
@@ -49,10 +49,10 @@ Every Python module already has a stub, `src/mcp/tools/<module>.rs` (calendar, c
 
    Every non-`Option` field with a Python default needs `#[serde(default...)]`, or it becomes required. Use `i64` for `int`, `f64` for `float`, `Vec<String>` for `list[str]`. Copy the annotations from the Python decorator. A tool with no parameters takes only `&self`.
 
-2. For a brand-new module with no stub, add `mod <module>;` to `tools/mod.rs` and `+ TickTickServer::<module>_router()` to `router()`.
+2. For a new module, add `mod <module>;` to `tools/mod.rs` and `+ TickTickServer::<module>_router()` to `router()`.
 
-3. Remove the module's tools from `PENDING_TOOLS` in `tests/mcp_contract.rs`. Run `cargo test --test mcp_contract`; it fails on any name, parameter, required or type mismatch.
+3. Add the tool to `tests/fixtures/mcp-contract.json`. `cargo test --test mcp_contract` fails on any name, parameter, required or type mismatch, and on a fixture tool that isn't registered.
 
-4. Add end-to-end tests in a new `tests/mcp_<module>.rs` with `mod common;`. `common::McpBuilder::new(&server).start()` spawns the server against an httpmock `MockServer` (v1 at `/open/v1`, v2 at `/api/v2`, ms at `/ms`, `TZ=America/Chicago`, isolated config). `call_tool(name, args)` returns `ToolCall { is_error, text }`. Assert exact request bodies with `json_body` and `mock.assert()`. Port cases from the Python suite (`ticktick-mcp/tests/test_tools/test_<module>.py`).
+4. Add end-to-end tests in `tests/mcp_<module>.rs` with `mod common;`, for logic only (see `CODING_STANDARDS.md`). `common::McpBuilder::new(&server).start()` spawns the server against an httpmock `MockServer` (v1 at `/open/v1`, v2 at `/api/v2`, ms at `/ms`, `TZ=America/Chicago`, isolated config). `call_tool(name, args)` returns `ToolCall { is_error, text }`. Assert exact request bodies with `json_body` and `mock.assert()`. Port cases from the Python suite (`ticktick-mcp/tests/test_tools/test_<module>.py`).
 
 5. Match Python messages and output exactly: confirmation strings, error texts, and which fields are sent only when passed. `make check` must pass.

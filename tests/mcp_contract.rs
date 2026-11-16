@@ -1,33 +1,14 @@
 //! The MCP server must be a drop-in replacement for the Python ticktick-mcp
 //! server: `tests/fixtures/mcp-contract.json` is the Python server's
 //! `tools/list` (with input schemas) and resource list. Every tool registered
-//! here must match it by name, parameter names, required set and JSON types.
-//!
-//! `PENDING_TOOLS` lists fixture tools not implemented yet. A fixture tool
-//! must be registered or pending, never both or neither; shrink the list to
-//! empty as modules land.
+//! here must match it by name, parameter names, required set and JSON types,
+//! and every fixture tool must be registered.
 
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-
-/// Fixture tools not yet implemented, grouped by Python module.
-const PENDING_TOOLS: &[&str] = &[
-    // calendar.py (sync_account is done, in tools/sync.rs)
-    "list_calendars",
-    "list_events",
-    // comments.py
-    "list_comments",
-    "add_comment",
-    "delete_comment",
-    // countdowns.py
-    "list_countdowns",
-    // search.py
-    "search_tasks",
-    "filter_tasks",
-];
 
 fn fixture() -> Value {
     let raw = std::fs::read_to_string(concat!(
@@ -147,25 +128,13 @@ fn tools_match_python_contract() {
             None => problems.push(format!("{name}: registered but not in the fixture")),
             Some(theirs) => problems.extend(schema_diffs(name, tool, theirs)),
         }
-        if PENDING_TOOLS.contains(&name.as_str()) {
-            problems.push(format!(
-                "{name}: registered, so remove it from PENDING_TOOLS"
-            ));
-        }
         if tool["description"].as_str().unwrap_or("").trim().is_empty() {
             problems.push(format!("{name}: missing description"));
         }
     }
     for name in expected.keys() {
-        if !registered.contains_key(name) && !PENDING_TOOLS.contains(&name.as_str()) {
-            problems.push(format!(
-                "{name}: in the fixture but neither registered nor in PENDING_TOOLS"
-            ));
-        }
-    }
-    for name in PENDING_TOOLS {
-        if !expected.contains_key(*name) {
-            problems.push(format!("{name}: in PENDING_TOOLS but not in the fixture"));
+        if !registered.contains_key(name) {
+            problems.push(format!("{name}: in the fixture but not registered"));
         }
     }
     assert!(
