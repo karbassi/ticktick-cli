@@ -14,7 +14,7 @@ use crate::api::v2::TaskParent;
 use crate::config;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{
-    self, ParsedDateTime, ToolResult, api_date, as_list, check_timezone, nonempty,
+    self, ParsedDateTime, ToolResult, api_date, as_list, canonical_timezone, nonempty,
     parse_datetime_in, parse_duration, priority_value, resolve_column_id, resolve_project_id,
     resolve_project_ids, run,
 };
@@ -33,7 +33,7 @@ fn default_priority() -> String {
 }
 
 fn timezone(tz: Option<String>) -> Result<Option<String>, String> {
-    nonempty(tz).map(|tz| check_timezone(&tz)).transpose()
+    nonempty(tz).map(|tz| canonical_timezone(&tz)).transpose()
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
