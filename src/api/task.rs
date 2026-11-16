@@ -914,11 +914,28 @@ pub fn assign(
         token,
         &assign_body(project_id, task_id, assignee),
     )
-    .map_err(|e| {
-        format!("{e} (the assignee must be a member of a shared project; see 'project members')")
+    .map_err(|e| match assign_membership_status(&e) {
+        Some(_) => {
+            format!(
+                "{e} (the assignee must be a member of a shared project; see 'project members')"
+            )
+        }
+        None => e,
     })?;
     resp.into_json()
         .map_err(|e| format!("failed to parse assign response: {e}"))
+}
+
+/// The status of an assign error that means "not a project member": a bare
+/// 500 for a non-member username (seen live by the Python server), or a 403.
+pub fn assign_membership_status(err: &str) -> Option<u16> {
+    let rest = &err[err.find("status code ")? + "status code ".len()..];
+    let code = rest
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()?;
+    matches!(code, 403 | 500).then_some(code)
 }
 
 /// Remove the assignee from a task. Returns the updated task.
@@ -935,6 +952,22 @@ pub fn unassign(token: &str, project_id: &str, task_id: &str) -> Result<serde_js
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assign_membership_status_only_for_403_and_500() {
+        for code in [403, 500] {
+            let e = format!("API request failed: http://x/task/assign: status code {code}");
+            assert_eq!(assign_membership_status(&e), Some(code));
+        }
+        for e in [
+            "API request failed: x: status code 404",
+            "API request failed: x: status code 5000",
+            "API request failed: timed out",
+            "token expired",
+        ] {
+            assert_eq!(assign_membership_status(e), None, "{e}");
+        }
+    }
 
     #[test]
     fn task_move_serializes_to_v1_shape() {

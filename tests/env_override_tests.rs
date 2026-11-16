@@ -122,3 +122,38 @@ fn explicit_tz_is_not_cached_as_the_account_timezone() {
         Some("America/Chicago")
     );
 }
+
+fn assign_stderr(status: u16) -> String {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/open/v1/task/assign");
+        then.status(status).body("{}");
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    let out = isolated(&tmp)
+        .env("TICKTICK_ACCESS_TOKEN", "env-token")
+        .env("TICKTICK_API_BASE", server.url("/open/v1/"))
+        .args([
+            "task",
+            "assign",
+            "aaaaaaaaaaaaaaaaaaaaaaaa",
+            "t1",
+            "-a",
+            "x",
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    String::from_utf8(out.stderr).unwrap()
+}
+
+#[test]
+fn assign_adds_the_membership_hint_only_for_membership_codes() {
+    for status in [403, 500] {
+        let err = assign_stderr(status);
+        assert!(err.contains("must be a member"), "{status}: {err}");
+    }
+    let err = assign_stderr(404);
+    assert!(err.contains("404"), "{err}");
+    assert!(!err.contains("must be a member"), "{err}");
+}

@@ -452,22 +452,12 @@ fn complete_task(p: CompleteTaskParams) -> Result<String, String> {
     if done == 0 { Err(msg) } else { Ok(msg) }
 }
 
-fn status_code(err: &str) -> Option<u16> {
-    let rest = &err[err.find("status code ")? + "status code ".len()..];
-    rest.split(|c: char| !c.is_ascii_digit())
-        .next()?
-        .parse()
-        .ok()
-}
-
-/// A username that isn't a project member gets a bare 500 (seen live by the
-/// Python server); 403 is a permission refusal. Other errors pass through.
 fn assign_error(e: String) -> String {
-    match status_code(&e) {
-        Some(code @ (403 | 500)) => format!(
+    match crate::api::task::assign_membership_status(&e) {
+        Some(code) => format!(
             "Assign failed ({code}). The assignee must be a member of a shared project; check list_project_members."
         ),
-        _ => e,
+        None => e,
     }
 }
 
@@ -685,34 +675,5 @@ impl TickTickServer {
             )?)))
         })
         .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_code_from_api_error() {
-        assert_eq!(
-            status_code("API request failed: http://x/task/assign: status code 500"),
-            Some(500)
-        );
-        assert_eq!(status_code("token expired"), None);
-    }
-
-    #[test]
-    fn assign_error_hints_only_on_membership_codes() {
-        for code in [403, 500] {
-            let e = assign_error(format!("API request failed: x: status code {code}"));
-            assert!(e.starts_with(&format!("Assign failed ({code})")), "{e}");
-        }
-        for e in [
-            "API request failed: x: status code 404",
-            "API request failed: x: status code 429",
-            "API request failed: timed out",
-        ] {
-            assert_eq!(assign_error(e.to_string()), e);
-        }
     }
 }
