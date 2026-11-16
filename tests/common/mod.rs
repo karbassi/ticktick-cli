@@ -271,6 +271,81 @@ impl Drop for McpClient {
 // HTTP transport helpers
 // ---------------------------------------------------------------------------
 
+/// `ticktick-cli mcp --http` on a free loopback port, killed on drop.
+pub struct HttpServer {
+    child: Child,
+    pub port: u16,
+    _dir: tempfile::TempDir,
+}
+
+impl HttpServer {
+    /// Start with `--http --port 0` plus `args`, and `envs` on top of the
+    /// isolated environment. Waits for the "listening on" line on stderr.
+    pub fn start(args: &[&str], envs: &[(&str, &str)]) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cmd = isolated_command(dir.path());
+        cmd.args(["mcp", "--http", "--port", "0"])
+            .args(args)
+            .env("TICKTICK_ACCESS_TOKEN", ACCESS_TOKEN)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
+        let mut child = cmd.spawn().expect("spawn ticktick-cli mcp --http");
+        let stderr = child.stderr.take().unwrap();
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let port = loop {
+            let line = rx
+                .recv_timeout(TIMEOUT)
+                .expect("HTTP server did not report its address");
+            if let Some(rest) = line.split("http://127.0.0.1:").nth(1) {
+                break rest.trim_end_matches("/mcp").parse().unwrap();
+            }
+        };
+        Self {
+            child,
+            port,
+            _dir: dir,
+        }
+    }
+
+    /// `127.0.0.1:<port>`, an allowed Host header.
+    pub fn host(&self) -> String {
+        format!("127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for HttpServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// The JSON-RPC `initialize` request used by the HTTP tests.
+pub fn initialize_request(id: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "ticktick-cli-tests", "version": "0"}
+        }
+    })
+}
+
 /// A raw HTTP response.
 #[derive(Debug)]
 pub struct HttpResponse {
@@ -310,6 +385,17 @@ pub fn http_post(
     session: Option<&str>,
     body: &Value,
 ) -> HttpResponse {
+    http_post_with(port, host_header, session, &[], body)
+}
+
+/// [`http_post`] with extra request headers (e.g. `Origin`).
+pub fn http_post_with(
+    port: u16,
+    host_header: &str,
+    session: Option<&str>,
+    extra_headers: &[(&str, &str)],
+    body: &Value,
+) -> HttpResponse {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream.set_read_timeout(Some(TIMEOUT)).unwrap();
     let body = body.to_string();
@@ -321,6 +407,9 @@ pub fn http_post(
     );
     if let Some(s) = session {
         req.push_str(&format!("Mcp-Session-Id: {s}\r\n"));
+    }
+    for (k, v) in extra_headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
     }
     req.push_str("\r\n");
     req.push_str(&body);
