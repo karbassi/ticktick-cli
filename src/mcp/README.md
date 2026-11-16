@@ -20,7 +20,9 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
 ## Adding a module
 
-1. Create `src/mcp/tools/<module>.rs`. Copy the shape of `tags.rs`:
+Every Python module already has a stub, `src/mcp/tools/<module>.rs` (calendar, columns, comments, countdowns, filters, focus, folders, habits, search), declared and wired in `tools/mod.rs`. Filling one in touches only that file, the module's group in `PENDING_TOOLS`, and a new test file, so parallel work doesn't conflict. `sync_account` (from Python `calendar.py`) is already in `sync.rs`. Don't re-add it: a duplicate route would silently replace it.
+
+1. Fill in the stub. Drop `allow_empty` from its `#[tool_router(...)]`, then copy the shape of `tags.rs`:
 
    ```rust
    #[derive(Debug, Deserialize, JsonSchema)]
@@ -47,7 +49,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
    Every non-`Option` field with a Python default needs `#[serde(default...)]`, or it becomes required. Use `i64` for `int`, `f64` for `float`, `Vec<String>` for `list[str]`. Copy the annotations from the Python decorator. A tool with no parameters takes only `&self`.
 
-2. Add `mod <module>;` to `tools/mod.rs` and `+ TickTickServer::<module>_router()` to `router()`.
+2. For a brand-new module with no stub, add `mod <module>;` to `tools/mod.rs` and `+ TickTickServer::<module>_router()` to `router()`.
 
 3. Remove the module's tools from `PENDING_TOOLS` in `tests/mcp_contract.rs`. Run `cargo test --test mcp_contract`; it fails on any name, parameter, required or type mismatch.
 
