@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -380,17 +380,22 @@ pub fn generate_device_id() -> String {
     hex
 }
 
-/// An unsaved ID is still returned when config.json can't be written.
 pub fn get_or_create_device_id() -> String {
-    if let Some(id) = load().v2_device_id {
+    device_id_at(&config_path())
+}
+
+/// When config.json can't be written, one unsaved ID serves the whole process.
+fn device_id_at(path: &Path) -> String {
+    static UNSAVED: OnceLock<String> = OnceLock::new();
+    if let Some(id) = load_from(path).v2_device_id {
         return id;
     }
-    update(|c| {
+    update_at(path, |c| {
         c.v2_device_id
             .get_or_insert_with(generate_device_id)
             .clone()
     })
-    .unwrap_or_else(|_| generate_device_id())
+    .unwrap_or_else(|_| UNSAVED.get_or_init(generate_device_id).clone())
 }
 
 /// Env wins so the long-running MCP server can be fed a fresh cookie.
@@ -530,6 +535,27 @@ mod tests {
         save_to(&path, &Config::default()).unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn unwritable_config_reuses_one_device_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("not-a-dir");
+        fs::write(&blocker, "").unwrap();
+        let path = blocker.join("config.json");
+
+        let first = device_id_at(&path);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        assert_eq!(device_id_at(&path), first);
+    }
+
+    #[test]
+    fn device_id_is_saved_and_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let first = device_id_at(&path);
+        assert_eq!(load_from(&path).v2_device_id.as_deref(), Some(&*first));
+        assert_eq!(device_id_at(&path), first);
     }
 
     #[test]
