@@ -2978,7 +2978,8 @@ pub fn run() -> Result<(), String> {
                 section,
                 repeat,
             } => {
-                let (id, etag) = crate::api::habit::resolve_id(&habit)?;
+                let record =
+                    crate::api::habit::resolve_records(std::slice::from_ref(&habit))?.remove(0)?;
                 let fields = crate::api::habit::HabitFields {
                     name,
                     habit_type: None,
@@ -2989,7 +2990,7 @@ pub fn run() -> Result<(), String> {
                     color,
                     status: None,
                 };
-                let result = crate::api::habit::update(&id, &etag, &fields)?;
+                let result = crate::api::habit::update(record, &fields)?;
                 crate::output::success(&result);
                 Ok(())
             }
@@ -3029,29 +3030,28 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             HabitCommands::Archive { habits } => {
+                let fields = crate::api::habit::HabitFields {
+                    status: Some(1),
+                    ..Default::default()
+                };
                 let results: Vec<BulkResult> = habits
                     .iter()
-                    .map(|h| match crate::api::habit::resolve_id(h) {
-                        Ok((id, etag)) => {
-                            let fields = crate::api::habit::HabitFields {
-                                status: Some(1),
-                                ..Default::default()
-                            };
-                            match crate::api::habit::update(&id, &etag, &fields) {
-                                Ok(result) => BulkResult {
-                                    id: h.clone(),
-                                    status: "ok".into(),
-                                    data: Some(result),
-                                    error: None,
-                                },
-                                Err(e) => BulkResult {
-                                    id: h.clone(),
-                                    status: "error".into(),
-                                    data: None,
-                                    error: Some(e),
-                                },
-                            }
-                        }
+                    .zip(crate::api::habit::resolve_records(&habits)?)
+                    .map(|(h, record)| match record {
+                        Ok(record) => match crate::api::habit::update(record, &fields) {
+                            Ok(result) => BulkResult {
+                                id: h.clone(),
+                                status: "ok".into(),
+                                data: Some(result),
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: h.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        },
                         Err(e) => BulkResult {
                             id: h.clone(),
                             status: "error".into(),
@@ -3144,13 +3144,13 @@ pub fn run() -> Result<(), String> {
                 rule,
                 sort_type,
             } => {
-                let (id, etag) = crate::api::filter::resolve_id(&filter)?;
+                let record = crate::api::filter::resolve_record(&filter)?;
                 let fields = crate::api::filter::FilterFields {
                     name,
                     rule,
                     sort_type,
                 };
-                let result = crate::api::filter::update(&id, &etag, &fields)?;
+                let result = crate::api::filter::update(record, &fields)?;
                 crate::output::success(&result);
                 Ok(())
             }

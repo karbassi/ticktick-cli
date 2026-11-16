@@ -135,6 +135,23 @@ fn edit_habit_keeps_unchanged_fields() {
 }
 
 #[test]
+fn edit_habit_by_unknown_id_errors_without_sending() {
+    let server = MockServer::start();
+    mock_habits(&server);
+    let post = server.mock(|when, then| {
+        when.method(POST).path(format!("{V2}/habits/batch"));
+        then.status(200).json_body(json!({}));
+    });
+    let r = start(&server).call_tool(
+        "edit_habit",
+        json!({"habit": "aaaaaaaaaaaaaaaaaaaaaaaa", "name": "X"}),
+    );
+    assert!(r.is_error, "{}", r.text);
+    assert_eq!(r.text, "No habit found with ID 'aaaaaaaaaaaaaaaaaaaaaaaa'");
+    post.assert_calls(0);
+}
+
+#[test]
 fn edit_habit_all_fields() {
     let server = MockServer::start();
     mock_habits(&server);
@@ -194,19 +211,14 @@ fn habit_ids_skip_the_fetch_unless_the_etag_is_needed() {
     let server = MockServer::start();
     let list = mock_habits(&server);
     let delete = mock_post(&server, "/habits/batch", json!({"delete": [id]}), json!({}));
-    let archive = mock_post(
-        &server,
-        "/habits/batch",
-        json!({"update": [{"id": id, "etag": "", "status": 1}]}),
-        json!({}),
-    );
     let mut c = start(&server);
     c.call_tool("delete_habits", json!({"habits": [id]})).ok();
     list.assert_calls(0);
     delete.assert();
-    c.call_tool("archive_habits", json!({"habits": [id]})).ok();
+    // Archive needs the full record, and an ID absent from the list has none.
+    let r = c.call_tool("archive_habits", json!({"habits": [id]}));
+    assert!(r.is_error, "{}", r.text);
     list.assert_calls(1);
-    archive.assert();
 }
 
 #[test]

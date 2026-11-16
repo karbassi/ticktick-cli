@@ -354,12 +354,14 @@ pub fn resolve_name_with_etag(
 /// The full record `query` names. v2 batch updates replace the whole record,
 /// so edits must go onto this rather than onto a bare `{id, etag}`.
 pub fn resolve_record(query: &str, items: &[Value], entity: &str) -> Result<Value, String> {
-    let (id, etag) = resolve_name_with_etag(query, items, entity)?;
-    Ok(items
-        .iter()
-        .find(|i| field(i, "id") == id)
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({ "id": id, "etag": etag })))
+    if looks_like_id(query) {
+        return items
+            .iter()
+            .find(|i| field(i, "id") == query)
+            .cloned()
+            .ok_or_else(|| format!("No {entity} found with ID '{query}'"));
+    }
+    find_item(query, items, entity).cloned()
 }
 
 /// [`resolve_name_with_etag`] for each query, with `fetch` called at most

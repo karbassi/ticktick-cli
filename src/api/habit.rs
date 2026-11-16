@@ -127,12 +127,40 @@ impl HabitFields {
     }
 }
 
-/// List all habits.
-pub fn list() -> Result<Vec<Habit>, String> {
+fn raw_list() -> Result<Vec<serde_json::Value>, String> {
     let token = v2::get_session_token()?;
     let resp = v2::v2_get("/habits", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse habits: {e}"))
+}
+
+fn parse(raw: &[serde_json::Value]) -> Result<Vec<Habit>, String> {
+    serde_json::from_value(serde_json::Value::Array(raw.to_vec()))
+        .map_err(|e| format!("failed to parse habits: {e}"))
+}
+
+/// List all habits.
+pub fn list() -> Result<Vec<Habit>, String> {
+    parse(&raw_list()?)
+}
+
+/// The full record each query names, from one fetch. v2 updates replace the
+/// whole habit, so edits go onto these.
+pub fn resolve_records(
+    queries: &[String],
+) -> Result<Vec<Result<serde_json::Value, String>>, String> {
+    let raw = raw_list()?;
+    let habits = parse(&raw)?;
+    Ok(queries
+        .iter()
+        .map(|q| {
+            let (id, _) = match_habit(q, &habits)?;
+            raw.iter()
+                .find(|h| h["id"] == id.as_str())
+                .cloned()
+                .ok_or_else(|| format!("no habit found matching '{q}'"))
+        })
+        .collect())
 }
 
 /// List all habit sections.
@@ -253,16 +281,12 @@ pub fn delete(ids: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Update a habit. v2 replaces the whole habit, so the changes go onto the full record.
-pub fn update(id: &str, etag: &str, fields: &HabitFields) -> Result<serde_json::Value, String> {
+/// Update a habit, given its full record from [`resolve_records`].
+pub fn update(
+    mut habit: serde_json::Value,
+    fields: &HabitFields,
+) -> Result<serde_json::Value, String> {
     let token = v2::get_session_token()?;
-    let all: Vec<serde_json::Value> = v2::v2_get("/habits", &token)?
-        .into_json()
-        .map_err(|e| format!("failed to parse habits: {e}"))?;
-    let mut habit = all
-        .into_iter()
-        .find(|h| h["id"] == id)
-        .unwrap_or_else(|| serde_json::json!({ "id": id, "etag": etag }));
     fields.apply_to(&mut habit);
     let body = serde_json::json!({ "update": [habit] });
     let resp = v2::v2_post("/habits/batch", &token, &body)?;
@@ -300,8 +324,10 @@ pub fn query_checkins(habit_ids: &[String], after_stamp: i64) -> Result<serde_js
 
 /// Resolve a habit name or ID to (id, etag).
 pub fn resolve_id(name_or_id: &str) -> Result<(String, String), String> {
-    let habits = list()?;
+    match_habit(name_or_id, &list()?)
+}
 
+fn match_habit(name_or_id: &str, habits: &[Habit]) -> Result<(String, String), String> {
     // If it looks like an ID (long hex string), find by ID
     if name_or_id.len() >= 20
         && name_or_id.chars().all(|c| c.is_ascii_hexdigit())
