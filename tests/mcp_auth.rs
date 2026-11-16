@@ -150,6 +150,46 @@ fn env_access_token_never_refreshes_with_config_refresh_token() {
 }
 
 #[test]
+fn env_access_token_probes_the_inbox_instead_of_using_config() {
+    let server = MockServer::start();
+    let original = r#"{"access_token":"other","refresh_token":null,"inbox_project_id":"inbox999"}"#;
+    let cfg = ConfigDir::new(&json!({}));
+    fs::write(cfg.file(), original).unwrap();
+    let probe = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task"))
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"))
+            .json_body(json!({"title": "__inbox_probe__"}));
+        then.status(200)
+            .json_body(json!({"id": "probe", "title": "__inbox_probe__", "projectId": "inbox123"}));
+    });
+    let cleanup = server.mock(|when, then| {
+        when.method(DELETE).path(v1("/project/inbox123/task/probe"));
+        then.status(200);
+    });
+    let inbox = server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inbox123/data"));
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let other_account = server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inbox999/data"));
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let mut c = McpBuilder::new(&server)
+        .env("XDG_CONFIG_HOME", cfg.path())
+        .start();
+
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+
+    probe.assert_calls(1);
+    cleanup.assert_calls(1);
+    inbox.assert_calls(2);
+    other_account.assert_calls(0);
+    assert_eq!(fs::read_to_string(cfg.file()).unwrap(), original);
+}
+
+#[test]
 fn stalled_token_refresh_times_out() {
     let server = MockServer::start();
     server.mock(|when, then| {

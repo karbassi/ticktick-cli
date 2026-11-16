@@ -398,11 +398,24 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
     update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
+/// With an env access token, the inbox ID is cached per process instead.
+static ENV_INBOX_ID: Mutex<Option<String>> = Mutex::new(None);
+
 pub fn get_inbox_project_id() -> Option<String> {
+    if env_access_token().is_some() {
+        return ENV_INBOX_ID
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+    }
     load().inbox_project_id
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
+    if env_access_token().is_some() {
+        *ENV_INBOX_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+        return Ok(());
+    }
     update(|c| c.inbox_project_id = Some(id.to_string()))
 }
 
