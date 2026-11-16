@@ -1848,7 +1848,8 @@ fn output_results(results: &[BulkResult]) -> Result<(), String> {
 }
 
 /// Prompt for destructive action confirmation.
-fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
+/// `Ok(false)` when the user declines.
+fn confirm_destructive(count: usize, noun: &str) -> Result<bool, String> {
     use std::io::IsTerminal;
 
     let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
@@ -1867,10 +1868,10 @@ fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
         .map_err(|e| format!("failed to read input: {e}"))?;
     if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
         eprintln!("Cancelled.");
-        return Ok(());
+        return Ok(false);
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Convert days since Unix epoch to (year, month, day).
@@ -2506,8 +2507,8 @@ pub fn run() -> Result<(), String> {
                         comment_id,
                         force,
                     } => {
-                        if !force {
-                            confirm_destructive(1, "comment")?;
+                        if !force && !confirm_destructive(1, "comment")? {
+                            return Ok(());
                         }
                         let project_id = crate::api::project::resolve_id(&project)?;
                         crate::api::comment::delete(&token, &project_id, &task_id, &comment_id)?;
@@ -2526,8 +2527,8 @@ pub fn run() -> Result<(), String> {
             } => {
                 let inputs = collect_inputs(task_ids, stdin)?;
 
-                if !force {
-                    confirm_destructive(inputs.len(), "task")?;
+                if !force && !confirm_destructive(inputs.len(), "task")? {
+                    return Ok(());
                 }
 
                 let token = crate::config::get_access_token()?;
@@ -2770,8 +2771,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             TagCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "tag")?;
+                if !force && !confirm_destructive(names.len(), "tag")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -2848,8 +2849,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             FolderCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "folder")?;
+                if !force && !confirm_destructive(names.len(), "folder")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -2917,8 +2918,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             HabitCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "habit")?;
+                if !force && !confirm_destructive(names.len(), "habit")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -3055,8 +3056,8 @@ pub fn run() -> Result<(), String> {
                     Ok(())
                 }
                 HabitSectionCommands::Delete { names, force } => {
-                    if !force {
-                        confirm_destructive(names.len(), "habit section")?;
+                    if !force && !confirm_destructive(names.len(), "habit section")? {
+                        return Ok(());
                     }
 
                     let results: Vec<BulkResult> = names
@@ -3135,8 +3136,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             FilterCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "filter")?;
+                if !force && !confirm_destructive(names.len(), "filter")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
