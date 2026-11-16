@@ -38,29 +38,42 @@ fn http_initialize_and_list_tools() {
     assert!(names.contains(&"list_projects"), "{names:?}");
 }
 
+fn status(server: &HttpServer, host: &str, origin: Option<&str>) -> u16 {
+    let headers: Vec<(&str, &str)> = origin.map(|o| ("Origin", o)).into_iter().collect();
+    http_post_with(server.port, host, None, &headers, &initialize_request(1)).status
+}
+
 #[test]
 fn http_rejects_disallowed_host_and_origin() {
     let server = HttpServer::start(&[], &[]);
-    let bad_host = http_post(server.port, "evil.example", None, &initialize_request(1));
-    assert_eq!(bad_host.status, 403, "{bad_host:?}");
-    // Loopback on another port is not our port.
-    let other_port = http_post(server.port, "127.0.0.1:1", None, &initialize_request(1));
-    assert_eq!(other_port.status, 403, "{other_port:?}");
-    let bad_origin = http_post_with(
-        server.port,
-        &server.host(),
-        None,
-        &[("Origin", "https://evil.example")],
-        &initialize_request(1),
+    // FastMCP answers a bad Host with 421 and a bad Origin with 403.
+    assert_eq!(status(&server, "evil.example", None), 421);
+    assert_eq!(status(&server, "evil.example:8502", None), 421);
+    assert_eq!(
+        status(&server, &server.host(), Some("https://evil.example")),
+        403
     );
-    assert_eq!(bad_origin.status, 403, "{bad_origin:?}");
-    let localhost = http_post(
-        server.port,
-        &format!("localhost:{}", server.port),
-        None,
-        &initialize_request(1),
+    assert_eq!(
+        status(&server, "127.0.0.1", Some("http://evil.localhost")),
+        403
     );
-    assert_eq!(localhost.status, 200, "{localhost:?}");
+}
+
+#[test]
+fn http_loopback_hosts_and_origins_on_any_port() {
+    let server = HttpServer::start(&[], &[]);
+    // A port-forward or proxy may present another port.
+    assert_eq!(status(&server, "localhost:9000", None), 200);
+    assert_eq!(status(&server, "127.0.0.1", None), 200);
+    assert_eq!(status(&server, "[::1]:9000", None), 200);
+    assert_eq!(
+        status(&server, &server.host(), Some("http://localhost:9999")),
+        200
+    );
+    assert_eq!(
+        status(&server, &server.host(), Some("http://[::1]:9999")),
+        200
+    );
 }
 
 #[test]
@@ -68,21 +81,31 @@ fn http_allows_hosts_and_origins_from_env() {
     let server = HttpServer::start(
         &[],
         &[
-            ("FASTMCP_HTTP_ALLOWED_HOSTS", r#"["mcp.ali.fyi"]"#),
-            ("FASTMCP_HTTP_ALLOWED_ORIGINS", r#"["https://mcp.ali.fyi"]"#),
+            (
+                "FASTMCP_HTTP_ALLOWED_HOSTS",
+                r#"["mcp.ali.fyi:443", "*.ts.net"]"#,
+            ),
+            ("FASTMCP_HTTP_ALLOWED_ORIGINS", r#"["https://*.ts.net"]"#),
         ],
     );
-    let proxied = http_post_with(
-        server.port,
-        "mcp.ali.fyi",
-        None,
-        &[("Origin", "https://mcp.ali.fyi")],
-        &initialize_request(1),
-    );
+    let proxied = http_post(server.port, "mcp.ali.fyi", None, &initialize_request(1));
     assert_eq!(proxied.status, 200, "{proxied:?}");
     assert_eq!(proxied.json()["result"]["serverInfo"]["name"], "TickTick");
-    let other = http_post(server.port, "other.ali.fyi", None, &initialize_request(1));
-    assert_eq!(other.status, 403, "{other:?}");
+    assert_eq!(status(&server, "MCP.ali.fyi:8443", None), 200);
+    assert_eq!(
+        status(&server, "box.tail.ts.net", Some("https://box.tail.ts.net")),
+        200
+    );
+    // Same-origin needs no allow-list entry.
+    assert_eq!(
+        status(&server, "mcp.ali.fyi", Some("http://mcp.ali.fyi")),
+        200
+    );
+    assert_eq!(
+        status(&server, "mcp.ali.fyi", Some("https://other.example")),
+        403
+    );
+    assert_eq!(status(&server, "other.ali.fyi", None), 421);
 }
 
 #[test]

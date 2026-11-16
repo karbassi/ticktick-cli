@@ -30,6 +30,7 @@ src/
   mcp/           — `ticktick-cli mcp`, a drop-in for the Python `ticktick-mcp` server (see mcp/README.md)
     mod.rs       — TickTickServer, resources, stdio and streamable-HTTP transports
     util.rs      — raw-JSON API calls, name resolution, dates, tool result helpers
+    guard.rs     — HTTP Host/Origin checks with FastMCP's rules (ports ignored, fnmatch globs, loopback Origin)
     coerce.rs    — lax argument coercion ("5" → 5, 25.0 → 25, "true" → true) against each tool's schema, like FastMCP
     tools/       — one file per Python tools module, each with its own router
 tests/

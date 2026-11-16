@@ -2,6 +2,7 @@
 //! `tests/mcp_contract.rs`). See `src/mcp/README.md` for adding a tool module.
 
 mod coerce;
+mod guard;
 mod tools;
 pub mod util;
 
@@ -285,32 +286,25 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let bound = listener
         .local_addr()
         .map_err(|e| format!("failed to read bound address: {e}"))?;
-    // Port 0 is OS-assigned; the allow-lists need the real one.
-    let port = bound.port();
-
     // DNS-rebinding protection; env hosts cover e.g. a reverse proxy's name.
-    let mut hosts = vec![
-        format!("127.0.0.1:{port}"),
-        format!("localhost:{port}"),
-        format!("[::1]:{port}"),
-    ];
-    hosts.extend(env_json_list("FASTMCP_HTTP_ALLOWED_HOSTS")?);
-    let mut origins = vec![
-        format!("http://127.0.0.1:{port}"),
-        format!("http://localhost:{port}"),
-    ];
-    origins.extend(env_json_list("FASTMCP_HTTP_ALLOWED_ORIGINS")?);
-
+    let guard = guard::Guard::new(
+        env_json_list("FASTMCP_HTTP_ALLOWED_HOSTS")?,
+        env_json_list("FASTMCP_HTTP_ALLOWED_ORIGINS")?,
+    );
     let config = StreamableHttpServerConfig::default()
-        .with_allowed_hosts(hosts)
-        .with_allowed_origins(origins);
+        .disable_allowed_hosts()
+        .disable_allowed_origins();
     let cancel = config.cancellation_token.clone();
     let mut sessions = LocalSessionManager::default();
     sessions.session_config.keep_alive = Some(session_timeout()?);
     let server = TickTickServer::new();
     let service =
         StreamableHttpService::new(move || Ok(server.clone()), Arc::new(sessions), config);
-    let app = axum::Router::new().nest_service("/mcp", service);
+    let app = axum::Router::new()
+        .nest_service("/mcp", service)
+        .layer(axum::middleware::from_fn(move |req, next| {
+            guard.clone().check(req, next)
+        }));
 
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
