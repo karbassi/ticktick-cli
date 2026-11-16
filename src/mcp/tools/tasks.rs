@@ -407,11 +407,21 @@ fn complete_task(p: CompleteTaskParams) -> Result<String, String> {
         return Ok(format!("Task {} completed", ids[0]));
     }
     let mut done = std::collections::HashSet::new();
-    for chunk in ids.chunks(COMPLETE_BATCH_SIZE) {
+    let chunks = ids.chunks(COMPLETE_BATCH_SIZE);
+    let total_chunks = chunks.len();
+    for (i, chunk) in chunks.enumerate() {
         let result = util::v1_post(
             "/task/completeTasks",
             &json!({ "projectId": pid, "taskIds": chunk }),
-        )?;
+        )
+        .map_err(|e| {
+            format!(
+                "Completed {} of {} tasks; chunk {} of {total_chunks} failed: {e}",
+                done.len(),
+                ids.len(),
+                i + 1
+            )
+        })?;
         for id in as_list(result) {
             if let Value::String(id) = id {
                 done.insert(id);

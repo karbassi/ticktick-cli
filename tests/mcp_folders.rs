@@ -89,6 +89,31 @@ fn delete_folders_unknown_name_deletes_nothing() {
 }
 
 #[test]
+fn delete_folders_failure_reports_what_was_deleted() {
+    let server = MockServer::start();
+    let _list = mock_groups(&server);
+    let g1 = server.mock(|when, then| {
+        when.method(DELETE).path("/open/v1/project/group/g1");
+        then.status(200);
+    });
+    let g2 = server.mock(|when, then| {
+        when.method(DELETE).path("/open/v1/project/group/g2");
+        then.status(500).body("boom");
+    });
+    let mut c = McpBuilder::new(&server).start();
+    let res = c.call_tool("delete_folders", json!({"folders": ["home", "Work"]}));
+    g1.assert();
+    g2.assert();
+    assert!(res.is_error);
+    assert!(
+        res.text
+            .starts_with("Deleted 1 of 2 folder(s); 'Work' failed: "),
+        "{}",
+        res.text
+    );
+}
+
+#[test]
 fn rename_folder() {
     let server = MockServer::start();
     let _list = mock_groups(&server);

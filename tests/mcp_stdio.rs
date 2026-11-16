@@ -415,6 +415,50 @@ fn complete_task_batch_dedupes_chunks_and_reports_failures() {
 }
 
 #[test]
+fn complete_task_chunk_failure_reports_progress_and_stops() {
+    let server = MockServer::start();
+    let ids: Vec<String> = (0..120).map(|i| format!("t{i}")).collect();
+    let first = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[..50]}));
+        then.status(200).json_body(json!(
+            ids[..50]
+                .iter()
+                .filter(|id| *id != "t7")
+                .collect::<Vec<_>>()
+        ));
+    });
+    let second = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[50..100]}));
+        then.status(500).body("boom");
+    });
+    let third = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[100..]}));
+        then.status(200).json_body(json!(&ids[100..]));
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "complete_task",
+        json!({"project": HEX_PROJECT, "task_ids": ids}),
+    );
+    first.assert();
+    second.assert();
+    third.assert_calls(0);
+    assert!(res.is_error);
+    assert!(
+        res.text
+            .starts_with("Completed 49 of 120 tasks; chunk 2 of 3 failed: "),
+        "{}",
+        res.text
+    );
+}
+
+#[test]
 fn complete_task_requires_an_id() {
     let server = MockServer::start();
     let mut c = start(&server);
@@ -734,6 +778,50 @@ fn project_tools() {
     edit.assert();
     members.assert();
     delete.assert();
+}
+
+#[test]
+fn tag_batch_failure_reports_what_succeeded_and_stops() {
+    let server = MockServer::start();
+    let create = |name: &'static str, status: u16| {
+        server.mock(move |when, then| {
+            when.method(POST)
+                .path(v1("/tag"))
+                .json_body(json!({"label": name, "name": name}));
+            then.status(status).json_body(json!({"name": name}));
+        })
+    };
+    let (a, b, z) = (create("a", 200), create("b", 500), create("z", 200));
+    let delete = |name: &'static str, status: u16| {
+        server.mock(move |when, then| {
+            when.method(DELETE)
+                .path(v1("/tag/delete"))
+                .json_body(json!({"name": name}));
+            then.status(status);
+        })
+    };
+    let (da, db, dz) = (delete("a", 200), delete("b", 500), delete("z", 200));
+    let mut c = start(&server);
+
+    let res = c.call_tool("add_tags", json!({"names": ["a", "b", "z"]}));
+    assert!(res.is_error);
+    assert!(
+        res.text.starts_with("Created 1 of 3 tag(s); 'b' failed: "),
+        "{}",
+        res.text
+    );
+    let res = c.call_tool("delete_tags", json!({"names": ["a", "b", "z"]}));
+    assert!(res.is_error);
+    assert!(
+        res.text.starts_with("Deleted 1 of 3 tag(s); 'b' failed: "),
+        "{}",
+        res.text
+    );
+    for m in [&a, &b, &da, &db] {
+        m.assert();
+    }
+    z.assert_calls(0);
+    dz.assert_calls(0);
 }
 
 #[test]

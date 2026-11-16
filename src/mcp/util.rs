@@ -149,6 +149,33 @@ pub fn as_list(v: Value) -> Vec<Value> {
     }
 }
 
+/// Apply `op` to each item in order, stopping at the first failure. Earlier
+/// writes stay applied, so the error says how many succeeded, e.g.
+/// "Deleted 1 of 3 tag(s); 'b' failed: ...".
+pub fn each<T, R>(
+    items: &[T],
+    verb: &str,
+    noun: &str,
+    label: impl Fn(&T) -> String,
+    mut op: impl FnMut(&T) -> Result<R, String>,
+) -> Result<Vec<R>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        match op(item) {
+            Ok(r) => out.push(r),
+            Err(e) => {
+                return Err(format!(
+                    "{verb} {} of {} {noun}; '{}' failed: {e}",
+                    out.len(),
+                    items.len(),
+                    label(item)
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Name resolution (Python `resolve.py`)
 // ---------------------------------------------------------------------------
