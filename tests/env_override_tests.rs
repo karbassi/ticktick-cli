@@ -1,17 +1,12 @@
-use assert_cmd::{Command, cargo::cargo_bin_cmd};
+mod common;
+
+use assert_cmd::Command;
 use httpmock::prelude::*;
+use serde_json::json;
 use std::fs;
 
 fn isolated(tmp: &tempfile::TempDir) -> Command {
-    let mut c = cargo_bin_cmd!("ticktick-cli");
-    c.current_dir(tmp.path())
-        .env("HOME", tmp.path())
-        .env("XDG_CONFIG_HOME", tmp.path())
-        .env_remove("TICKTICK_ACCESS_TOKEN")
-        .env_remove("TICKTICK_V2_SESSION_TOKEN")
-        .env_remove("TICKTICK_API_BASE")
-        .env_remove("TICKTICK_V2_BASE");
-    c
+    Command::from_std(common::isolated_command(tmp.path()))
 }
 
 #[test]
@@ -21,8 +16,7 @@ fn api_base_env_redirects_v1_calls() {
         when.method(GET)
             .path("/open/v1/tag")
             .header("Authorization", "Bearer env-token");
-        then.status(200)
-            .json_body(serde_json::json!([{"name": "work"}]));
+        then.status(200).json_body(json!([{"name": "work"}]));
     });
     let tmp = tempfile::tempdir().unwrap();
     isolated(&tmp)
@@ -34,12 +28,6 @@ fn api_base_env_redirects_v1_calls() {
     tags.assert();
 }
 
-fn write_config(tmp: &tempfile::TempDir, json: &str) {
-    let dir = tmp.path().join("ticktick-cli");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("config.json"), json).unwrap();
-}
-
 #[test]
 fn blank_access_token_env_falls_back_to_config() {
     let server = MockServer::start();
@@ -47,12 +35,12 @@ fn blank_access_token_env_falls_back_to_config() {
         when.method(GET)
             .path("/open/v1/tag")
             .header("Authorization", "Bearer file-token");
-        then.status(200).json_body(serde_json::json!([]));
+        then.status(200).json_body(json!([]));
     });
     let tmp = tempfile::tempdir().unwrap();
-    write_config(
-        &tmp,
-        r#"{"access_token":"file-token","refresh_token":null}"#,
+    common::write_config(
+        tmp.path(),
+        &json!({"access_token": "file-token", "refresh_token": null}),
     );
     isolated(&tmp)
         .env("TICKTICK_ACCESS_TOKEN", "  ")
@@ -72,17 +60,13 @@ fn v2_session_token_env_wins_over_config() {
         when.method(GET)
             .path("/api/v2/batch/check/0")
             .header("Cookie", "t=env-cookie");
-        then.status(200)
-            .json_body(serde_json::json!({"inboxId": "inbox1"}));
+        then.status(200).json_body(json!({"inboxId": "inbox1"}));
     });
     let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().join("ticktick-cli");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(
-        dir.join("config.json"),
-        r#"{"access_token":null,"refresh_token":null,"v2_session_token":"stale-file-cookie"}"#,
-    )
-    .unwrap();
+    common::write_config(
+        tmp.path(),
+        &json!({"access_token": null, "v2_session_token": "stale-file-cookie"}),
+    );
     isolated(&tmp)
         .env("TICKTICK_V2_SESSION_TOKEN", "env-cookie")
         .env("TICKTICK_V2_BASE", server.url("/api/v2"))
@@ -99,16 +83,13 @@ fn v2_session_token_falls_back_to_config() {
         when.method(GET)
             .path("/api/v2/batch/check/0")
             .header("Cookie", "t=file-cookie");
-        then.status(200).json_body(serde_json::json!({}));
+        then.status(200).json_body(json!({}));
     });
     let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().join("ticktick-cli");
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(
-        dir.join("config.json"),
-        r#"{"access_token":null,"refresh_token":null,"v2_session_token":"file-cookie"}"#,
-    )
-    .unwrap();
+    common::write_config(
+        tmp.path(),
+        &json!({"access_token": null, "v2_session_token": "file-cookie"}),
+    );
     isolated(&tmp)
         .env("TICKTICK_V2_BASE", server.url("/api/v2"))
         .arg("sync")
@@ -121,7 +102,7 @@ fn saved_account_timezone(tz_args: &[&str], echoed_tz: &str) -> Option<String> {
     let server = MockServer::start();
     let create = server.mock(|when, then| {
         when.method(POST).path("/open/v1/task");
-        then.status(200).json_body(serde_json::json!({
+        then.status(200).json_body(json!({
             "id": "t1",
             "title": "x",
             "projectId": "p1",
@@ -194,12 +175,12 @@ fn task_list_with_env_token_probes_for_the_inbox() {
     let server = MockServer::start();
     server.mock(|when, then| {
         when.method(GET).path("/open/v1/project");
-        then.status(200).json_body(serde_json::json!([]));
+        then.status(200).json_body(json!([]));
     });
     let probe = server.mock(|when, then| {
         when.method(POST).path("/open/v1/task");
         then.status(200)
-            .json_body(serde_json::json!({"id": "probe", "title": "p", "projectId": "inbox9"}));
+            .json_body(json!({"id": "probe", "title": "p", "projectId": "inbox9"}));
     });
     server.mock(|when, then| {
         when.method(DELETE)
@@ -209,7 +190,7 @@ fn task_list_with_env_token_probes_for_the_inbox() {
     let inbox = server.mock(|when, then| {
         when.method(GET).path("/open/v1/project/inbox9/data");
         then.status(200).json_body(
-            serde_json::json!({"tasks": [{"id": "t1", "title": "in inbox", "projectId": "inbox9"}]}),
+            json!({"tasks": [{"id": "t1", "title": "in inbox", "projectId": "inbox9"}]}),
         );
     });
     let tmp = tempfile::tempdir().unwrap();
