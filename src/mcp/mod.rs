@@ -195,9 +195,6 @@ impl ServerHandler for TickTickServer {
     }
 }
 
-/// The endpoint has no auth, so only loopback may be bound.
-const LOOPBACK_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
-
 pub struct McpOptions {
     pub http: bool,
     pub host: Option<String>,
@@ -237,7 +234,8 @@ fn transport(opts: McpOptions) -> Result<Transport, String> {
         .host
         .or_else(|| env_var("TICKTICK_MCP_HOST"))
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    if !LOOPBACK_HOSTS.contains(&host.as_str()) {
+    // The endpoint has no auth, so only loopback may be bound.
+    if !guard::LOOPBACK_HOSTS.contains(&host.as_str()) {
         return Err(format!(
             "MCP host must be a loopback address (127.0.0.1, localhost, ::1), got '{host}'\n\n  \
              hint: the HTTP endpoint has no auth; put an authenticating proxy in front for remote use"

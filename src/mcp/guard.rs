@@ -12,7 +12,7 @@ use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-const DEFAULT_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
+pub const LOOPBACK_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
 
 pub struct Guard {
     hosts: Vec<String>,
@@ -21,7 +21,7 @@ pub struct Guard {
 
 impl Guard {
     pub fn new(extra_hosts: Vec<String>, origins: Vec<String>) -> Arc<Self> {
-        let mut hosts: Vec<String> = DEFAULT_HOSTS.iter().map(|h| h.to_string()).collect();
+        let mut hosts: Vec<String> = LOOPBACK_HOSTS.iter().map(|h| h.to_string()).collect();
         hosts.extend(extra_hosts);
         Arc::new(Self { hosts, origins })
     }
