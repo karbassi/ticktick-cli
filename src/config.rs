@@ -137,10 +137,24 @@ pub fn update<R>(f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
 
 fn update_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
     let _lock = config_lock();
-    let mut config = load_from(path);
+    let mut config = load_strict(path)?;
     let out = f(&mut config);
     save_to(path, &config)?;
     Ok(out)
+}
+
+/// Unlike `load_from`, refuses a file it can't parse, so a save can't wipe it.
+fn load_strict(path: &Path) -> Result<Config, String> {
+    match fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| {
+            format!(
+                "{} is not valid config JSON: {e}\n\n  hint: Fix or delete the file",
+                path.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+        Err(e) => Err(format!("failed to read {}: {e}", path.display())),
+    }
 }
 
 fn save_to(path: &Path, config: &Config) -> Result<(), String> {
@@ -427,5 +441,26 @@ mod tests {
             .filter(|n| n != "config.json")
             .collect();
         assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+    }
+
+    #[test]
+    fn update_refuses_to_overwrite_unparsable_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let corrupt = r#"{"access_token": "keep-me", "#;
+        fs::write(&path, corrupt).unwrap();
+
+        let ran = update_at(&path, |c| c.inbox_project_id = Some("x".into()));
+
+        assert!(ran.is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn update_creates_a_missing_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub/config.json");
+        update_at(&path, |c| c.inbox_project_id = Some("inbox1".into())).unwrap();
+        assert_eq!(load_from(&path).inbox_project_id.as_deref(), Some("inbox1"));
     }
 }
