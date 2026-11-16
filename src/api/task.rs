@@ -183,15 +183,14 @@ pub fn civil_datetime(
 }
 
 /// UTC offset in seconds of a wall-clock time in `tz` (None: the system zone).
-pub fn utc_offset_for_tz(
-    tz: Option<&str>,
+pub fn utc_offset_in(
+    zone: &TimeZone,
     year: i32,
     month: u32,
     day: u32,
     hour: u32,
     minute: u32,
 ) -> Result<i64, String> {
-    let zone = time_zone(tz)?;
     let dt = civil_datetime(
         year.into(),
         month.into(),
@@ -200,7 +199,7 @@ pub fn utc_offset_for_tz(
         minute.into(),
         0,
     )?;
-    Ok(wall_offset_secs(&zone, dt))
+    Ok(wall_offset_secs(zone, dt))
 }
 
 /// Formats a UTC offset in seconds as `+HHMM` / `-HHMM`.
@@ -248,8 +247,12 @@ impl ParsedDateTime {
     ///
     /// `tz` is an IANA name; None means the system zone.
     pub fn to_api_string(&self, tz: Option<&str>) -> Result<String, String> {
+        self.to_api_string_in(&time_zone(tz)?)
+    }
+
+    pub fn to_api_string_in(&self, zone: &TimeZone) -> Result<String, String> {
         let (hour, minute) = self.time.unwrap_or((0, 0));
-        let offset = utc_offset_for_tz(tz, self.year, self.month, self.day, hour, minute)?;
+        let offset = utc_offset_in(zone, self.year, self.month, self.day, hour, minute)?;
         Ok(format!(
             "{:04}-{:02}-{:02}T{:02}:{:02}:00.000{}",
             self.year,
@@ -1408,7 +1411,8 @@ mod tests {
 
     #[test]
     fn utc_offset_across_dst_transitions() {
-        let chicago = |m, d, h, mi| utc_offset_for_tz(Some("America/Chicago"), 2026, m, d, h, mi);
+        let zone = time_zone(Some("America/Chicago")).unwrap();
+        let chicago = |m, d, h, mi| utc_offset_in(&zone, 2026, m, d, h, mi);
         // Spring forward 2026-03-08 02:00 CST -> 03:00 CDT.
         assert_eq!(chicago(3, 8, 1, 59), Ok(-6 * 3600));
         assert_eq!(chicago(3, 8, 2, 30), Ok(-6 * 3600));
@@ -1434,9 +1438,15 @@ mod tests {
 
     #[test]
     fn unknown_zone_is_an_error() {
+        let dt = ParsedDateTime {
+            year: 2026,
+            month: 6,
+            day: 15,
+            time: Some((12, 0)),
+        };
         for tz in ["Mars/Olympus", "/etc/hosts", "../etc/passwd", ""] {
             assert_eq!(
-                utc_offset_for_tz(Some(tz), 2026, 6, 15, 12, 0),
+                dt.to_api_string(Some(tz)),
                 Err(format!("Unknown timezone '{tz}'"))
             );
         }
@@ -1444,7 +1454,7 @@ mod tests {
 
     #[test]
     fn impossible_date_is_an_error() {
-        assert!(utc_offset_for_tz(Some("UTC"), 2026, 2, 30, 12, 0).is_err());
+        assert!(utc_offset_in(&TimeZone::UTC, 2026, 2, 30, 12, 0).is_err());
     }
 
     // -- ParsedDateTime::is_all_day -------------------------------------------

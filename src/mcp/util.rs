@@ -3,6 +3,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
+use jiff::tz::TimeZone;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::Value;
@@ -246,21 +247,45 @@ pub fn inbox_id() -> Result<String, String> {
     Ok(INBOX.get_or_init(|| id).clone())
 }
 
-pub fn resolve_project_id(project: &str) -> Result<String, String> {
+/// The ID for `project` when it needs no `/project` lookup.
+fn direct_project_id(project: &str) -> Result<Option<String>, String> {
     if project.eq_ignore_ascii_case("inbox") {
-        return inbox_id();
+        return inbox_id().map(Some);
     }
     if let Some(rest) = project.strip_prefix("inbox")
         && !rest.is_empty()
         && rest.chars().all(|c| c.is_ascii_digit())
     {
-        return Ok(project.to_string());
+        return Ok(Some(project.to_string()));
     }
-    if looks_like_id(project) {
-        return Ok(project.to_string());
+    Ok(looks_like_id(project).then(|| project.to_string()))
+}
+
+pub fn resolve_project_id(project: &str) -> Result<String, String> {
+    match direct_project_id(project)? {
+        Some(id) => Ok(id),
+        None => resolve_name(project, &as_list(v1_get("/project")?), "project"),
     }
-    let projects = as_list(v1_get("/project")?);
-    resolve_name(project, &projects, "project")
+}
+
+/// Like [`resolve_project_id`], but `/project` is fetched at most once.
+pub fn resolve_project_ids<S: AsRef<str>>(projects: &[S]) -> Result<Vec<String>, String> {
+    let mut all: Option<Vec<Value>> = None;
+    let mut ids = Vec::with_capacity(projects.len());
+    for project in projects {
+        let project = project.as_ref();
+        let id = match direct_project_id(project)? {
+            Some(id) => id,
+            None => {
+                if all.is_none() {
+                    all = Some(as_list(v1_get("/project")?));
+                }
+                resolve_name(project, all.as_deref().unwrap_or_default(), "project")?
+            }
+        };
+        ids.push(id);
+    }
+    Ok(ids)
 }
 
 pub fn resolve_column_id(project_id: &str, column: &str) -> Result<String, String> {
@@ -280,13 +305,17 @@ pub fn check_timezone(tz: &str) -> Result<(), String> {
     api::task::time_zone(Some(tz)).map(|_| ())
 }
 
+/// The account timezone if known and valid, else the system zone.
+pub fn local_zone() -> TimeZone {
+    config::get_account_timezone()
+        .and_then(|tz| api::task::time_zone(Some(&tz)).ok())
+        .unwrap_or_else(TimeZone::system)
+}
+
 pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> Result<String, String> {
     match tz {
         Some(tz) => date.to_api_string(Some(tz)),
-        None => match config::get_account_timezone() {
-            Some(account) if check_timezone(&account).is_ok() => date.to_api_string(Some(&account)),
-            _ => date.to_api_string(None),
-        },
+        None => date.to_api_string_in(&local_zone()),
     }
 }
 

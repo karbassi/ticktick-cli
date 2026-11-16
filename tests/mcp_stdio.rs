@@ -533,6 +533,72 @@ fn list_tasks_all_projects_skips_failures_and_includes_inbox() {
 }
 
 #[test]
+fn list_tasks_all_projects_keeps_project_order_when_fetched_concurrently() {
+    let server = MockServer::start();
+    let ids: Vec<String> = (0..10).map(|i| format!("p{i}")).collect();
+    mock_projects(
+        &server,
+        json!(ids.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()),
+    );
+    // Earlier projects answer slower, so completion order is the reverse of project order.
+    for (i, id) in ids.iter().enumerate() {
+        server.mock(|when, then| {
+            when.method(GET).path(v1(&format!("/project/{id}/data")));
+            then.status(200)
+                .delay(std::time::Duration::from_millis(20 * (10 - i as u64)))
+                .json_body(json!({"tasks": [{"id": format!("t{i}")}]}));
+        });
+    }
+    server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200)
+            .json_body(json!({"id": "probe", "title": "__inbox_probe__", "projectId": "inbox123"}));
+    });
+    server.mock(|when, then| {
+        when.method(DELETE).path(v1("/project/inbox123/task/probe"));
+        then.status(200);
+    });
+    server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inbox123/data"));
+        then.status(200)
+            .json_body(json!({"tasks": [{"id": "inbox"}]}));
+    });
+    let mut c = start(&server);
+    let started = std::time::Instant::now();
+    let res = c.call_tool("list_tasks", json!({})).ok();
+    // Serial fetches would take 1.1s of delays; two waves of parallel ones about 0.24s.
+    assert!(started.elapsed() < std::time::Duration::from_millis(900));
+    let mut want: Vec<Value> = (0..10).map(|i| json!({"id": format!("t{i}")})).collect();
+    want.push(json!({"id": "inbox"}));
+    assert_eq!(res.json(), Value::Array(want));
+}
+
+#[test]
+fn move_task_by_names_fetches_projects_once() {
+    let server = MockServer::start();
+    let projects = mock_projects(
+        &server,
+        json!([{"id": "p1", "name": "Work"}, {"id": "p2", "name": "Home"}]),
+    );
+    let mv = server.mock(|when, then| {
+        when.method(POST).path(v1("/task/move")).json_body(json!([{
+            "taskId": "t1",
+            "fromProjectId": "p1",
+            "toProjectId": "p2",
+        }]));
+        then.status(200).json_body(json!([{"id": "t1"}]));
+    });
+    let mut c = start(&server);
+    c.call_tool(
+        "move_task",
+        json!({"task_id": "t1", "from_project": "work", "to_project": "home"}),
+    )
+    .ok();
+    mv.assert();
+    projects.assert_calls(1);
+}
+
+#[test]
 fn list_tasks_completed_uses_v2() {
     let server = MockServer::start();
     let completed = server.mock(|when, then| {

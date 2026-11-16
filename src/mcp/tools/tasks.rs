@@ -15,7 +15,7 @@ use crate::config;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{
     self, ToolResult, api_date, as_list, check_timezone, nonempty, parse_datetime, parse_duration,
-    priority_value, resolve_column_id, resolve_project_id, run,
+    priority_value, resolve_column_id, resolve_project_id, resolve_project_ids, run,
 };
 
 fn default_status() -> String {
@@ -222,22 +222,38 @@ fn list_tasks(p: ListTasksParams) -> Result<Value, String> {
             "/project/{pid}/data"
         ))?)));
     }
-    // /project does not list the inbox. A project that fails to load is skipped, like Python.
-    let mut all = Vec::new();
-    for project in as_list(util::v1_get("/project")?) {
-        let Some(id) = project.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        if let Ok(data) = util::v1_get(&format!("/project/{id}/data")) {
-            all.extend(tasks_of(data));
-        }
+    // /project does not list the inbox.
+    let mut ids: Vec<String> = as_list(util::v1_get("/project")?)
+        .iter()
+        .filter_map(|p| p.get("id").and_then(Value::as_str).map(String::from))
+        .collect();
+    if let Ok(inbox) = util::inbox_id() {
+        ids.push(inbox);
     }
-    if let Ok(inbox) = util::inbox_id()
-        && let Ok(data) = util::v1_get(&format!("/project/{inbox}/data"))
+    Ok(Value::Array(project_tasks(&ids)))
+}
+
+const MAX_PARALLEL_FETCHES: usize = 8;
+
+/// Tasks of each project, in `ids` order. A project that fails to load is
+/// skipped, like Python.
+fn project_tasks(ids: &[String]) -> Vec<Value> {
+    let mut per_project = vec![Vec::new(); ids.len()];
+    for (ids, slots) in ids
+        .chunks(MAX_PARALLEL_FETCHES)
+        .zip(per_project.chunks_mut(MAX_PARALLEL_FETCHES))
     {
-        all.extend(tasks_of(data));
+        std::thread::scope(|s| {
+            for (id, slot) in ids.iter().zip(slots) {
+                s.spawn(move || {
+                    if let Ok(data) = util::v1_get(&format!("/project/{id}/data")) {
+                        *slot = tasks_of(data);
+                    }
+                });
+            }
+        });
     }
-    Ok(Value::Array(all))
+    per_project.concat()
 }
 
 fn add_task(p: AddTaskParams) -> Result<Value, String> {
@@ -549,12 +565,11 @@ impl TickTickServer {
     )]
     async fn move_task(&self, Parameters(p): Parameters<MoveTaskParams>) -> ToolResult {
         run(move || {
-            let from = resolve_project_id(&p.from_project)?;
-            let to = resolve_project_id(&p.to_project)?;
+            let ids = resolve_project_ids(&[&p.from_project, &p.to_project])?;
             let moves = [TaskMove {
                 task_id: p.task_id.clone(),
-                from_project_id: from,
-                to_project_id: to,
+                from_project_id: ids[0].clone(),
+                to_project_id: ids[1].clone(),
             }];
             let body = serde_json::to_value(moves).map_err(|e| e.to_string())?;
             util::v1_post("/task/move", &body)?;

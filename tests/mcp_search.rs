@@ -66,6 +66,58 @@ fn search_all_options() {
 }
 
 #[test]
+fn search_resolves_several_project_names_with_one_project_fetch() {
+    let server = MockServer::start();
+    let projects = server.mock(|when, then| {
+        when.method(GET).path(format!("{V1}/project"));
+        then.status(200).json_body(json!([
+            {"id": "p1", "name": "Work"},
+            {"id": "p2", "name": "Home"},
+        ]));
+    });
+    let hex = "aaaaaaaaaaaaaaaaaaaaaaaa";
+    let m = server.mock(|when, then| {
+        when.method(POST)
+            .path(format!("{V1}/task/search"))
+            .json_body(json!({"keywords": "x", "projectIds": ["p2", hex, "p1"]}));
+        then.status(200).json_body(json!([]));
+    });
+    let mut c = McpBuilder::new(&server).start();
+    c.call_tool(
+        "search_tasks",
+        json!({"query": "x", "projects": ["home", hex, "Work"]}),
+    )
+    .ok();
+    m.assert();
+    projects.assert_calls(1);
+}
+
+#[test]
+fn dates_without_timezone_use_the_account_zone_else_the_system_zone() {
+    for (account_tz, offset) in [("Asia/Kolkata", "+0530"), ("Mars/Olympus", "-0600")] {
+        let server = MockServer::start();
+        let m = server.mock(|when, then| {
+            when.method(POST)
+                .path(format!("{V1}/task/search"))
+                .json_body(json!({
+                    "keywords": "x",
+                    "dueFrom": format!("2030-01-01T09:00:00.000{offset}"),
+                }));
+            then.status(200).json_body(json!([]));
+        });
+        let mut c = McpBuilder::new(&server)
+            .config(json!({"account_timezone": account_tz}))
+            .start();
+        c.call_tool(
+            "search_tasks",
+            json!({"query": "x", "due_from": "2030-01-01T09:00"}),
+        )
+        .ok();
+        m.assert();
+    }
+}
+
+#[test]
 fn search_empty_response_is_empty_list() {
     let server = MockServer::start();
     server.mock(|when, then| {

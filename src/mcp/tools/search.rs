@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{
-    self, ToolResult, api_date, parse_datetime, priority_value, resolve_project_id, run,
+    self, ToolResult, api_date, parse_datetime, priority_value, resolve_project_ids, run,
 };
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -63,13 +63,7 @@ pub struct FilterTasksParams {
 /// Python `_project_ids`.
 fn project_ids(projects: Option<Vec<String>>) -> Result<Option<Value>, String> {
     match projects {
-        Some(list) if !list.is_empty() => {
-            let ids = list
-                .iter()
-                .map(|p| resolve_project_id(p).map(Value::String))
-                .collect::<Result<Vec<Value>, String>>()?;
-            Ok(Some(Value::Array(ids)))
-        }
+        Some(list) if !list.is_empty() => Ok(Some(json!(resolve_project_ids(&list)?))),
         _ => Ok(None),
     }
 }
