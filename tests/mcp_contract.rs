@@ -44,15 +44,6 @@ const PENDING_TOOLS: &[&str] = &[
     "add_folder",
     "delete_folders",
     "rename_folder",
-    // habits.py
-    "list_habits",
-    "add_habit",
-    "edit_habit",
-    "delete_habits",
-    "checkin_habit",
-    "habit_log",
-    "archive_habits",
-    "manage_habit_sections",
     // search.py
     "search_tasks",
     "filter_tasks",
