@@ -1947,7 +1947,7 @@ fn resolve_timezone(
     }
 
     let local = crate::api::task::local_iana_timezone();
-    let account = crate::config::get_account_timezone();
+    let account = account_timezone();
 
     // If we don't know the account timezone yet, or they match, use local
     let (Some(local_tz), Some(account_tz)) = (&local, &account) else {
@@ -2086,12 +2086,23 @@ fn detect_inbox_id(task: &crate::api::task::Task) {
 /// response and store it in config if not already known. A `timeZone` we sent
 /// is echoed back, so it says nothing about the account.
 fn detect_account_timezone(task: &crate::api::task::Task, sent_tz: bool) {
-    if sent_tz || crate::config::get_account_timezone().is_some() {
+    if sent_tz || account_timezone().is_some() {
         return;
     }
-    if let Some(ref tz) = task.time_zone {
-        let _ = crate::config::save_account_timezone(tz);
+    // TickTick may echo `timeZone: ""`.
+    if let Some(tz) = task
+        .time_zone
+        .as_deref()
+        .and_then(|tz| crate::api::task::canonical_timezone(tz).ok())
+    {
+        let _ = crate::config::save_account_timezone(&tz);
     }
+}
+
+/// An invalid or empty stored zone reads as unknown, so it gets re-detected.
+fn account_timezone() -> Option<String> {
+    crate::config::get_account_timezone()
+        .and_then(|tz| crate::api::task::canonical_timezone(&tz).ok())
 }
 
 // ---------------------------------------------------------------------------

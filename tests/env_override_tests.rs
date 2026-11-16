@@ -105,6 +105,16 @@ fn read_config(tmp: &tempfile::TempDir) -> serde_json::Value {
 
 /// `env_token` false: the token comes from config.json.
 fn saved_account_timezone(env_token: bool, tz_args: &[&str], echoed_tz: &str) -> Option<String> {
+    saved_over(env_token, None, tz_args, echoed_tz)
+}
+
+/// What `task add` leaves in config.json's account_timezone, starting from `stored`.
+fn saved_over(
+    env_token: bool,
+    stored: Option<&str>,
+    tz_args: &[&str],
+    echoed_tz: &str,
+) -> Option<String> {
     let server = MockServer::start();
     let create = server.mock(|when, then| {
         when.method(POST).path("/open/v1/task");
@@ -116,7 +126,10 @@ fn saved_account_timezone(env_token: bool, tz_args: &[&str], echoed_tz: &str) ->
         }));
     });
     let tmp = tempfile::tempdir().unwrap();
-    common::write_config(tmp.path(), &json!({"access_token": "file-token"}));
+    common::write_config(
+        tmp.path(),
+        &json!({"access_token": "file-token", "account_timezone": stored}),
+    );
     let mut cmd = isolated(&tmp);
     if env_token {
         cmd.env("TICKTICK_ACCESS_TOKEN", "env-token");
@@ -142,6 +155,26 @@ fn explicit_tz_is_not_cached_as_the_account_timezone() {
         saved_account_timezone(false, &[], "America/Chicago").as_deref(),
         Some("America/Chicago")
     );
+}
+
+#[test]
+fn account_timezone_is_saved_canonical_and_never_empty() {
+    assert_eq!(saved_account_timezone(false, &[], ""), None);
+    assert_eq!(
+        saved_account_timezone(false, &[], "america/chicago").as_deref(),
+        Some("America/Chicago")
+    );
+}
+
+#[test]
+fn invalid_stored_account_timezone_is_redetected() {
+    for stored in ["", "Mars/Olympus"] {
+        assert_eq!(
+            saved_over(false, Some(stored), &[], "America/Chicago").as_deref(),
+            Some("America/Chicago"),
+            "{stored:?}"
+        );
+    }
 }
 
 #[test]
