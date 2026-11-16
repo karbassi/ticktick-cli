@@ -26,7 +26,7 @@ const IDLE_CONNECTIONS_PER_HOST: usize = 8;
 
 /// `TICKTICK_HTTP_TIMEOUT_SECS` (0 or unparsable: the default); it also caps
 /// the connect timeout.
-fn timeout_secs() -> u64 {
+pub(crate) fn timeout_secs() -> u64 {
     std::env::var("TICKTICK_HTTP_TIMEOUT_SECS")
         .ok()
         .and_then(|v| v.trim().parse().ok())
@@ -34,14 +34,14 @@ fn timeout_secs() -> u64 {
         .unwrap_or(DEFAULT_TIMEOUT_SECS)
 }
 
-/// Every request goes through this agent so none can stall forever. The
-/// overall timeout also caps a response that trickles in under the read timeout.
+/// Every request goes through this agent so none can stall forever. No
+/// overall timeout: like httpx's, these bound each operation, so a large body
+/// that keeps arriving is never cut off.
 pub fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let secs = timeout_secs();
         ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(secs))
             .timeout_connect(Duration::from_secs(secs.min(CONNECT_TIMEOUT_SECS)))
             .timeout_read(Duration::from_secs(secs))
             .timeout_write(Duration::from_secs(secs))

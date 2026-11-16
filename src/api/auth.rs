@@ -141,8 +141,11 @@ pub fn refresh_token(refresh_token: &str) -> Result<(String, Option<String>), St
 
     let auth = base64_encode(&format!("{}:{}", env.client_id, env.client_secret));
 
+    // An overall deadline, so a trickling response can't hold the refresh
+    // lock that every other request's 401 waits on.
     let resp = super::agent()
         .post(&token_url())
+        .timeout(std::time::Duration::from_secs(super::timeout_secs()))
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)

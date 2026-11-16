@@ -300,30 +300,72 @@ fn v1_unauthorized_names_the_env_vars_not_the_cli() {
     assert!(!res.text.contains("ticktick-cli"), "{}", res.text);
 }
 
+/// The base URL of a server that answers every request with `body`, sent a
+/// byte every `gap`: each read is quick, the whole body slow.
+fn trickle(body: &'static str, gap: Duration) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { return };
+            let _ = s.read(&mut [0; 8192]);
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            for b in body.bytes() {
+                if s.write_all(&[b]).is_err() {
+                    break;
+                }
+                std::thread::sleep(gap);
+            }
+        }
+    });
+    url
+}
+
 #[test]
-fn stalled_token_refresh_times_out() {
+fn trickling_token_refresh_hits_its_deadline() {
     let server = MockServer::start();
-    server.mock(|when, then| {
-        when.method(GET).path(v1("/project"));
-        then.status(401);
-    });
-    let refresh = server.mock(|when, then| {
-        when.method(POST).path("/oauth/token");
-        then.status(200)
-            .delay(Duration::from_secs(10))
-            .json_body(json!({"access_token": "fresh"}));
-    });
+    projects_with(&server, ACCESS_TOKEN, 401);
+    let refreshed = projects_with(&server, "fresh", 200);
+    // About 4.6s in all, a byte every 100ms.
+    let token_url = trickle(
+        r#"{"access_token":"fresh","refresh_token":"r2"}"#,
+        Duration::from_millis(100),
+    );
     let mut c = McpBuilder::new(&server)
         .env("TICKTICK_REFRESH_TOKEN", "r1")
         .env("TICKTICK_CLIENT_ID", "cid")
         .env("TICKTICK_CLIENT_SECRET", "sec")
-        .env("TICKTICK_OAUTH_TOKEN_URL", &server.url("/oauth/token"))
+        .env("TICKTICK_OAUTH_TOKEN_URL", &token_url)
         .env("TICKTICK_HTTP_TIMEOUT_SECS", "1")
         .start();
     let started = Instant::now();
     let res = c.call_tool("list_projects", json!({}));
     let elapsed = started.elapsed();
-    refresh.assert();
     assert!(res.is_error, "{}", res.text);
-    assert!(elapsed < Duration::from_secs(5), "took {elapsed:?}");
+    refreshed.assert_calls(0);
+    assert!(elapsed < Duration::from_secs(3), "took {elapsed:?}");
+}
+
+#[test]
+fn trickling_api_response_is_not_cut_off() {
+    let base = trickle(
+        r#"[{"id":"p1","name":"Work","kind":"TASK"}]"#,
+        Duration::from_millis(60),
+    );
+    let server = MockServer::start();
+    let mut c = McpBuilder::new(&server)
+        .env("TICKTICK_API_BASE", &format!("{base}/open/v1"))
+        .env("TICKTICK_HTTP_TIMEOUT_SECS", "1")
+        .start();
+    let started = Instant::now();
+    let res = c.call_tool("list_projects", json!({}));
+    assert!(!res.is_error, "{}", res.text);
+    assert!(res.text.contains("\"p1\""), "{}", res.text);
+    assert!(started.elapsed() > Duration::from_secs(2));
 }
