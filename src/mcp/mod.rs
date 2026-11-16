@@ -1,17 +1,22 @@
 //! Drop-in replacement for the Python `ticktick-mcp` server (contract:
 //! `tests/mcp_contract.rs`). See `src/mcp/README.md` for adding a tool module.
 
+mod coerce;
+mod guard;
 mod tools;
 pub mod util;
 
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
-    Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
-    ServerConfig,
+    CallToolRequestParams, CallToolResponse, Implementation, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
+    Resource, ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
@@ -19,6 +24,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 use serde_json::Value;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Clone)]
 pub struct TickTickServer {
@@ -96,6 +102,22 @@ impl ServerHandler for TickTickServer {
             "TickTick tasks, projects, tags and more. Projects can be named fuzzily; \
              use \"inbox\" for the default inbox.",
         )
+    }
+
+    async fn call_tool(
+        &self,
+        mut request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        if let (Some(tool), Some(args)) = (
+            self.tool_router.get(&request.name),
+            request.arguments.as_mut(),
+        ) {
+            coerce::coerce_arguments(&tool.input_schema, args);
+        }
+        self.tool_router
+            .call(ToolCallContext::new(self, request, context))
+            .await
     }
 
     async fn list_resources(
@@ -203,6 +225,24 @@ fn env_json_list(name: &str) -> Result<Vec<String>, String> {
     }
 }
 
+/// Idle time before a session is dropped. rmcp defaults to 300s; the Python
+/// server allowed 1800s.
+fn session_timeout() -> Result<Duration, String> {
+    match env_var("TICKTICK_MCP_SESSION_TIMEOUT") {
+        None => Ok(Duration::from_secs(1800)),
+        Some(s) => s
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(Duration::from_secs)
+            .ok_or_else(|| {
+                format!(
+                    "TICKTICK_MCP_SESSION_TIMEOUT must be a positive number of seconds, got '{s}'"
+                )
+            }),
+    }
+}
+
 /// Logs go to stderr only: stdout carries the stdio transport.
 pub fn run(opts: McpOptions) -> Result<(), String> {
     let transport = transport(opts)?;
@@ -246,38 +286,53 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let bound = listener
         .local_addr()
         .map_err(|e| format!("failed to read bound address: {e}"))?;
-    // Port 0 is OS-assigned; the allow-lists need the real one.
-    let port = bound.port();
-
     // DNS-rebinding protection; env hosts cover e.g. a reverse proxy's name.
-    let mut hosts = vec![
-        format!("127.0.0.1:{port}"),
-        format!("localhost:{port}"),
-        format!("[::1]:{port}"),
-    ];
-    hosts.extend(env_json_list("FASTMCP_HTTP_ALLOWED_HOSTS")?);
-    let mut origins = vec![
-        format!("http://127.0.0.1:{port}"),
-        format!("http://localhost:{port}"),
-    ];
-    origins.extend(env_json_list("FASTMCP_HTTP_ALLOWED_ORIGINS")?);
-
-    let config = StreamableHttpServerConfig::default()
-        .with_allowed_hosts(hosts)
-        .with_allowed_origins(origins);
-    let server = TickTickServer::new();
-    let service = StreamableHttpService::new(
-        move || Ok(server.clone()),
-        Arc::new(LocalSessionManager::default()),
-        config,
+    let guard = guard::Guard::new(
+        env_json_list("FASTMCP_HTTP_ALLOWED_HOSTS")?,
+        env_json_list("FASTMCP_HTTP_ALLOWED_ORIGINS")?,
     );
-    let app = axum::Router::new().nest_service("/mcp", service);
+    let config = StreamableHttpServerConfig::default()
+        .disable_allowed_hosts()
+        .disable_allowed_origins();
+    let cancel = config.cancellation_token.clone();
+    let mut sessions = LocalSessionManager::default();
+    sessions.session_config.keep_alive = Some(session_timeout()?);
+    let server = TickTickServer::new();
+    let service =
+        StreamableHttpService::new(move || Ok(server.clone()), Arc::new(sessions), config);
+    let app = axum::Router::new()
+        .nest_service("/mcp", service)
+        .layer(axum::middleware::from_fn(move |req, next| {
+            guard.clone().check(req, next)
+        }));
+
+    let mut sigterm = signal(SignalKind::terminate())
+        .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let shutdown = async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+        // Open SSE streams would otherwise hold the graceful drain forever.
+        cancel.cancel();
+        let _ = stop_tx.send(());
+    };
 
     eprintln!("ticktick-cli MCP server listening on http://{bound}/mcp");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .map_err(|e| format!("MCP HTTP server failed: {e}"))
+    let serve = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .into_future();
+    tokio::pin!(serve);
+    tokio::select! {
+        res = &mut serve => return res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+        _ = stop_rx => {}
+    }
+    match tokio::time::timeout(SHUTDOWN_GRACE, serve).await {
+        Ok(res) => res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+        Err(_) => Ok(()),
+    }
 }
+
+/// How long in-flight requests get to finish after SIGINT/SIGTERM.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
