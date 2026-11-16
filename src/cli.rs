@@ -3159,14 +3159,19 @@ pub fn run() -> Result<(), String> {
             }
         },
         Commands::Project(subcmd) => match subcmd {
-            ProjectCommands::List => crate::api::project::list(),
+            ProjectCommands::List => {
+                crate::output::success(&crate::api::project::get_all()?);
+                Ok(())
+            }
             ProjectCommands::Members { name } => {
                 let id = crate::api::project::resolve_id(&name)?;
-                crate::api::project::members(&id)
+                crate::output::success(&crate::api::project::members(&id)?);
+                Ok(())
             }
             ProjectCommands::Get { name } => {
                 let id = crate::api::project::resolve_id(&name)?;
-                crate::api::project::get_by_id(&id)
+                crate::output::success(&crate::api::project::get_by_id(&id)?);
+                Ok(())
             }
             ProjectCommands::Add {
                 name,
@@ -3183,7 +3188,8 @@ pub fn run() -> Result<(), String> {
                     kind,
                     group_id,
                 };
-                crate::api::project::create(&fields)
+                crate::output::success(&crate::api::project::create(&fields)?);
+                Ok(())
             }
             ProjectCommands::Edit {
                 project,
@@ -3202,11 +3208,15 @@ pub fn run() -> Result<(), String> {
                     kind,
                     group_id,
                 };
-                crate::api::project::update(&project_id, &fields)
+                crate::output::success(&crate::api::project::update(&project_id, &fields)?);
+                Ok(())
             }
             ProjectCommands::Delete { project, force } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::project::delete(&project_id, force)
+                if crate::api::project::delete(&project_id, force)? {
+                    crate::output::success(&serde_json::json!({"status": "ok"}));
+                }
+                Ok(())
             }
             ProjectCommands::Column(cmd) => match cmd {
                 ColumnCommands::List { project } => {

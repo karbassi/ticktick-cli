@@ -57,18 +57,6 @@ pub struct Project {
     pub kind: Option<String>,
 }
 
-pub fn list() -> Result<(), String> {
-    let token = config::get_access_token()?;
-    let resp = super::get("/project", &token)?;
-
-    let projects: Vec<Project> = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse projects: {e}"))?;
-
-    crate::output::success(&projects);
-    Ok(())
-}
-
 pub fn get_all() -> Result<Vec<Project>, String> {
     let token = config::get_access_token()?;
     let resp = super::get("/project", &token)?;
@@ -179,27 +167,20 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
     }
 }
 
-pub fn get_by_id(project_id: &str) -> Result<(), String> {
+pub fn get_by_id(project_id: &str) -> Result<Project, String> {
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}"), &token)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
 /// List a project's members (`GET /project/{id}/members`).
-pub fn members(project_id: &str) -> Result<(), String> {
+pub fn members(project_id: &str) -> Result<Vec<ProjectMember>, String> {
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}/members"), &token)?;
-    let members: Vec<ProjectMember> = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project members: {e}"))?;
-    crate::output::success(&members);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project members: {e}"))
 }
 
 /// A member of a project, as returned by `GET /project/{id}/members`.
@@ -213,7 +194,7 @@ pub struct ProjectMember {
     pub is_self: Option<bool>,
 }
 
-pub fn create(fields: &ProjectFields) -> Result<(), String> {
+pub fn create(fields: &ProjectFields) -> Result<Project, String> {
     let name = fields
         .name
         .as_ref()
@@ -225,15 +206,11 @@ pub fn create(fields: &ProjectFields) -> Result<(), String> {
 
     let resp = super::post("/project", &token, &body)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
-pub fn update(project_id: &str, fields: &ProjectFields) -> Result<(), String> {
+pub fn update(project_id: &str, fields: &ProjectFields) -> Result<Project, String> {
     let token = config::get_access_token()?;
 
     let mut body = serde_json::json!({ "id": project_id });
@@ -241,15 +218,12 @@ pub fn update(project_id: &str, fields: &ProjectFields) -> Result<(), String> {
 
     let resp = super::post(&format!("/project/{project_id}"), &token, &body)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
-pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
+/// Returns `false` when the user declines the confirmation prompt.
+pub fn delete(project_id: &str, force: bool) -> Result<bool, String> {
     use std::io::IsTerminal;
 
     let token = config::get_access_token()?;
@@ -271,12 +245,10 @@ pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
             .map_err(|e| format!("failed to read input: {e}"))?;
         if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
             eprintln!("Cancelled.");
-            return Ok(());
+            return Ok(false);
         }
     }
 
     super::delete(&format!("/project/{project_id}"), &token)?;
-
-    crate::output::success(&serde_json::json!({"status": "ok"}));
-    Ok(())
+    Ok(true)
 }

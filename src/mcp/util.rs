@@ -66,8 +66,7 @@ pub fn tool_error(msg: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(msg.into())])
 }
 
-// Raw JSON like Python, not the typed `api::*` helpers: those drop fields and
-// some print to stdout, which would corrupt the stdio transport.
+// Raw JSON like Python, not the typed `api::*` structs, which drop fields.
 
 fn parse(resp: ureq::Response) -> Result<Value, String> {
     let text = resp

@@ -10,7 +10,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - `run(move || -> Result<impl Into<Output>, String>)` runs a blocking body on the blocking pool. `Ok(Value)` becomes compact JSON text, `Ok(String)` becomes plain text, and `Err(msg)` or a panic becomes an `isError: true` result. Every tool returns `ToolResult`.
 
-  - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs (they drop fields) or that print (`api::project::{list,get_by_id,members,create,update,delete}` write to stdout, which corrupts the stdio transport).
+  - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs: they drop fields.
 
   - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_column_id`, `resolve_folder_id` (returns etag), and the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys.
 
