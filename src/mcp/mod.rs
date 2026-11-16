@@ -245,6 +245,11 @@ fn session_timeout() -> Result<Duration, String> {
 
 /// Logs go to stderr only: stdout carries the stdio transport.
 pub fn run(opts: McpOptions) -> Result<(), String> {
+    // `main` restores SIGPIPE's default for the CLI; a long-running server must
+    // not die when a peer resets mid-write.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
     let transport = transport(opts)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

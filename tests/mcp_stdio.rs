@@ -1200,3 +1200,34 @@ fn profile_resource_merges_status() {
     let resp = c.request("resources/read", json!({"uri": "ticktick://nope"}));
     assert!(resp.get("error").is_some(), "{resp}");
 }
+
+/// Runs `args` with stdout a pipe whose reader is already closed, and stdin
+/// holding `input`.
+fn run_with_broken_stdout(args: &[&str], input: &str) -> std::process::ExitStatus {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let mut child = common::isolated_command(dir.path())
+        .args(args)
+        .env("TICKTICK_ACCESS_TOKEN", ACCESS_TOKEN)
+        .stdin(std::process::Stdio::piped())
+        .stdout(writer)
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let _ = writeln!(stdin, "{input}");
+    drop(stdin);
+    child.wait().unwrap()
+}
+
+#[test]
+fn a_broken_stdout_does_not_kill_the_server_but_still_ends_cli_output() {
+    use std::os::unix::process::ExitStatusExt;
+    let init = common::initialize_request(1).to_string();
+    let server = run_with_broken_stdout(&["mcp"], &init);
+    assert_ne!(server.signal(), Some(libc::SIGPIPE), "{server:?}");
+    let cli = run_with_broken_stdout(&["completions", "bash"], "");
+    assert_eq!(cli.signal(), Some(libc::SIGPIPE), "{cli:?}");
+}
