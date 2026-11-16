@@ -24,15 +24,6 @@ const PENDING_TOOLS: &[&str] = &[
     "delete_comment",
     // countdowns.py
     "list_countdowns",
-    // habits.py
-    "list_habits",
-    "add_habit",
-    "edit_habit",
-    "delete_habits",
-    "checkin_habit",
-    "habit_log",
-    "archive_habits",
-    "manage_habit_sections",
     // search.py
     "search_tasks",
     "filter_tasks",
