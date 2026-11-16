@@ -137,6 +137,11 @@ fn load_from(path: &Path) -> Config {
 
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
+/// Locks `mutex` even if a holder panicked: the state it guards stays valid.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Held by every write to config.json, so concurrent load-modify-save
 /// sequences don't drop each other's changes: the mutex within this process,
 /// an advisory lock on `config.json.lock` across processes.
@@ -147,7 +152,7 @@ struct ConfigLock {
 }
 
 fn lock_config(path: &Path) -> Result<ConfigLock, String> {
-    let mutex = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mutex = lock(&CONFIG_LOCK);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("failed to create config dir: {e}"))?;
     }
@@ -351,7 +356,7 @@ struct Refreshed {
 static REFRESHED: Mutex<Option<Refreshed>> = Mutex::new(None);
 
 fn refreshed() -> MutexGuard<'static, Option<Refreshed>> {
-    REFRESHED.lock().unwrap_or_else(|e| e.into_inner())
+    lock(&REFRESHED)
 }
 
 pub fn get_access_token() -> Result<String, String> {
@@ -508,7 +513,7 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
 static UNSAVED_INBOX: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 fn unsaved_inbox() -> MutexGuard<'static, Option<(String, String)>> {
-    UNSAVED_INBOX.lock().unwrap_or_else(|e| e.into_inner())
+    lock(&UNSAVED_INBOX)
 }
 
 pub fn get_inbox_project_id() -> Option<String> {

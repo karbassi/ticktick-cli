@@ -66,7 +66,7 @@ pub fn base_url() -> String {
 fn try_refresh_token(failed: &str) -> Option<String> {
     // Concurrent 401s refresh once. `get_access_token` never takes this lock.
     static REFRESHING: Mutex<()> = Mutex::new(());
-    let _refreshing = REFRESHING.lock().unwrap_or_else(|e| e.into_inner());
+    let _refreshing = config::lock(&REFRESHING);
     // Another request, or a login in another process, already replaced it.
     let current = config::get_access_token().ok()?;
     if current != failed {

@@ -80,7 +80,7 @@ pub(crate) fn get_inbox_id_with(
     if let Some(id) = config::get_inbox_project_id() {
         return Ok(id);
     }
-    let _probing = PROBING.lock().unwrap_or_else(|e| e.into_inner());
+    let _probing = config::lock(&PROBING);
     if let Some(id) = config::get_inbox_project_id() {
         return Ok(id);
     }
