@@ -158,21 +158,9 @@ pub fn canonical_timezone(name: &str) -> Result<String, String> {
     Ok(zone.iana_name().unwrap_or(name).to_string())
 }
 
-/// jiff reads a set-but-empty `TZ` as UTC; libc and Python read it as unset.
+/// An empty `TZ` is UTC, as in libc and Python.
 pub fn system_zone() -> TimeZone {
-    if std::env::var_os("TZ").is_some_and(|tz| tz.is_empty())
-        && let Some(zone) = localtime_zone()
-    {
-        return zone;
-    }
     TimeZone::system()
-}
-
-fn localtime_zone() -> Option<TimeZone> {
-    let target = std::fs::read_link("/etc/localtime").ok()?;
-    let target = target.to_string_lossy();
-    let name = &target[target.find("zoneinfo/")? + "zoneinfo/".len()..];
-    TimeZone::get(name).ok()
 }
 
 /// UTC offset in seconds of a wall-clock time in `tz`. Inside a DST gap or
