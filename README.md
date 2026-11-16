@@ -345,9 +345,9 @@ When the token expires, you'll see a "v2 session expired" error with instruction
 
 `ticktick-cli mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server. It is a drop-in replacement for the Python `ticktick-mcp` server: tool names, parameter names and types are the same, so clients that call `mcp__ticktick__<tool>` keep working. It also serves the resources `ticktick://projects`, `ticktick://tags`, `ticktick://settings` and `ticktick://profile`.
 
-Auth comes from the environment, so no config file is needed: `TICKTICK_ACCESS_TOKEN` (or a stored `login`) for the Open API, and `TICKTICK_V2_SESSION_TOKEN` for tools that use the v2 API. To refresh an expired access token without a config file, also set `TICKTICK_REFRESH_TOKEN`, `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET`; the refreshed token is kept in memory for the life of the server.
+Auth comes from the environment, so no config file is needed: `TICKTICK_ACCESS_TOKEN` (or a stored `login`) for the Open API, and `TICKTICK_V2_SESSION_TOKEN` for tools that use the v2 API. To refresh an expired env access token, also set `TICKTICK_REFRESH_TOKEN`, `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET`; the refreshed token is kept in memory for the life of the server. An env access token never uses or changes config.json's tokens or cached inbox.
 
-Not every tool from the Python server is ported yet; `tests/mcp_contract.rs` lists the pending ones in `PENDING_TOOLS`.
+Dates without a `timezone` use `TICKTICK_TIMEZONE` (IANA name) if set, else the system zone.
 
 ### stdio (default)
 
@@ -387,14 +387,14 @@ ticktick-cli mcp --http --host localhost --port 9000
 
 The HTTP endpoint has no auth: anyone who can reach it acts with your TickTick tokens. It therefore only binds loopback (`127.0.0.1`, `localhost`, `::1`) and refuses any other `--host`. For remote use, put an authenticating reverse proxy in front.
 
-Against DNS rebinding, requests must carry a loopback `Host` on the server's port. Browser `Origin`s must be loopback on that port too. Allow more with JSON arrays in the same variables FastMCP uses, for example when a proxy forwards `Host: mcp.example.com`:
+Against DNS rebinding, requests must carry a loopback `Host`, and an `Origin`, if sent, must be loopback too (ports ignored). Allow more with JSON arrays in the same variables FastMCP uses, with the same rules (ports ignored, `*` globs), for example when a proxy forwards `Host: mcp.example.com`:
 
 ```bash
 FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.example.com"]'
 FASTMCP_HTTP_ALLOWED_ORIGINS='["https://mcp.example.com"]'
 ```
 
-Environment fallbacks (flags win): `TICKTICK_MCP_TRANSPORT=stdio|http`, `TICKTICK_MCP_HOST` (default `127.0.0.1`), `TICKTICK_MCP_PORT` (default `8502`).
+Environment fallbacks (flags win): `TICKTICK_MCP_TRANSPORT=stdio|http`, `TICKTICK_MCP_HOST` (default `127.0.0.1`), `TICKTICK_MCP_PORT` (default `8502`). Idle sessions expire after `TICKTICK_MCP_SESSION_TIMEOUT` seconds (default 1800). SIGTERM and SIGINT shut down cleanly.
 
 ## Configuration
 

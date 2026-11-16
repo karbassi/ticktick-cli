@@ -9,21 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `ticktick-cli mcp` runs an MCP server over stdio (default) or streamable HTTP (`--http`, `--host`, `--port`; serves `/mcp`). It is a drop-in replacement for the Python `ticktick-mcp` server: tool names, parameter names, required parameters and JSON types match, checked by `tests/mcp_contract.rs` against the Python server's tool list. This release ports the task tools (`list_tasks`, `get_task`, `add_task`, `edit_task`, `complete_task`, `delete_task`, `move_task`, `assign_task`, `unassign_task`, `set_subtask`, `unparent_task`, `list_trash`), the project and tag tools, `sync_account`, and the `ticktick://projects`, `tags`, `settings` and `profile` resources. The remaining tools are listed in `PENDING_TOOLS`.
-- The HTTP transport binds loopback only, because it has no auth. It checks `Host` and `Origin` against loopback on its port plus `FASTMCP_HTTP_ALLOWED_HOSTS` and `FASTMCP_HTTP_ALLOWED_ORIGINS` (JSON arrays). Env fallbacks: `TICKTICK_MCP_TRANSPORT`, `TICKTICK_MCP_HOST`, `TICKTICK_MCP_PORT`.
+- `ticktick-cli mcp` runs an MCP server over stdio (default) or streamable HTTP (`--http`, `--host`, `--port`; serves `/mcp`). It is a drop-in replacement for the Python `ticktick-mcp` server: all 57 tools plus the `ticktick://projects`, `tags`, `settings` and `profile` resources, with tool names, parameter names, required parameters and JSON types checked by `tests/mcp_contract.rs` against the Python server's tool list.
+- Like FastMCP, tool parameters accept numeric strings, integral floats and `"true"`/`"false"` where the schema wants a number or boolean.
+- The HTTP transport binds loopback only, because it has no auth. It checks `Host` and `Origin` the way FastMCP does: loopback hosts on any port, loopback Origins when the Host is loopback, plus `FASTMCP_HTTP_ALLOWED_HOSTS` and `FASTMCP_HTTP_ALLOWED_ORIGINS` (JSON arrays; ports ignored, `*` globs allowed). A disallowed Host gets 421. Env fallbacks: `TICKTICK_MCP_TRANSPORT`, `TICKTICK_MCP_HOST`, `TICKTICK_MCP_PORT`.
+- HTTP sessions expire after 30 minutes idle; `TICKTICK_MCP_SESSION_TIMEOUT` sets it in seconds. The server shuts down cleanly on SIGTERM or SIGINT, closing open streams.
+- `TICKTICK_TIMEZONE` (IANA name) sets the MCP server's zone for dates given without a `timezone`, including "today"/"tomorrow". Default is the system zone, like the Python server; config.json's `account_timezone` is not used.
 - `TICKTICK_API_BASE`, `TICKTICK_V2_BASE`, `TICKTICK_MS_BASE` and `TICKTICK_OAUTH_TOKEN_URL` override the API endpoints, for tests against a mock server. Defaults are unchanged.
 
 ### Changed
 
-- `TICKTICK_V2_SESSION_TOKEN` in the environment now wins over `v2_session_token` in config.json.
-- `TICKTICK_ACCESS_TOKEN` in the environment is now used on its own. Before, it was ignored unless `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET` were also set.
-- UTC offsets now come from the `jiff` tz database instead of temporarily setting `TZ` (not thread-safe). An unknown `--tz`/`timezone` or an impossible date such as `2026-02-30` is now an error; before, it was silently sent with a UTC or normalized offset. MCP `timezone` must be a tz database name; file paths are rejected.
-- After a 401, the refreshed access token is kept in memory and wins over `TICKTICK_ACCESS_TOKEN` and config.json for the rest of the process, so a long-running `mcp` server stops retrying the expired env token. The refresh token comes from the new `TICKTICK_REFRESH_TOKEN`, else config.json; config.json is rewritten only when its refresh token was used.
-- MCP `list_events` returns a tool error (`isError`) with the real message, such as the missing v2 session token hint. This intentionally differs from the Python server, which returns `[]` on any error.
+- `TICKTICK_V2_SESSION_TOKEN` in the environment now wins over `v2_session_token` in config.json. v2 error hints name the variable, and a v2 403 says the feature requires TickTick Premium.
+- `TICKTICK_ACCESS_TOKEN` in the environment is now used on its own. Before, it was ignored unless `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET` were also set. With it set, config.json's refresh token and cached inbox ID are neither used nor changed; refresh needs `TICKTICK_REFRESH_TOKEN`, and the refreshed token is kept in memory.
+- A token refreshed from config.json is written back only if config.json still holds the refresh token that was used, so a `login` from another process is picked up and never overwritten.
+- UTC offsets now come from the `jiff` tz database instead of temporarily setting `TZ` (not thread-safe). An unknown `--tz`/`timezone` or an impossible date such as `2026-02-30` is now an error; before, it was silently sent with a UTC or normalized offset. `timeZone` is sent in canonical form (`america/chicago` becomes `America/Chicago`), and file paths and `Etc/Unknown` are rejected.
+- `--tz` also decides the date for "today"/"tomorrow", and is no longer cached as the account timezone.
+- Every HTTP request has an overall timeout (30s, `TICKTICK_HTTP_TIMEOUT_SECS`) plus a 10s connect timeout, including the token refresh. DNS lookup is not bounded.
+- Habit date errors are capitalized, and the per-field "invalid year/month/day" messages are merged into one "non-numeric components" message.
+- MCP `list_events` returns a tool error (`isError`) with the real message, such as the missing v2 session token hint. The Python server returns `[]` on any error.
 - MCP `complete_task` with several IDs keeps going past a failed batch request and reports it, e.g. `Completed 70 of 120 tasks; not completed: …; chunk 2 failed: …`. It is a tool error only when no task was completed.
-- MCP `assign_task` adds the "assignee must be a member" hint only for 403 and 500 (what a non-member username returns); other errors, such as a 404 for an unknown task, pass through unchanged. The Python server adds the hint to every HTTP error.
-- Every HTTP request now times out: 10s to connect, 30s to read or write. `TICKTICK_HTTP_TIMEOUT_SECS` overrides the read/write timeout. Before, a stalled request could hang the CLI, and in the MCP server it blocked every other tool behind the token-refresh and inbox locks.
-- MCP `focus_save` reads an `end` without a UTC offset in the account timezone, like tasks do, falling back to the system zone when none is known or it is invalid. The Python server always used the system zone.
+- MCP and CLI assign add the "assignee must be a member" hint only for 403 and 500 (what a non-member username returns). The Python server adds it to every HTTP error.
+- MCP `add_task` with `start` and `all_day=true` but no `due` sends `isAllDay` and the all-day reminder. The Python server ignores `all_day` there.
+
+### Fixed
+
+- A blank `TICKTICK_ACCESS_TOKEN` or empty `.env` value no longer overrides config.json.
+- A config.json that fails to parse is no longer overwritten with defaults; saves report the parse error.
+- The config temp file is created 0600, and stale temp files are removed.
+- One v2 device ID per process when config.json can't be written.
+- An empty `TZ` reads `/etc/localtime` instead of meaning UTC.
+- A huge `--duration`/`duration` is an error instead of a panic or wrapped date.
+- `task list` includes inbox tasks when using an env token.
 
 ## [1.0.0-rc.3]
 

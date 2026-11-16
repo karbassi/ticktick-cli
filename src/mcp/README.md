@@ -14,7 +14,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_project_ids` (several names, one `/project` fetch), `resolve_column_id`, `resolve_folder_id` (returns etag), and the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys.
 
-  - Dates like `dates.py`: `parse_datetime`, `parse_duration`, `api_date(&parsed, tz)`, `check_timezone`, and `local_zone()` (account timezone if valid, else system) for when no `timezone` is given. Also `priority_value` and `nonempty`.
+  - Dates like `dates.py`: `parse_datetime_in`, `parse_duration`, `zone(timezone)` (the caller's `timezone`, else `TICKTICK_TIMEZONE`, else system), `api_date(input, &zone)`, and `check_timezone` (returns the canonical name). Also `priority_value` and `nonempty`.
 
 - `coerce.rs`: before dispatch, `call_tool` coerces arguments against the tool's input schema the way FastMCP's lax pydantic did (`"5"` and `25.0` to an int, `"1.5"` to a float, `"true"` to a bool). Param structs need no per-field `deserialize_with`.
 
