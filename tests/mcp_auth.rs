@@ -223,6 +223,36 @@ fn env_access_token_probes_the_inbox_instead_of_using_config() {
 }
 
 #[test]
+fn unwritable_config_still_probes_the_inbox_once() {
+    let server = MockServer::start();
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = dir.path().join("not-a-dir");
+    fs::write(&blocker, "").unwrap();
+    let probe = server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200)
+            .json_body(json!({"id": "probe", "title": "__inbox_probe__", "projectId": "inbox1"}));
+    });
+    server.mock(|when, then| {
+        when.method(DELETE).path(v1("/project/inbox1/task/probe"));
+        then.status(200);
+    });
+    let inbox = server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inbox1/data"));
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let mut c = McpBuilder::new(&server)
+        .env("XDG_CONFIG_HOME", blocker.to_str().unwrap())
+        .start();
+
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+
+    probe.assert_calls(1);
+    inbox.assert_calls(2);
+}
+
+#[test]
 fn inbox_is_rediscovered_after_config_switches_accounts() {
     let server = MockServer::start();
     let cfg = ConfigDir::new(&json!({"access_token": "a", "inbox_project_id": "inboxA"}));

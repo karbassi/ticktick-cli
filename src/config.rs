@@ -503,20 +503,44 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
     update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
+/// An inbox ID config.json couldn't save, keyed by its token's [`fingerprint`],
+/// so an unwritable config doesn't mean a probe on every lookup.
+static UNSAVED_INBOX: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+fn unsaved_inbox() -> MutexGuard<'static, Option<(String, String)>> {
+    UNSAVED_INBOX.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn get_inbox_project_id() -> Option<String> {
-    match Source::current() {
+    let source = Source::current();
+    let key = source.access_token().map(|t| fingerprint(&t));
+    let saved = match source {
         Source::Env { access, .. } => load().env_inbox_ids.remove(&fingerprint(&access)),
         Source::Config(c) => c.inbox_project_id,
-    }
+    };
+    saved.or_else(|| {
+        unsaved_inbox()
+            .as_ref()
+            .filter(|(k, _)| Some(k) == key.as_ref())
+            .map(|(_, id)| id.clone())
+    })
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
-    match Source::current() {
+    let source = Source::current();
+    let key = source.access_token().map(|t| fingerprint(&t));
+    let saved = match source {
         Source::Env { access, .. } => update(|c| {
             c.env_inbox_ids.insert(fingerprint(&access), id.to_string());
         }),
         Source::Config(_) => update(|c| c.inbox_project_id = Some(id.to_string())),
+    };
+    if saved.is_err()
+        && let Some(key) = key
+    {
+        *unsaved_inbox() = Some((key, id.to_string()));
     }
+    saved
 }
 
 pub fn logout() -> Result<(), String> {
