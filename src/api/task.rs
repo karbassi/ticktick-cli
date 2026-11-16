@@ -74,8 +74,8 @@ pub fn list_by_project(token: &str, project_id: Option<&str>) -> Result<Vec<Task
                 all_tasks.extend(data.tasks);
             }
         }
-        // `/project` omits the inbox.
-        if let Ok(inbox_id) = super::project::get_inbox_id()
+        // `/project` omits the inbox. Probing for it would write.
+        if let Some(inbox_id) = crate::config::get_inbox_project_id()
             && let Ok(resp) = super::get(&format!("/project/{inbox_id}/data"), token)
             && let Ok(data) = resp.into_json::<ProjectData>()
         {

@@ -2176,9 +2176,17 @@ pub fn run() -> Result<(), String> {
             } => {
                 let inputs = collect_inputs(titles, stdin)?;
                 let project_id = project
-                    .map(|n| crate::api::project::resolve_id(&n))
+                    .map(|n| {
+                        if dry_run {
+                            crate::api::project::resolve_id_without_probe(&n)
+                        } else {
+                            crate::api::project::resolve_id(&n)
+                        }
+                    })
                     .transpose()?;
                 let column_id = match (&project_id, column) {
+                    // An unresolved inbox in a dry run.
+                    (Some(pid), Some(c)) if pid == "inbox" => Some(c),
                     (Some(pid), Some(c)) => Some(crate::api::column::resolve_id(pid, &c)?),
                     _ => None,
                 };

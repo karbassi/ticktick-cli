@@ -65,17 +65,19 @@ pub fn get_all() -> Result<Vec<Project>, String> {
         .map_err(|e| format!("failed to parse projects: {e}"))
 }
 
-/// Discover the inbox project ID.
-///
-/// 1. Returns the cached value from config if available.
-/// 2. Otherwise, probes by creating a temporary task (with no projectId),
-///    extracts the inbox ID from the response, deletes the task, and caches the ID.
+/// The cached inbox project ID, else one found by creating a task with no
+/// project and deleting it again. Writes, so read-only paths use the cache only.
 pub fn get_inbox_id() -> Result<String, String> {
+    // Concurrent callers in one process share a probe.
+    static PROBING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    if let Some(id) = config::get_inbox_project_id() {
+        return Ok(id);
+    }
+    let _probing = PROBING.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(id) = config::get_inbox_project_id() {
         return Ok(id);
     }
 
-    // Probe: create a temporary task with no project
     let token = config::get_access_token()?;
     let body = serde_json::json!({ "title": "__inbox_probe__" });
     let resp = super::post("/task", &token, &body)?;
@@ -87,13 +89,26 @@ pub fn get_inbox_id() -> Result<String, String> {
         .project_id
         .ok_or_else(|| "probe task has no projectId".to_string())?;
 
-    // Clean up the probe task
-    let _ = super::delete(&format!("/project/{inbox_id}/task/{}", task.id), &token);
-
-    // Cache for future use
+    // Before the delete, so a retry after a failed delete doesn't probe again.
     let _ = config::save_inbox_project_id(&inbox_id);
 
+    super::delete(&format!("/project/{inbox_id}/task/{}", task.id), &token).map_err(|e| {
+        format!(
+            "inbox probe task '{}' could not be deleted from {inbox_id}: {e}\n\n  \
+             hint: Delete the '__inbox_probe__' task in TickTick",
+            task.id
+        )
+    })?;
     Ok(inbox_id)
+}
+
+/// Like [`resolve_id`], but "inbox" without a cached ID stays "inbox", so
+/// nothing is written.
+pub fn resolve_id_without_probe(name_or_id: &str) -> Result<String, String> {
+    if name_or_id.eq_ignore_ascii_case("inbox") {
+        return Ok(config::get_inbox_project_id().unwrap_or_else(|| "inbox".to_string()));
+    }
+    resolve_id(name_or_id)
 }
 
 /// Resolve a project name or ID to an actual project ID.

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,6 +17,17 @@ pub struct Config {
     pub v2_session_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub v2_device_id: Option<String>,
+    /// Inbox IDs of env access tokens, keyed by [`fingerprint`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env_inbox_ids: BTreeMap<String, String>,
+}
+
+/// FNV-1a, so the key is stable across builds and the token isn't stored.
+fn fingerprint(token: &str) -> String {
+    let hash = token.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
 }
 
 #[derive(Debug)]
@@ -460,25 +471,20 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
     update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
-/// With an env access token, the inbox ID is cached per process instead.
-static ENV_INBOX_ID: Mutex<Option<String>> = Mutex::new(None);
-
 pub fn get_inbox_project_id() -> Option<String> {
     match Source::current() {
-        Source::Env { .. } => ENV_INBOX_ID
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone(),
+        Source::Env { access, .. } => load().env_inbox_ids.remove(&fingerprint(&access)),
         Source::Config(c) => c.inbox_project_id,
     }
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
-    if Source::current().is_env() {
-        *ENV_INBOX_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
-        return Ok(());
+    match Source::current() {
+        Source::Env { access, .. } => update(|c| {
+            c.env_inbox_ids.insert(fingerprint(&access), id.to_string());
+        }),
+        Source::Config(_) => update(|c| c.inbox_project_id = Some(id.to_string())),
     }
-    update(|c| c.inbox_project_id = Some(id.to_string()))
 }
 
 pub fn logout() -> Result<(), String> {
@@ -740,5 +746,13 @@ mod tests {
         let path = dir.path().join("sub/config.json");
         update_at(&path, |c| c.inbox_project_id = Some("inbox1".into())).unwrap();
         assert_eq!(load_from(&path).inbox_project_id.as_deref(), Some("inbox1"));
+    }
+
+    #[test]
+    fn fingerprint_is_fnv1a_64() {
+        // Published FNV-1a 64-bit test vectors.
+        assert_eq!(fingerprint(""), "cbf29ce484222325");
+        assert_eq!(fingerprint("a"), "af63dc4c8601ec8c");
+        assert_eq!(fingerprint("foobar"), "85944171f73967e8");
     }
 }

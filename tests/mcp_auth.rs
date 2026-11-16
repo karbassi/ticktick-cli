@@ -211,7 +211,15 @@ fn env_access_token_probes_the_inbox_instead_of_using_config() {
     cleanup.assert_calls(1);
     inbox.assert_calls(2);
     other_account.assert_calls(0);
-    assert_eq!(fs::read_to_string(cfg.file()).unwrap(), original);
+    let saved = cfg.read();
+    assert_eq!(saved["access_token"], "other");
+    assert_eq!(saved["inbox_project_id"], "inbox999");
+    let env_inboxes: Vec<&Value> = saved["env_inbox_ids"]
+        .as_object()
+        .unwrap()
+        .values()
+        .collect();
+    assert_eq!(env_inboxes, [&json!("inbox123")]);
 }
 
 fn trash_error(status: u16) -> String {

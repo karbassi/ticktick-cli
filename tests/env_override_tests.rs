@@ -272,8 +272,33 @@ fn assign_adds_the_membership_hint_only_for_membership_codes() {
     assert!(!err.contains("must be a member"), "{err}");
 }
 
+fn task_list(
+    tmp: &tempfile::TempDir,
+    server: &MockServer,
+    token: &str,
+    args: &[&str],
+) -> Vec<String> {
+    let out = isolated(tmp)
+        .env("TICKTICK_ACCESS_TOKEN", token)
+        .env("TICKTICK_API_BASE", server.url("/open/v1/"))
+        .args(["task", "list"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let tasks: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap();
+    tasks
+        .iter()
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
 #[test]
-fn task_list_with_env_token_probes_for_the_inbox() {
+fn env_token_inbox_is_probed_only_when_asked_for_and_cached_across_processes() {
     let server = MockServer::start();
     server.mock(|when, then| {
         when.method(GET).path("/open/v1/project");
@@ -284,7 +309,7 @@ fn task_list_with_env_token_probes_for_the_inbox() {
         then.status(200)
             .json_body(json!({"id": "probe", "title": "p", "projectId": "inbox9"}));
     });
-    server.mock(|when, then| {
+    let cleanup = server.mock(|when, then| {
         when.method(DELETE)
             .path("/open/v1/project/inbox9/task/probe");
         then.status(200);
@@ -296,10 +321,33 @@ fn task_list_with_env_token_probes_for_the_inbox() {
         );
     });
     let tmp = tempfile::tempdir().unwrap();
+
+    assert!(task_list(&tmp, &server, "env-token", &[]).is_empty());
+    probe.assert_calls(0);
+
+    assert_eq!(task_list(&tmp, &server, "env-token", &["inbox"]), ["t1"]);
+    assert_eq!(task_list(&tmp, &server, "env-token", &["inbox"]), ["t1"]);
+    assert_eq!(task_list(&tmp, &server, "env-token", &[]), ["t1"]);
+    probe.assert_calls(1);
+    cleanup.assert_calls(1);
+
+    // Another account's token doesn't get this inbox.
+    assert!(task_list(&tmp, &server, "other-token", &[]).is_empty());
+    inbox.assert_calls(3);
+}
+
+#[test]
+fn dry_run_never_probes_for_the_inbox() {
+    let server = MockServer::start();
+    let any = server.mock(|when, then| {
+        when.any_request();
+        then.status(500);
+    });
+    let tmp = tempfile::tempdir().unwrap();
     let out = isolated(&tmp)
         .env("TICKTICK_ACCESS_TOKEN", "env-token")
         .env("TICKTICK_API_BASE", server.url("/open/v1/"))
-        .args(["task", "list"])
+        .args(["task", "add", "x", "-p", "Inbox", "--dry-run"])
         .output()
         .unwrap();
     assert!(
@@ -307,10 +355,42 @@ fn task_list_with_env_token_probes_for_the_inbox() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    probe.assert();
-    inbox.assert();
-    let tasks: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(tasks[0]["id"], "t1");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["projectId"], "inbox");
+    any.assert_calls(0);
+    assert!(!tmp.path().join("ticktick-cli/config.json").exists());
+}
+
+#[test]
+fn failed_probe_cleanup_names_the_leftover_task_and_keeps_the_id() {
+    let server = MockServer::start();
+    let probe = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/task");
+        then.status(200)
+            .json_body(json!({"id": "probe7", "title": "p", "projectId": "inbox9"}));
+    });
+    server.mock(|when, then| {
+        when.method(DELETE)
+            .path("/open/v1/project/inbox9/task/probe7");
+        then.status(500);
+    });
+    server.mock(|when, then| {
+        when.method(GET).path("/open/v1/project/inbox9/data");
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    let out = isolated(&tmp)
+        .env("TICKTICK_ACCESS_TOKEN", "env-token")
+        .env("TICKTICK_API_BASE", server.url("/open/v1/"))
+        .args(["task", "list", "inbox"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("probe7"), "{err}");
+
+    assert!(task_list(&tmp, &server, "env-token", &["inbox"]).is_empty());
+    probe.assert_calls(1);
 }
 
 #[test]
