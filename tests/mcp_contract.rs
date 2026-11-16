@@ -15,19 +15,10 @@ use serde_json::Value;
 
 /// Fixture tools not yet implemented, grouped by Python module.
 const PENDING_TOOLS: &[&str] = &[
-    // calendar.py (sync_account is done, in tools/sync.rs)
-    "list_calendars",
-    "list_events",
     // columns.py
     "list_columns",
     "add_column",
     "edit_column",
-    // comments.py
-    "list_comments",
-    "add_comment",
-    "delete_comment",
-    // countdowns.py
-    "list_countdowns",
     // filters.py
     "list_filters",
     "add_filter",
@@ -53,9 +44,6 @@ const PENDING_TOOLS: &[&str] = &[
     "habit_log",
     "archive_habits",
     "manage_habit_sections",
-    // search.py
-    "search_tasks",
-    "filter_tasks",
 ];
 
 fn fixture() -> Value {
