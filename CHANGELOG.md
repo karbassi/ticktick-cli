@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP `complete_task` with several IDs keeps going past a failed batch request and reports it, e.g. `Completed 70 of 120 tasks; not completed: …; chunk 2 failed: …`. It is a tool error only when no task was completed.
 - MCP `assign_task` adds the "assignee must be a member" hint only for 403 and 500 (what a non-member username returns); other errors, such as a 404 for an unknown task, pass through unchanged. The Python server adds the hint to every HTTP error.
 - Every HTTP request now times out: 10s to connect, 30s to read or write. `TICKTICK_HTTP_TIMEOUT_SECS` overrides the read/write timeout. Before, a stalled request could hang the CLI, and in the MCP server it blocked every other tool behind the token-refresh and inbox locks.
+- MCP `focus_save` reads an `end` without a UTC offset in the account timezone, like tasks do, falling back to the system zone when none is known or it is invalid. The Python server always used the system zone.
 
 ## [1.0.0-rc.3]
 

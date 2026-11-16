@@ -1,17 +1,17 @@
-//! Python `tools/focus.py`. The date helpers are private copies of what Python
-//! gets from `datetime`.
+//! Python `tools/focus.py`.
 
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use jiff::civil::{Date, Time};
+use jiff::fmt::temporal::Pieces;
 use jiff::tz::TimeZone;
+use jiff::{Timestamp, ZonedDateTime};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::api::task;
 use crate::api::v2::url_encode;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, nonempty, run};
@@ -128,7 +128,7 @@ impl TickTickServer {
                 return Err("duration_minutes must be >= 1".to_string());
             }
             let end_ms = if p.end == "now" {
-                now_ms()
+                Timestamp::now().as_millisecond()
             } else {
                 parse_iso_datetime(&p.end).ok_or_else(|| {
                     format!(
@@ -137,9 +137,9 @@ impl TickTickServer {
                     )
                 })?
             };
-            let start_ms = end_ms - p.duration_minutes * 60_000;
-            let start_iso = to_iso(start_ms);
-            let end_iso = to_iso(end_ms);
+            let start_ms = end_ms.saturating_sub(p.duration_minutes.saturating_mul(60_000));
+            let start_iso = to_iso(start_ms)?;
+            let end_iso = to_iso(end_ms)?;
 
             let mut record = json!({
                 "type": 0,
@@ -178,8 +178,8 @@ fn v1_focus_records(start: i64, end: i64) -> Result<Value, String> {
         for focus_type in FOCUS_TYPES {
             let path = format!(
                 "/focus?from={}&to={}&type={focus_type}",
-                url_encode(&to_iso(chunk_start)),
-                url_encode(&to_iso(chunk_end)),
+                url_encode(&to_iso(chunk_start)?),
+                url_encode(&to_iso(chunk_end)?),
             );
             records.extend(util::as_list(util::v1_get(&path)?));
         }
@@ -225,209 +225,72 @@ fn start_time(r: &Value) -> &str {
     r.get("startTime").and_then(Value::as_str).unwrap_or("")
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    (y, m, d)
-}
-
-fn days_in_month(y: i64, m: i64) -> i64 {
-    match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        _ if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
-        _ => 28,
-    }
+// TODO: use util::local_zone once merged
+fn local_zone() -> TimeZone {
+    crate::config::get_account_timezone()
+        .and_then(|name| TimeZone::get(&name).ok())
+        .unwrap_or_else(TimeZone::system)
 }
 
 /// Matches Python `_to_iso`.
-fn to_iso(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
-    let rem = secs.rem_euclid(86_400);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}+0000",
-        rem / 3600,
-        rem % 3600 / 60,
-        rem % 60,
-        ms.rem_euclid(1000)
-    )
-}
-
-/// Python `date.today()`.
-fn local_today() -> (i64, i64, i64) {
-    let (y, m, d) = crate::api::task::local_today();
-    (y.into(), m.into(), d.into())
-}
-
-/// Python `date(y, m, d)` validation, with its error messages.
-fn check_date(y: i64, m: i64, d: i64) -> Result<(), String> {
-    if !(1..=9999).contains(&y) {
-        return Err(format!("year {y} is out of range"));
-    }
-    if !(1..=12).contains(&m) {
-        return Err("month must be in 1..12".to_string());
-    }
-    if d < 1 || d > days_in_month(y, m) {
-        return Err("day is out of range for month".to_string());
-    }
-    Ok(())
-}
-
-/// Unlike `str::parse`, rejects signs, spaces and non-ASCII.
-fn digits(s: &str) -> Option<i64> {
-    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    s.parse().ok()
+fn to_iso(ms: i64) -> Result<String, String> {
+    let ts = Timestamp::from_millisecond(ms).map_err(|e| e.to_string())?;
+    Ok(ts
+        .to_zoned_datetime(TimeZone::UTC)
+        .strftime("%Y-%m-%dT%H:%M:%S%.3f%z")
+        .to_string())
 }
 
 /// Python `date_to_epoch_ms`; midnight UTC.
 fn date_to_epoch_ms(input: &str) -> Result<i64, String> {
     let s = input.trim().to_lowercase();
-    let (y, m, d) = match s.as_str() {
-        "today" => local_today(),
-        "yesterday" => {
-            let (y, m, d) = local_today();
-            civil_from_days(days_from_civil(y, m, d) - 1)
-        }
-        _ => {
-            let parsed = (s.len() == 10 && s.is_char_boundary(4) && s.is_char_boundary(7))
-                .then(|| (&s[..4], &s[4..5], &s[5..7], &s[7..8], &s[8..]))
-                .filter(|(_, d1, _, d2, _)| *d1 == "-" && *d2 == "-")
-                .and_then(|(y, _, m, _, d)| Some((digits(y)?, digits(m)?, digits(d)?)));
-            let Some((y, m, d)) = parsed else {
-                return Err(format!("Invalid date '{input}'"));
-            };
-            check_date(y, m, d)?;
-            (y, m, d)
-        }
+    let today = || ZonedDateTime::now().date();
+    let date = match s.as_str() {
+        "today" => today(),
+        "yesterday" => today().yesterday().map_err(|e| e.to_string())?,
+        _ => parse_date(&s).ok_or_else(|| format!("Invalid date '{input}'"))??,
     };
-    Ok(days_from_civil(y, m, d) * MS_PER_DAY)
+    let midnight = TimeZone::UTC
+        .to_timestamp(date.to_datetime(Time::midnight()))
+        .map_err(|e| e.to_string())?;
+    Ok(midnight.as_millisecond())
 }
 
-/// Subset of Python 3.11+ `datetime.fromisoformat`. Without an offset the value
-/// is local time, like Python's `astimezone`. Sub-millisecond digits are truncated.
-fn parse_iso_datetime(input: &str) -> Option<i64> {
-    let s = input;
-    if !s.is_ascii() || s.len() < 10 {
-        return None;
-    }
+/// `YYYY-MM-DD`: None if malformed, else Python `date(y, m, d)` validation
+/// with its error messages.
+fn parse_date(s: &str) -> Option<Result<Date, String>> {
     let b = s.as_bytes();
-    if b[4] != b'-' || b[7] != b'-' {
+    if b.len() != 10 || !s.is_ascii() || b[4] != b'-' || b[7] != b'-' {
         return None;
     }
-    let (y, mo, d) = (digits(&s[..4])?, digits(&s[5..7])?, digits(&s[8..10])?);
-    check_date(y, mo, d).ok()?;
-
-    let (mut h, mut mi, mut sec, mut frac_ms) = (0, 0, 0, 0);
-    let mut offset: Option<i64> = None;
-    let rest = &s[10..];
-    if !rest.is_empty() {
-        // The separator character is ignored.
-        let time_and_tz = rest.get(1..).filter(|t| !t.is_empty())?;
-        let tz_at = time_and_tz.find(['Z', 'z', '+', '-']);
-        let (time, tz) = match tz_at {
-            Some(i) => time_and_tz.split_at(i),
-            None => (time_and_tz, ""),
-        };
-
-        let (hms, frac) = match time.find(['.', ',']) {
-            Some(i) => (&time[..i], Some(&time[i + 1..])),
-            None => (time, None),
-        };
-        let fields: Vec<&str> = if hms.contains(':') {
-            hms.split(':').collect()
-        } else if matches!(hms.len(), 2 | 4 | 6) {
-            (0..hms.len()).step_by(2).map(|i| &hms[i..i + 2]).collect()
-        } else {
-            return None;
-        };
-        if fields.is_empty() || fields.len() > 3 || fields.iter().any(|f| f.len() != 2) {
-            return None;
-        }
-        h = digits(fields[0])?;
-        mi = fields.get(1).map_or(Some(0), |f| digits(f))?;
-        sec = fields.get(2).map_or(Some(0), |f| digits(f))?;
-        if let Some(frac) = frac {
-            if fields.len() < 3 || frac.is_empty() || digits(frac).is_none() {
-                return None;
-            }
-            let padded = format!("{frac:0<3}");
-            frac_ms = digits(&padded[..3])?;
-        }
-        if h > 23 || mi > 59 || sec > 59 {
-            return None;
-        }
-
-        if !tz.is_empty() {
-            offset = Some(parse_offset_secs(tz)?);
-        }
+    fn num<T: std::str::FromStr>(field: &str) -> Option<T> {
+        // Unlike `str::parse` alone, rejects signs.
+        field.bytes().all(|c| c.is_ascii_digit()).then_some(())?;
+        field.parse().ok()
     }
-
-    let local_secs = days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + sec;
-    let offset = match offset {
-        Some(off) => off,
-        None => task::wall_offset_secs(
-            &TimeZone::system(),
-            task::civil_datetime(y, mo, d, h, mi, sec).ok()?,
-        ),
-    };
-    Some((local_secs - offset) * 1000 + frac_ms)
+    let (y, m, d): (i16, i8, i8) = (num(&s[..4])?, num(&s[5..7])?, num(&s[8..])?);
+    Some(if y == 0 {
+        Err(format!("year {y} is out of range"))
+    } else if !(1..=12).contains(&m) {
+        Err("month must be in 1..12".to_string())
+    } else {
+        Date::new(y, m, d).map_err(|_| "day is out of range for month".to_string())
+    })
 }
 
-/// Seconds east of UTC.
-fn parse_offset_secs(tz: &str) -> Option<i64> {
-    if tz.eq_ignore_ascii_case("z") {
-        return Some(0);
+/// Close to Python 3.11+ `datetime.fromisoformat`. Sub-millisecond digits are
+/// truncated.
+fn parse_iso_datetime(input: &str) -> Option<i64> {
+    let pieces = Pieces::parse(input).ok()?;
+    if pieces.time_zone_annotation().is_some() {
+        return None;
     }
-    let sign = match tz.as_bytes()[0] {
-        b'+' => 1,
-        b'-' => -1,
-        _ => return None,
+    let dt = pieces
+        .date()
+        .to_datetime(pieces.time().unwrap_or(Time::midnight()));
+    let ts = match pieces.to_numeric_offset() {
+        Some(offset) => offset.to_timestamp(dt).ok()?,
+        None => local_zone().to_timestamp(dt).ok()?,
     };
-    let body = &tz[1..];
-    let fields: Vec<&str> = if body.contains(':') {
-        body.split(':').collect()
-    } else if matches!(body.len(), 2 | 4 | 6) {
-        (0..body.len())
-            .step_by(2)
-            .map(|i| &body[i..i + 2])
-            .collect()
-    } else {
-        return None;
-    };
-    if fields.len() > 3 || fields.iter().any(|f| f.len() != 2) {
-        return None;
-    }
-    let h = digits(fields[0])?;
-    let m = fields.get(1).map_or(Some(0), |f| digits(f))?;
-    let s = fields.get(2).map_or(Some(0), |f| digits(f))?;
-    if h > 23 || m > 59 || s > 59 {
-        return None;
-    }
-    Some(sign * (h * 3600 + m * 60 + s))
+    Some(ts.as_millisecond())
 }
