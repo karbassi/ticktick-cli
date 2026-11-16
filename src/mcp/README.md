@@ -16,6 +16,8 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - Dates like `dates.py`: `parse_datetime`, `parse_duration`, `api_date(&parsed, tz)`, `check_timezone`, and `local_zone()` (account timezone if valid, else system) for when no `timezone` is given. Also `priority_value` and `nonempty`.
 
+- `coerce.rs`: before dispatch, `call_tool` coerces arguments against the tool's input schema the way FastMCP's lax pydantic did (`"5"` and `25.0` to an int, `"1.5"` to a float, `"true"` to a bool). Param structs need no per-field `deserialize_with`.
+
 - `tools/<module>.rs`: one file per Python `tools/<module>.py`, each with its own router. `tools/mod.rs` adds the routers together.
 
 ## Adding a tool

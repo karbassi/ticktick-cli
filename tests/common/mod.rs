@@ -299,6 +299,58 @@ impl HttpServer {
     pub fn host(&self) -> String {
         format!("127.0.0.1:{}", self.port)
     }
+
+    /// Initializes a session and returns its id.
+    pub fn session(&self) -> String {
+        let init = http_post(self.port, &self.host(), None, &initialize_request(1));
+        assert_eq!(init.status, 200, "{init:?}");
+        let session = init.header("mcp-session-id").unwrap().to_string();
+        let ack = http_post(
+            self.port,
+            &self.host(),
+            Some(&session),
+            &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        );
+        assert_eq!(ack.status, 202, "{ack:?}");
+        session
+    }
+
+    /// Opens the session's standalone SSE stream and returns once its headers arrive.
+    pub fn open_sse(&self, session: &str) -> TcpStream {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream.set_read_timeout(Some(TIMEOUT)).unwrap();
+        let req = format!(
+            "GET /mcp HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\n\
+             MCP-Protocol-Version: 2025-06-18\r\nMcp-Session-Id: {session}\r\n\r\n",
+            self.host()
+        );
+        stream.write_all(req.as_bytes()).unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            assert_eq!(stream.read(&mut byte).unwrap(), 1, "SSE stream closed");
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&head);
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        stream
+    }
+
+    pub fn signal(&self, sig: i32) {
+        assert_eq!(unsafe { libc::kill(self.child.id() as i32, sig) }, 0);
+    }
+
+    /// The exit status, if the process exits within `within`.
+    pub fn wait_exit(&mut self, within: Duration) -> Option<std::process::ExitStatus> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < within {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        None
+    }
 }
 
 impl Drop for HttpServer {

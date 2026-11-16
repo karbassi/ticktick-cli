@@ -2,6 +2,7 @@ mod common;
 
 use common::{HttpServer, http_post, http_post_with, initialize_request, isolated_command};
 use serde_json::json;
+use std::time::Duration;
 
 #[test]
 fn http_initialize_and_list_tools() {
@@ -37,29 +38,42 @@ fn http_initialize_and_list_tools() {
     assert!(names.contains(&"list_projects"), "{names:?}");
 }
 
+fn status(server: &HttpServer, host: &str, origin: Option<&str>) -> u16 {
+    let headers: Vec<(&str, &str)> = origin.map(|o| ("Origin", o)).into_iter().collect();
+    http_post_with(server.port, host, None, &headers, &initialize_request(1)).status
+}
+
 #[test]
 fn http_rejects_disallowed_host_and_origin() {
     let server = HttpServer::start(&[], &[]);
-    let bad_host = http_post(server.port, "evil.example", None, &initialize_request(1));
-    assert_eq!(bad_host.status, 403, "{bad_host:?}");
-    // Loopback on another port is not our port.
-    let other_port = http_post(server.port, "127.0.0.1:1", None, &initialize_request(1));
-    assert_eq!(other_port.status, 403, "{other_port:?}");
-    let bad_origin = http_post_with(
-        server.port,
-        &server.host(),
-        None,
-        &[("Origin", "https://evil.example")],
-        &initialize_request(1),
+    // FastMCP answers a bad Host with 421 and a bad Origin with 403.
+    assert_eq!(status(&server, "evil.example", None), 421);
+    assert_eq!(status(&server, "evil.example:8502", None), 421);
+    assert_eq!(
+        status(&server, &server.host(), Some("https://evil.example")),
+        403
     );
-    assert_eq!(bad_origin.status, 403, "{bad_origin:?}");
-    let localhost = http_post(
-        server.port,
-        &format!("localhost:{}", server.port),
-        None,
-        &initialize_request(1),
+    assert_eq!(
+        status(&server, "127.0.0.1", Some("http://evil.localhost")),
+        403
     );
-    assert_eq!(localhost.status, 200, "{localhost:?}");
+}
+
+#[test]
+fn http_loopback_hosts_and_origins_on_any_port() {
+    let server = HttpServer::start(&[], &[]);
+    // A port-forward or proxy may present another port.
+    assert_eq!(status(&server, "localhost:9000", None), 200);
+    assert_eq!(status(&server, "127.0.0.1", None), 200);
+    assert_eq!(status(&server, "[::1]:9000", None), 200);
+    assert_eq!(
+        status(&server, &server.host(), Some("http://localhost:9999")),
+        200
+    );
+    assert_eq!(
+        status(&server, &server.host(), Some("http://[::1]:9999")),
+        200
+    );
 }
 
 #[test]
@@ -67,21 +81,72 @@ fn http_allows_hosts_and_origins_from_env() {
     let server = HttpServer::start(
         &[],
         &[
-            ("FASTMCP_HTTP_ALLOWED_HOSTS", r#"["mcp.ali.fyi"]"#),
-            ("FASTMCP_HTTP_ALLOWED_ORIGINS", r#"["https://mcp.ali.fyi"]"#),
+            (
+                "FASTMCP_HTTP_ALLOWED_HOSTS",
+                r#"["mcp.ali.fyi:443", "*.ts.net"]"#,
+            ),
+            ("FASTMCP_HTTP_ALLOWED_ORIGINS", r#"["https://*.ts.net"]"#),
         ],
     );
-    let proxied = http_post_with(
-        server.port,
-        "mcp.ali.fyi",
-        None,
-        &[("Origin", "https://mcp.ali.fyi")],
-        &initialize_request(1),
-    );
+    let proxied = http_post(server.port, "mcp.ali.fyi", None, &initialize_request(1));
     assert_eq!(proxied.status, 200, "{proxied:?}");
     assert_eq!(proxied.json()["result"]["serverInfo"]["name"], "TickTick");
-    let other = http_post(server.port, "other.ali.fyi", None, &initialize_request(1));
-    assert_eq!(other.status, 403, "{other:?}");
+    assert_eq!(status(&server, "MCP.ali.fyi:8443", None), 200);
+    assert_eq!(
+        status(&server, "box.tail.ts.net", Some("https://box.tail.ts.net")),
+        200
+    );
+    // Same-origin needs no allow-list entry.
+    assert_eq!(
+        status(&server, "mcp.ali.fyi", Some("http://mcp.ali.fyi")),
+        200
+    );
+    assert_eq!(
+        status(&server, "mcp.ali.fyi", Some("https://other.example")),
+        403
+    );
+    assert_eq!(status(&server, "other.ali.fyi", None), 421);
+}
+
+#[test]
+fn sigterm_and_sigint_shut_down_with_an_sse_stream_open() {
+    for sig in [libc::SIGTERM, libc::SIGINT] {
+        let mut server = HttpServer::start(&[], &[]);
+        let session = server.session();
+        let _sse = server.open_sse(&session);
+        server.signal(sig);
+        // Under the 5s drain backstop, so the open stream must be cancelled.
+        let status = server.wait_exit(Duration::from_secs(3));
+        assert!(
+            status.is_some_and(|s| s.success()),
+            "signal {sig}: {status:?}"
+        );
+    }
+}
+
+#[test]
+fn idle_session_expires_after_the_env_timeout() {
+    let server = HttpServer::start(&[], &[("TICKTICK_MCP_SESSION_TIMEOUT", "1")]);
+    let session = server.session();
+    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
+    let live = http_post(server.port, &server.host(), Some(&session), &list);
+    assert_eq!(live.status, 200, "{live:?}");
+    std::thread::sleep(Duration::from_millis(2500));
+    let gone = http_post(server.port, &server.host(), Some(&session), &list);
+    assert_eq!(gone.status, 404, "{gone:?}");
+}
+
+#[test]
+fn bad_session_timeout_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = isolated_command(dir.path())
+        .args(["mcp", "--http", "--port", "0"])
+        .env("TICKTICK_MCP_SESSION_TIMEOUT", "soon")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("TICKTICK_MCP_SESSION_TIMEOUT"), "{stderr}");
 }
 
 #[test]
