@@ -1,6 +1,7 @@
 //! Drop-in replacement for the Python `ticktick-mcp` server (contract:
 //! `tests/mcp_contract.rs`). See `src/mcp/README.md` for adding a tool module.
 
+mod coerce;
 mod tools;
 pub mod util;
 
@@ -10,10 +11,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
-    Implementation, ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
-    ServerConfig,
+    CallToolRequestParams, CallToolResponse, Implementation, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
+    Resource, ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
@@ -99,6 +101,22 @@ impl ServerHandler for TickTickServer {
             "TickTick tasks, projects, tags and more. Projects can be named fuzzily; \
              use \"inbox\" for the default inbox.",
         )
+    }
+
+    async fn call_tool(
+        &self,
+        mut request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        if let (Some(tool), Some(args)) = (
+            self.tool_router.get(&request.name),
+            request.arguments.as_mut(),
+        ) {
+            coerce::coerce_arguments(&tool.input_schema, args);
+        }
+        self.tool_router
+            .call(ToolCallContext::new(self, request, context))
+            .await
     }
 
     async fn list_resources(
