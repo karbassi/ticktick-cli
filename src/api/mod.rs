@@ -15,7 +15,7 @@ pub mod v2;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use crate::config::{self, RefreshedTokens};
+use crate::config;
 
 const DEFAULT_BASE_URL: &str = "https://api.ticktick.com/open/v1";
 
@@ -62,39 +62,23 @@ pub fn base_url() -> String {
     env_url("TICKTICK_API_BASE", DEFAULT_BASE_URL)
 }
 
-/// A fresh access token after `failed` got a 401. The result is kept in memory
-/// for the rest of the process; config.json is updated only when its refresh
-/// token was used, and a failed write is ignored.
+/// A fresh access token after `failed` got a 401.
 fn try_refresh_token(failed: &str) -> Option<String> {
     // Concurrent 401s refresh once. `get_access_token` never takes this lock.
     static REFRESHING: Mutex<()> = Mutex::new(());
     let _refreshing = REFRESHING.lock().unwrap_or_else(|e| e.into_inner());
-    let (refresh, persist) = match config::refreshed_tokens() {
-        // Another request already refreshed.
-        Some(r) if r.access != failed => return Some(r.access),
-        Some(RefreshedTokens {
-            refresh: Some(t),
-            persist,
-            ..
-        }) => (t, persist),
-        _ => config::get_refresh_token()?,
-    };
-
-    let (access, rotated) = auth::refresh_token(&refresh).ok()?;
-    let refresh = rotated.unwrap_or(refresh);
-    if persist {
-        let _ = config::update(|cfg| {
-            cfg.access_token = Some(access.clone());
-            cfg.refresh_token = Some(refresh.clone());
-        });
+    // Another request, or a login in another process, already replaced it.
+    let current = config::get_access_token().ok()?;
+    if current != failed {
+        return Some(current);
     }
-    config::set_refreshed_tokens(RefreshedTokens {
-        access: access.clone(),
-        refresh: Some(refresh),
-        persist,
-    });
+
+    let plan = config::plan_refresh()?;
+    let (access, rotated) = auth::refresh_token(&plan.refresh).ok()?;
+    let refresh = rotated.unwrap_or_else(|| plan.refresh.clone());
+    let token = config::store_refresh(plan, access, refresh)?;
     eprintln!("Token refreshed automatically");
-    Some(access)
+    Some(token)
 }
 
 /// Send a v1 request, refreshing the token and retrying once on 401. Without a

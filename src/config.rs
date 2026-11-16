@@ -136,10 +136,17 @@ pub fn update<R>(f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
 }
 
 fn update_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
+    update_if_at(path, |c| (f(c), true))
+}
+
+/// Like `update_at`, but saves only when `f` returns true.
+fn update_if_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> (R, bool)) -> Result<R, String> {
     let _lock = config_lock();
     let mut config = load_strict(path)?;
-    let out = f(&mut config);
-    save_to(path, &config)?;
+    let (out, save) = f(&mut config);
+    if save {
+        save_to(path, &config)?;
+    }
     Ok(out)
 }
 
@@ -227,54 +234,114 @@ fn remove_stale_temps(path: &Path) {
     }
 }
 
-/// Tokens from a refresh in this process. The env and files still hold the
-/// expired access token, so these win over them.
-#[derive(Clone)]
-pub struct RefreshedTokens {
-    pub access: String,
-    pub refresh: Option<String>,
-    /// Whether rotations are written back to config.json.
-    pub persist: bool,
+/// `TICKTICK_ACCESS_TOKEN` from the environment or a .env file. Such a token
+/// may belong to a different account than config.json, so it never mixes with
+/// config.json's refresh token or inbox ID, and its refreshes stay in memory.
+fn env_access_token() -> Option<String> {
+    env_nonempty("TICKTICK_ACCESS_TOKEN").or_else(|| load_env().ok()?.access_token)
 }
 
-static REFRESHED: Mutex<Option<RefreshedTokens>> = Mutex::new(None);
-
-pub fn refreshed_tokens() -> Option<RefreshedTokens> {
-    REFRESHED.lock().unwrap_or_else(|e| e.into_inner()).clone()
-}
-
-pub fn set_refreshed_tokens(tokens: RefreshedTokens) {
-    *REFRESHED.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens);
-}
-
-/// `TICKTICK_REFRESH_TOKEN`, else config.json's (true when from config.json).
-pub fn get_refresh_token() -> Option<(String, bool)> {
-    if let Some(token) = env_nonempty("TICKTICK_REFRESH_TOKEN") {
-        return Some((token, false));
+/// The configured access token, before any refresh, and whether it's from env.
+fn source_access_token() -> Option<(String, bool)> {
+    if let Some(token) = env_access_token() {
+        return Some((token, true));
     }
-    load().refresh_token.map(|t| (t, true))
+    load()
+        .access_token
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| (t, false))
+}
+
+/// A refresh that config.json can't hold: always for env tokens, and for
+/// config.json's tokens only when saving them failed.
+struct Refreshed {
+    /// Applies only while the source still holds this token, so a new login
+    /// in config.json wins.
+    replaced: String,
+    access: String,
+    refresh: String,
+}
+
+static REFRESHED: Mutex<Option<Refreshed>> = Mutex::new(None);
+
+fn refreshed() -> MutexGuard<'static, Option<Refreshed>> {
+    REFRESHED.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    if let Some(tokens) = refreshed_tokens() {
-        return Ok(tokens.access);
-    }
-
-    // Needs no client ID/secret; only `login` and token refresh use those.
-    if let Some(token) = env_nonempty("TICKTICK_ACCESS_TOKEN") {
-        return Ok(token);
-    }
-
-    if let Ok(env) = load_env()
-        && let Some(token) = env.access_token
-    {
-        return Ok(token);
-    }
-
-    // Then check stored config
-    let config = load();
-    config.access_token.ok_or_else(|| {
+    let (source, _) = source_access_token().ok_or_else(|| {
         "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string()
+    })?;
+    Ok(refreshed()
+        .as_ref()
+        .filter(|r| r.replaced == source)
+        .map_or(source, |r| r.access.clone()))
+}
+
+/// What a token refresh starts from. Callers serialize refreshes.
+pub struct RefreshPlan {
+    pub refresh: String,
+    replaced: String,
+    from_env: bool,
+    /// config.json's refresh token when the plan was made.
+    file_refresh: Option<String>,
+}
+
+/// An env access token refreshes only with `TICKTICK_REFRESH_TOKEN`, a
+/// config.json one only with config.json's.
+pub fn plan_refresh() -> Option<RefreshPlan> {
+    let (source, from_env) = source_access_token()?;
+    let file_refresh = if from_env { None } else { load().refresh_token };
+    let remembered = refreshed()
+        .as_ref()
+        .filter(|r| r.replaced == source)
+        .map(|r| r.refresh.clone());
+    let refresh = remembered.or_else(|| {
+        if from_env {
+            env_nonempty("TICKTICK_REFRESH_TOKEN")
+        } else {
+            file_refresh.clone()
+        }
+    })?;
+    Some(RefreshPlan {
+        refresh,
+        replaced: source,
+        from_env,
+        file_refresh,
+    })
+}
+
+/// Store a refresh's tokens and return the access token to use. config.json is
+/// written only if its refresh token is unchanged since `plan`; otherwise
+/// another login happened, and its access token is returned instead.
+pub fn store_refresh(plan: RefreshPlan, access: String, refresh: String) -> Option<String> {
+    if !plan.from_env {
+        match store_refresh_at(&config_path(), &plan, &access, &refresh) {
+            Ok(token) => return token,
+            Err(e) => eprintln!("warning: refreshed token not saved: {e}"),
+        }
+    }
+    *refreshed() = Some(Refreshed {
+        replaced: plan.replaced,
+        access: access.clone(),
+        refresh,
+    });
+    Some(access)
+}
+
+fn store_refresh_at(
+    path: &Path,
+    plan: &RefreshPlan,
+    access: &str,
+    refresh: &str,
+) -> Result<Option<String>, String> {
+    update_if_at(path, |cfg| {
+        if cfg.refresh_token != plan.file_refresh {
+            return (cfg.access_token.clone(), false);
+        }
+        cfg.access_token = Some(access.to_string());
+        cfg.refresh_token = Some(refresh.to_string());
+        (Some(access.to_string()), true)
     })
 }
 
@@ -556,6 +623,42 @@ mod tests {
         let first = device_id_at(&path);
         assert_eq!(load_from(&path).v2_device_id.as_deref(), Some(&*first));
         assert_eq!(device_id_at(&path), first);
+    }
+
+    fn plan(file_refresh: &str) -> RefreshPlan {
+        RefreshPlan {
+            refresh: file_refresh.into(),
+            replaced: "a0".into(),
+            from_env: false,
+            file_refresh: Some(file_refresh.into()),
+        }
+    }
+
+    #[test]
+    fn refresh_is_saved_while_config_still_holds_the_used_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"access_token":"a0","refresh_token":"r1"}"#).unwrap();
+
+        let token = store_refresh_at(&path, &plan("r1"), "a1", "r2").unwrap();
+
+        assert_eq!(token.as_deref(), Some("a1"));
+        let c = load_from(&path);
+        assert_eq!(c.access_token.as_deref(), Some("a1"));
+        assert_eq!(c.refresh_token.as_deref(), Some("r2"));
+    }
+
+    #[test]
+    fn refresh_yields_to_a_login_that_happened_meanwhile() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let login = r#"{"access_token":"login","refresh_token":"r9"}"#;
+        fs::write(&path, login).unwrap();
+
+        let token = store_refresh_at(&path, &plan("r1"), "a1", "r2").unwrap();
+
+        assert_eq!(token.as_deref(), Some("login"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), login);
     }
 
     #[test]
