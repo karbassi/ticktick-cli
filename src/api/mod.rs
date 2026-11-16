@@ -62,10 +62,6 @@ pub fn base_url() -> String {
     env_url("TICKTICK_API_BASE", DEFAULT_BASE_URL)
 }
 
-fn is_unauthorized(err: &ureq::Error) -> bool {
-    matches!(err, ureq::Error::Status(401, _))
-}
-
 /// A fresh access token after `failed` got a 401. The result is kept in memory
 /// for the rest of the process; config.json is updated only when its refresh
 /// token was used, and a failed write is ignored.
@@ -101,124 +97,33 @@ fn try_refresh_token(failed: &str) -> Option<String> {
     Some(access)
 }
 
-pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let base = base_url();
-    if crate::output::verbose() >= 1 {
-        eprintln!("> GET {base}{endpoint}");
-    }
-    let result = agent()
-        .get(&format!("{base}{endpoint}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call();
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token(token) {
-                agent()
-                    .get(&format!("{base}{endpoint}"))
-                    .set("Authorization", &format!("Bearer {new_token}"))
-                    .call()
-                    .map_err(|e| format!("API request failed: {e}"))
-            } else {
-                Err(
-                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
-                        .to_string(),
-                )
-            }
-        }
-        Err(e) => Err(format!("API request failed: {e}")),
-    }
-}
-
-pub fn post(
-    endpoint: &str,
-    token: &str,
-    body: &serde_json::Value,
-) -> Result<ureq::Response, String> {
-    let base = base_url();
-    if crate::output::verbose() >= 1 {
-        eprintln!("> POST {base}{endpoint}");
-    }
-    let result = agent()
-        .post(&format!("{base}{endpoint}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Content-Type", "application/json")
-        .send_json(body.clone());
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token(token) {
-                agent()
-                    .post(&format!("{base}{endpoint}"))
-                    .set("Authorization", &format!("Bearer {new_token}"))
-                    .set("Content-Type", "application/json")
-                    .send_json(body.clone())
-                    .map_err(|e| format!("API request failed: {e}"))
-            } else {
-                Err(
-                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
-                        .to_string(),
-                )
-            }
-        }
-        Err(e) => Err(format!("API request failed: {e}")),
-    }
-}
-
-pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let base = base_url();
-    if crate::output::verbose() >= 1 {
-        eprintln!("> POST {base}{endpoint}");
-    }
-    let result = agent()
-        .post(&format!("{base}{endpoint}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call();
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token(token) {
-                agent()
-                    .post(&format!("{base}{endpoint}"))
-                    .set("Authorization", &format!("Bearer {new_token}"))
-                    .call()
-                    .map_err(|e| format!("API request failed: {e}"))
-            } else {
-                Err(
-                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
-                        .to_string(),
-                )
-            }
-        }
-        Err(e) => Err(format!("API request failed: {e}")),
-    }
-}
-
-/// Send a JSON body with any method, refreshing the token once on 401.
-fn send_json(
+/// Send a v1 request, refreshing the token and retrying once on 401. Without a
+/// body the request has no Content-Type.
+fn send(
     method: &str,
     endpoint: &str,
     token: &str,
-    body: &serde_json::Value,
+    body: Option<&serde_json::Value>,
 ) -> Result<ureq::Response, String> {
-    let base = base_url();
+    let url = format!("{}{endpoint}", base_url());
     if crate::output::verbose() >= 1 {
-        eprintln!("> {method} {base}{endpoint}");
+        eprintln!("> {method} {url}");
     }
     let call = |t: &str| {
-        agent()
-            .request(method, &format!("{base}{endpoint}"))
-            .set("Authorization", &format!("Bearer {t}"))
-            .set("Content-Type", "application/json")
-            .send_json(body.clone())
-            .map_err(Box::new)
+        let req = agent()
+            .request(method, &url)
+            .set("Authorization", &format!("Bearer {t}"));
+        match body {
+            Some(b) => req
+                .set("Content-Type", "application/json")
+                .send_json(b.clone()),
+            None => req.call(),
+        }
+        .map_err(Box::new)
     };
     match call(token) {
         Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => match try_refresh_token(token) {
+        Err(e) if matches!(*e, ureq::Error::Status(401, _)) => match try_refresh_token(token) {
             Some(new_token) => call(&new_token).map_err(|e| format!("API request failed: {e}")),
             None => Err(
                 "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string(),
@@ -228,12 +133,28 @@ fn send_json(
     }
 }
 
+pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    send("GET", endpoint, token, None)
+}
+
+pub fn post(
+    endpoint: &str,
+    token: &str,
+    body: &serde_json::Value,
+) -> Result<ureq::Response, String> {
+    send("POST", endpoint, token, Some(body))
+}
+
+pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
+    send("POST", endpoint, token, None)
+}
+
 pub fn put(
     endpoint: &str,
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    send_json("PUT", endpoint, token, body)
+    send("PUT", endpoint, token, Some(body))
 }
 
 /// DELETE with a JSON body (e.g. `/tag/delete`).
@@ -242,35 +163,9 @@ pub fn delete_json(
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    send_json("DELETE", endpoint, token, body)
+    send("DELETE", endpoint, token, Some(body))
 }
 
 pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let base = base_url();
-    if crate::output::verbose() >= 1 {
-        eprintln!("> DELETE {base}{endpoint}");
-    }
-    let result = agent()
-        .delete(&format!("{base}{endpoint}"))
-        .set("Authorization", &format!("Bearer {token}"))
-        .call();
-
-    match result {
-        Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token(token) {
-                agent()
-                    .delete(&format!("{base}{endpoint}"))
-                    .set("Authorization", &format!("Bearer {new_token}"))
-                    .call()
-                    .map_err(|e| format!("API request failed: {e}"))
-            } else {
-                Err(
-                    "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate"
-                        .to_string(),
-                )
-            }
-        }
-        Err(e) => Err(format!("API request failed: {e}")),
-    }
+    send("DELETE", endpoint, token, None)
 }
