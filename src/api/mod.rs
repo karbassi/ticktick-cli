@@ -21,6 +21,8 @@ const DEFAULT_BASE_URL: &str = "https://api.ticktick.com/open/v1";
 
 const CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// ureq's default of 1 makes parallel requests to one host reconnect.
+const IDLE_CONNECTIONS_PER_HOST: usize = 8;
 
 /// `TICKTICK_HTTP_TIMEOUT_SECS` (0 or unparsable: the default); it also caps
 /// the connect timeout.
@@ -32,15 +34,18 @@ fn timeout_secs() -> u64 {
         .unwrap_or(DEFAULT_TIMEOUT_SECS)
 }
 
-/// Every request goes through this agent so none can stall forever.
+/// Every request goes through this agent so none can stall forever. The
+/// overall timeout also caps a response that trickles in under the read timeout.
 pub fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let secs = timeout_secs();
         ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(secs))
             .timeout_connect(Duration::from_secs(secs.min(CONNECT_TIMEOUT_SECS)))
             .timeout_read(Duration::from_secs(secs))
             .timeout_write(Duration::from_secs(secs))
+            .max_idle_connections_per_host(IDLE_CONNECTIONS_PER_HOST)
             .build()
     })
 }
