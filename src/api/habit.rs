@@ -410,7 +410,12 @@ fn local_today() -> (i32, u32, u32) {
         .as_secs() as libc::time_t;
 
     let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
-    unsafe { libc::localtime_r(&now, &mut tm) };
+    {
+        let _guard = crate::api::task::TZ_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        unsafe { libc::localtime_r(&now, &mut tm) };
+    }
 
     (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
 }

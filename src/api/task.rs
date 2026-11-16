@@ -9,7 +9,8 @@ unsafe extern "C" {
 /// Serializes access to the TZ environment variable.
 /// `utc_offset_for_tz` temporarily mutates TZ, so concurrent callers
 /// (e.g. parallel tests) must be serialized.
-static TZ_LOCK: Mutex<()> = Mutex::new(());
+/// Serializes every TZ mutation and local-time read; the MCP server is multi-threaded.
+pub(crate) static TZ_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
