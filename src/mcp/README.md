@@ -8,7 +8,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
 - `util.rs`: shared helpers. Use these instead of re-deriving:
 
-  - `run(move || -> Result<impl Into<Output>, String>)` runs a blocking body on the blocking pool. `Ok(Value)` becomes compact JSON text, `Ok(String)` becomes plain text, and `Err(msg)` or a panic becomes an `isError: true` result. Every tool returns `ToolResult`.
+  - `run(move || -> Result<impl Into<Output>, String>)` runs a blocking body on the blocking pool. `Ok(Value)` becomes compact JSON text, `Ok(String)` becomes plain text, and `Err(msg)` or a panic becomes an `isError: true` result. Every tool returns `ToolResult`. Once the request is cancelled, the raw JSON helpers below return `Err("cancelled")` instead of sending, so multi-request tools stop between requests.
 
   - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs: they drop fields.
 
@@ -16,7 +16,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - Dates like `dates.py`: `parse_datetime_in`, `parse_duration`, `zone(timezone)` (the caller's `timezone`, else `TICKTICK_TIMEZONE`, else system), `api_date(input, &zone)`, and `check_timezone` (returns the canonical name). Also `priority_value` and `nonempty`.
 
-- `coerce.rs`: before dispatch, `call_tool` coerces arguments against the tool's input schema the way FastMCP's lax pydantic did (`"5"` and `25.0` to an int, `"1.5"` to a float, `"true"` to a bool). Param structs need no per-field `deserialize_with`.
+- `coerce.rs`: before dispatch, `call_tool` coerces arguments against the tool's input schema the way FastMCP's lax pydantic did (`"5"` and `25.0` to an int, `"1.5"` to a float, `"yes"` or `1` to a bool, `true` to a number). Param structs need no per-field `deserialize_with`.
 
 - `tools/<module>.rs`: one file per Python `tools/<module>.py`, each with its own router. `tools/mod.rs` adds the routers together.
 

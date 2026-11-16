@@ -1,8 +1,9 @@
 //! Mirrors the Python server's `client.py`, `resolve.py` and `dates.py` so tool
 //! output and errors match it.
 
+use std::cell::RefCell;
 use std::io::Read;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use jiff::tz::TimeZone;
 use rmcp::ErrorData;
@@ -32,13 +33,69 @@ impl From<String> for Output {
     }
 }
 
+/// Whether the current request was cancelled. A closure because rmcp's
+/// `CancellationToken` type isn't exported.
+type IsCancelled = Arc<dyn Fn() -> bool + Send + Sync>;
+
+tokio::task_local! {
+    static REQUEST_CANCELLED: IsCancelled;
+}
+
+thread_local! {
+    static BLOCKING_CANCELLED: RefCell<Option<IsCancelled>> = const { RefCell::new(None) };
+}
+
+/// Runs `fut` with `is_cancelled` visible to the blocking bodies it starts
+/// through [`run`] and [`blocking`], whose API helpers check it before each request.
+pub async fn cancellable<T>(
+    is_cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    fut: impl Future<Output = T>,
+) -> T {
+    REQUEST_CANCELLED.scope(Arc::new(is_cancelled), fut).await
+}
+
+/// Pool threads are reused, so the previous value is restored on drop, panics included.
+struct InstallCancelled(Option<IsCancelled>);
+
+impl InstallCancelled {
+    fn new(check: Option<IsCancelled>) -> Self {
+        Self(BLOCKING_CANCELLED.replace(check))
+    }
+}
+
+impl Drop for InstallCancelled {
+    fn drop(&mut self) {
+        BLOCKING_CANCELLED.set(self.0.take());
+    }
+}
+
+fn spawn_blocking<F, T>(f: F) -> tokio::task::JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let check = REQUEST_CANCELLED.try_with(Arc::clone).ok();
+    tokio::task::spawn_blocking(move || {
+        let _installed = InstallCancelled::new(check);
+        f()
+    })
+}
+
+fn check_cancelled() -> Result<(), String> {
+    if BLOCKING_CANCELLED.with_borrow(|c| c.as_ref().is_some_and(|f| f())) {
+        Err("cancelled".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// Panics also become `isError` results.
 pub async fn run<F, O>(f: F) -> ToolResult
 where
     F: FnOnce() -> Result<O, String> + Send + 'static,
     O: Into<Output> + Send + 'static,
 {
-    Ok(match tokio::task::spawn_blocking(f).await {
+    Ok(match spawn_blocking(f).await {
         Ok(Ok(out)) => success(out.into()),
         Ok(Err(msg)) => tool_error(msg),
         Err(e) => tool_error(format!("internal error: {e}")),
@@ -50,7 +107,7 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
+    spawn_blocking(f)
         .await
         .map_err(|e| format!("internal error: {e}"))?
 }
@@ -94,38 +151,47 @@ pub fn session_token() -> Result<String, String> {
 }
 
 pub fn v1_get(path: &str) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::get(path, &token()?)?)
 }
 
 pub fn v1_post(path: &str, body: &Value) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::post(path, &token()?, body)?)
 }
 
 pub fn v1_post_empty(path: &str) -> Result<(), String> {
+    check_cancelled()?;
     api::post_empty(path, &token()?).map(|_| ())
 }
 
 pub fn v1_put(path: &str, body: &Value) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::put(path, &token()?, body)?)
 }
 
 pub fn v1_delete(path: &str) -> Result<(), String> {
+    check_cancelled()?;
     api::delete(path, &token()?).map(|_| ())
 }
 
 pub fn v1_delete_json(path: &str, body: &Value) -> Result<(), String> {
+    check_cancelled()?;
     api::delete_json(path, &token()?, body).map(|_| ())
 }
 
 pub fn v2_get(path: &str) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::v2::v2_get(path, &session_token()?)?)
 }
 
 pub fn v2_post(path: &str, body: &Value) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::v2::v2_post(path, &session_token()?, body)?)
 }
 
 pub fn v2_put(path: &str, body: &Value) -> Result<Value, String> {
+    check_cancelled()?;
     parse(api::v2::v2_put(path, &session_token()?, body)?)
 }
 

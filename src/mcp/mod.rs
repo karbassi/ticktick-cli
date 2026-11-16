@@ -8,8 +8,15 @@ pub mod util;
 
 use std::future::IntoFuture;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
+
+use axum::body::{Bytes, HttpBody};
+use axum::http::Method;
+use axum::response::Response;
+use http_body::{Frame, SizeHint};
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -25,6 +32,7 @@ use rmcp::transport::streamable_http_server::{
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct TickTickServer {
@@ -88,6 +96,32 @@ fn read_resource_json(uri: &str) -> Result<Value, String> {
     }
 }
 
+/// Python's `repr()` of a str.
+fn py_repr(s: &str) -> String {
+    let quote = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::from(quote);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if (c as u32) < 0x20 || c == '\x7f' => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for TickTickServer {
     fn get_info(&self) -> ServerConfig {
@@ -109,15 +143,21 @@ impl ServerHandler for TickTickServer {
         mut request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        if let (Some(tool), Some(args)) = (
-            self.tool_router.get(&request.name),
-            request.arguments.as_mut(),
-        ) {
+        let Some(tool) = self.tool_router.get(&request.name) else {
+            // FastMCP's text, as a tool error rather than rmcp's -32602.
+            let name = py_repr(&request.name);
+            return Ok(util::tool_error(format!("Unknown tool: {name}")).into());
+        };
+        if let Some(args) = request.arguments.as_mut() {
             coerce::coerce_arguments(&tool.input_schema, args);
         }
-        self.tool_router
-            .call(ToolCallContext::new(self, request, context))
-            .await
+        let ct = context.ct.clone();
+        util::cancellable(
+            move || ct.is_cancelled(),
+            self.tool_router
+                .call(ToolCallContext::new(self, request, context)),
+        )
+        .await
     }
 
     async fn list_resources(
@@ -139,7 +179,7 @@ impl ServerHandler for TickTickServer {
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
         let uri = request.uri;
         if !RESOURCES.iter().any(|(u, _, _)| *u == uri) {
@@ -149,9 +189,13 @@ impl ServerHandler for TickTickServer {
             ));
         }
         let key = uri.clone();
-        let value = util::blocking(move || read_resource_json(&key))
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
+        let ct = context.ct;
+        let value = util::cancellable(
+            move || ct.is_cancelled(),
+            util::blocking(move || read_resource_json(&key)),
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e, None))?;
         Ok(ReadResourceResult::new(vec![ResourceContents::text(value.to_string(), uri)]).into())
     }
 }
@@ -192,6 +236,11 @@ fn transport(opts: McpOptions) -> Result<Transport, String> {
         }
     };
     if !http {
+        if opts.host.is_some() || opts.port.is_some() {
+            return Err(
+                "--host and --port need --http (or TICKTICK_MCP_TRANSPORT=http)".to_string(),
+            );
+        }
         return Ok(Transport::Stdio);
     }
     let host = opts
@@ -245,17 +294,25 @@ fn session_timeout() -> Result<Duration, String> {
 
 /// Logs go to stderr only: stdout carries the stdio transport.
 pub fn run(opts: McpOptions) -> Result<(), String> {
+    // `main` restores SIGPIPE's default for the CLI; a long-running server must
+    // not die when a peer resets mid-write.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
     let transport = transport(opts)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("failed to start async runtime: {e}"))?;
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         match transport {
             Transport::Stdio => serve_stdio().await,
             Transport::Http { host, port } => serve_http(&host, port).await,
         }
-    })
+    });
+    // Dropping the runtime would wait for blocking tool bodies without limit.
+    runtime.shutdown_timeout(SHUTDOWN_BACKSTOP);
+    result
 }
 
 async fn serve_stdio() -> Result<(), String> {
@@ -300,39 +357,143 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let server = TickTickServer::new();
     let service =
         StreamableHttpService::new(move || Ok(server.clone()), Arc::new(sessions), config);
+    let in_flight = InFlight::default();
+    let tracked = in_flight.clone();
     let app = axum::Router::new()
         .nest_service("/mcp", service)
         .layer(axum::middleware::from_fn(move |req, next| {
             guard.clone().check(req, next)
+        }))
+        .layer(axum::middleware::from_fn(move |req, next| {
+            tracked.clone().track(req, next)
         }));
 
+    // Registered before the address is printed, so a supervisor that signals
+    // as soon as it sees it gets a graceful stop.
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let shutdown = async move {
+    let mut sigint =
+        signal(SignalKind::interrupt()).map_err(|e| format!("failed to listen for SIGINT: {e}"))?;
+    let (stop_tx, mut stop_rx) = watch::channel(false);
+    tokio::spawn(async move {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
+            _ = sigint.recv() => {}
             _ = sigterm.recv() => {}
         }
-        // Open SSE streams would otherwise hold the graceful drain forever.
-        cancel.cancel();
-        let _ = stop_tx.send(());
-    };
+        let _ = stop_tx.send(true);
+        let code = tokio::select! {
+            _ = sigint.recv() => 128 + libc::SIGINT,
+            _ = sigterm.recv() => 128 + libc::SIGTERM,
+        };
+        std::process::exit(code);
+    });
+    let mut stopping = stop_rx.clone();
 
     eprintln!("ticktick-cli MCP server listening on http://{bound}/mcp");
-    let serve = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .into_future();
+    let serve = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = stopping.wait_for(|stop| *stop).await;
+    })
+    .into_future();
     tokio::pin!(serve);
+    let failed = |e: std::io::Error| format!("MCP HTTP server failed: {e}");
     tokio::select! {
-        res = &mut serve => return res.map_err(|e| format!("MCP HTTP server failed: {e}")),
-        _ = stop_rx => {}
+        res = &mut serve => return res.map_err(failed),
+        _ = stop_rx.wait_for(|stop| *stop) => {}
     }
-    match tokio::time::timeout(SHUTDOWN_GRACE, serve).await {
-        Ok(res) => res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+    // New connections are refused now. Cancelling right away would cut off
+    // in-flight tool calls whose API writes still land.
+    tokio::select! {
+        res = &mut serve => return res.map_err(failed),
+        _ = tokio::time::timeout(SHUTDOWN_GRACE, in_flight.idle()) => {}
+    }
+    // Open SSE streams would otherwise hold the graceful drain forever.
+    cancel.cancel();
+    match tokio::time::timeout(SHUTDOWN_BACKSTOP, serve).await {
+        Ok(res) => res.map_err(failed),
         Err(_) => Ok(()),
     }
 }
 
 /// How long in-flight requests get to finish after SIGINT/SIGTERM.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// How long each later shutdown step may take once the grace period is over.
+const SHUTDOWN_BACKSTOP: Duration = Duration::from_millis(500);
+
+/// Counts non-GET requests until hyper drops their response body, i.e. until
+/// a tool call's response has been written. GETs are standalone SSE streams,
+/// which never finish on their own.
+#[derive(Clone, Default)]
+struct InFlight(Arc<watch::Sender<usize>>);
+
+struct InFlightGuard(Arc<watch::Sender<usize>>);
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.send_modify(|n| *n -= 1);
+    }
+}
+
+impl InFlight {
+    async fn track(self, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+        if req.method() == Method::GET {
+            return next.run(req).await;
+        }
+        self.0.send_modify(|n| *n += 1);
+        let guard = InFlightGuard(self.0);
+        next.run(req).await.map(|inner| {
+            axum::body::Body::new(TrackedBody {
+                inner,
+                _guard: guard,
+            })
+        })
+    }
+
+    async fn idle(&self) {
+        let _ = self.0.subscribe().wait_for(|n| *n == 0).await;
+    }
+}
+
+struct TrackedBody {
+    inner: axum::body::Body,
+    _guard: InFlightGuard,
+}
+
+impl HttpBody for TrackedBody {
+    type Data = Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, axum::Error>>> {
+        Pin::new(&mut self.inner).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::py_repr;
+
+    #[test]
+    fn repr_like_python() {
+        // Expected values printed by CPython's repr().
+        assert_eq!(py_repr("nope"), "'nope'");
+        assert_eq!(py_repr("it's"), "\"it's\"");
+        assert_eq!(py_repr("a\"b'c"), "'a\"b\\'c'");
+        assert_eq!(py_repr("tab\there"), "'tab\\there'");
+        assert_eq!(py_repr("back\\slash"), "'back\\\\slash'");
+        assert_eq!(py_repr("ü\x01"), "'ü\\x01'");
+    }
+}
