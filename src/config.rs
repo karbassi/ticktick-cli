@@ -207,24 +207,36 @@ fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("failed to serialize config: {e}"))?;
 
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    let tmp = path.with_extension(format!(
-        "{}.{}.tmp",
-        std::process::id(),
-        WRITES.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = write_private(&tmp, &json).and_then(|()| {
-        fs::rename(&tmp, path).map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            format!("failed to rename config: {e}")
-        })
-    });
     remove_stale_temps(path);
-    result
+
+    // A pid alone repeats across runs, and a killed run's temp file outlives it.
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let mut attempts = 0;
+    let tmp = loop {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let tmp = path.with_extension(format!(
+            "{}.{nanos}.{}.tmp",
+            std::process::id(),
+            WRITES.fetch_add(1, Ordering::Relaxed)
+        ));
+        match write_private(&tmp, &json) {
+            Ok(()) => break tmp,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempts < 8 => {
+                attempts += 1;
+            }
+            Err(e) => return Err(format!("failed to write config: {e}")),
+        }
+    };
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("failed to rename config: {e}")
+    })
 }
 
 /// Created 0600, so the tokens are never readable by others, even briefly.
-fn write_private(path: &Path, contents: &str) -> Result<(), String> {
+fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write;
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
@@ -233,16 +245,13 @@ fn write_private(path: &Path, contents: &str) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut file = opts
-        .open(path)
-        .map_err(|e| format!("failed to write config: {e}"))?;
-    file.write_all(contents.as_bytes()).map_err(|e| {
+    let mut file = opts.open(path)?;
+    file.write_all(contents.as_bytes()).inspect_err(|_| {
         let _ = fs::remove_file(path);
-        format!("failed to write config: {e}")
     })
 }
 
-const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Temp files left by a process killed mid-save. Younger ones may belong to a
 /// save still in flight in another process.
@@ -695,13 +704,14 @@ mod tests {
         for p in [&stale, &fresh, &unrelated] {
             fs::write(p, "{}").unwrap();
         }
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
-        for p in [&stale, &unrelated] {
+        let ago =
+            |mins: u64| std::time::SystemTime::now() - std::time::Duration::from_secs(mins * 60);
+        for (p, at) in [(&stale, ago(20)), (&unrelated, ago(20)), (&fresh, ago(2))] {
             fs::File::options()
                 .write(true)
                 .open(p)
                 .unwrap()
-                .set_modified(old)
+                .set_modified(at)
                 .unwrap();
         }
 
