@@ -225,13 +225,6 @@ fn start_time(r: &Value) -> &str {
     r.get("startTime").and_then(Value::as_str).unwrap_or("")
 }
 
-// TODO: use util::local_zone once merged
-fn local_zone() -> TimeZone {
-    crate::config::get_account_timezone()
-        .and_then(|name| TimeZone::get(&name).ok())
-        .unwrap_or_else(TimeZone::system)
-}
-
 /// Matches Python `_to_iso`.
 fn to_iso(ms: i64) -> Result<String, String> {
     let ts = Timestamp::from_millisecond(ms).map_err(|e| e.to_string())?;
@@ -290,7 +283,7 @@ fn parse_iso_datetime(input: &str) -> Option<i64> {
         .to_datetime(pieces.time().unwrap_or(Time::midnight()));
     let ts = match pieces.to_numeric_offset() {
         Some(offset) => offset.to_timestamp(dt).ok()?,
-        None => local_zone().to_timestamp(dt).ok()?,
+        None => crate::mcp::util::local_zone().to_timestamp(dt).ok()?,
     };
     Some(ts.as_millisecond())
 }
