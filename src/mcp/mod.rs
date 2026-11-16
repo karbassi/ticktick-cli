@@ -265,8 +265,9 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let config = StreamableHttpServerConfig::default()
         .with_allowed_hosts(hosts)
         .with_allowed_origins(origins);
+    let server = TickTickServer::new();
     let service = StreamableHttpService::new(
-        || Ok(TickTickServer::new()),
+        move || Ok(server.clone()),
         Arc::new(LocalSessionManager::default()),
         config,
     );
