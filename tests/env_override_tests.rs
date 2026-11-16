@@ -188,3 +188,44 @@ fn assign_adds_the_membership_hint_only_for_membership_codes() {
     assert!(err.contains("404"), "{err}");
     assert!(!err.contains("must be a member"), "{err}");
 }
+
+#[test]
+fn task_list_with_env_token_probes_for_the_inbox() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/open/v1/project");
+        then.status(200).json_body(serde_json::json!([]));
+    });
+    let probe = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/task");
+        then.status(200)
+            .json_body(serde_json::json!({"id": "probe", "title": "p", "projectId": "inbox9"}));
+    });
+    server.mock(|when, then| {
+        when.method(DELETE)
+            .path("/open/v1/project/inbox9/task/probe");
+        then.status(200);
+    });
+    let inbox = server.mock(|when, then| {
+        when.method(GET).path("/open/v1/project/inbox9/data");
+        then.status(200).json_body(
+            serde_json::json!({"tasks": [{"id": "t1", "title": "in inbox", "projectId": "inbox9"}]}),
+        );
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    let out = isolated(&tmp)
+        .env("TICKTICK_ACCESS_TOKEN", "env-token")
+        .env("TICKTICK_API_BASE", server.url("/open/v1/"))
+        .args(["task", "list"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    probe.assert();
+    inbox.assert();
+    let tasks: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(tasks[0]["id"], "t1");
+}
