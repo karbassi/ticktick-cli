@@ -2113,7 +2113,11 @@ pub fn run() -> Result<(), String> {
 
     match command {
         Commands::Login => crate::api::auth::login(),
-        Commands::Logout => crate::config::logout(),
+        Commands::Logout => {
+            crate::config::logout()?;
+            crate::output::success(&serde_json::json!({"status": "ok"}));
+            Ok(())
+        }
         Commands::Task(subcmd) => match *subcmd {
             TaskCommands::List {
                 project,
@@ -3460,7 +3464,11 @@ pub fn run() -> Result<(), String> {
         Commands::Mcp { http, host, port } => {
             crate::mcp::run(crate::mcp::McpOptions { http, host, port })
         }
-        Commands::Init { local, force } => crate::config::init(local, force),
+        Commands::Init { local, force } => {
+            let path = crate::config::init(local, force)?;
+            crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
+            Ok(())
+        }
         Commands::Completions { shell } => {
             clap_complete::generate(
                 shell,

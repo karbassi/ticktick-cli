@@ -16,17 +16,14 @@ pub fn x_device_header(device_id: &str) -> String {
     )
 }
 
-/// Get the cached v2 session token.
-///
-/// The session token is obtained by copying the `t` cookie from
-/// a logged-in TickTick web session and setting `v2_session_token`
-/// in config.json.
+/// The `t` cookie from a logged-in TickTick web session.
 pub fn get_session_token() -> Result<String, String> {
     config::get_v2_session_token().ok_or_else(|| {
         "v2 session token not set\n\n  \
          hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
          (Network tab → any request to api.ticktick.com → Cookie header), \
-         then add \"v2_session_token\": \"<token>\" to ~/.config/ticktick-cli/config.json"
+         then set TICKTICK_V2_SESSION_TOKEN=<token>, or add \
+         \"v2_session_token\": \"<token>\" to ~/.config/ticktick-cli/config.json"
             .to_string()
     })
 }
@@ -35,16 +32,18 @@ pub fn get_session_token() -> Result<String, String> {
 // v2 HTTP helpers
 // ---------------------------------------------------------------------------
 
-/// Format a v2 API error, with a helpful hint on 401.
 fn v2_error(e: &ureq::Error) -> String {
-    if matches!(e, ureq::Error::Status(401, _)) {
-        "v2 session expired\n\n  \
-         hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
-         (Network tab → any request to api.ticktick.com → Cookie header), \
-         then update \"v2_session_token\" in ~/.config/ticktick-cli/config.json"
-            .to_string()
-    } else {
-        format!("v2 API request failed: {e}")
+    match e {
+        ureq::Error::Status(401, _) => "v2 session expired\n\n  \
+             hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
+             (Network tab → any request to api.ticktick.com → Cookie header), \
+             then update TICKTICK_V2_SESSION_TOKEN if set (it wins), \
+             else \"v2_session_token\" in ~/.config/ticktick-cli/config.json"
+            .to_string(),
+        ureq::Error::Status(403, _) => {
+            "This feature requires a TickTick Premium subscription.".to_string()
+        }
+        _ => format!("v2 API request failed: {e}"),
     }
 }
 

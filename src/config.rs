@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -59,10 +59,9 @@ fn dirs_home() -> PathBuf {
 }
 
 pub fn load_env() -> Result<Env, String> {
-    // First try environment variables
-    let mut client_id = std::env::var("TICKTICK_CLIENT_ID").ok();
-    let mut client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok();
-    let mut access_token = std::env::var("TICKTICK_ACCESS_TOKEN").ok();
+    let mut client_id = env_nonempty("TICKTICK_CLIENT_ID");
+    let mut client_secret = env_nonempty("TICKTICK_CLIENT_SECRET");
+    let mut access_token = env_nonempty("TICKTICK_ACCESS_TOKEN");
 
     // Fall back to .env file for any missing values
     if (client_id.is_none() || client_secret.is_none())
@@ -74,7 +73,10 @@ pub fn load_env() -> Result<Env, String> {
                 continue;
             }
             if let Some((key, value)) = line.split_once('=') {
-                let value = value.trim().trim_matches('"').trim_matches('\'');
+                let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+                if value.is_empty() {
+                    continue;
+                }
                 match key.trim() {
                     "TICKTICK_CLIENT_ID" if client_id.is_none() => {
                         client_id = Some(value.to_string())
@@ -134,11 +136,32 @@ pub fn update<R>(f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
 }
 
 fn update_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
+    update_if_at(path, |c| (f(c), true))
+}
+
+/// Like `update_at`, but saves only when `f` returns true.
+fn update_if_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> (R, bool)) -> Result<R, String> {
     let _lock = config_lock();
-    let mut config = load_from(path);
-    let out = f(&mut config);
-    save_to(path, &config)?;
+    let mut config = load_strict(path)?;
+    let (out, save) = f(&mut config);
+    if save {
+        save_to(path, &config)?;
+    }
     Ok(out)
+}
+
+/// Unlike `load_from`, refuses a file it can't parse, so a save can't wipe it.
+fn load_strict(path: &Path) -> Result<Config, String> {
+    match fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| {
+            format!(
+                "{} is not valid config JSON: {e}\n\n  hint: Fix it, or run 'ticktick-cli logout' to delete it",
+                path.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+        Err(e) => Err(format!("failed to read {}: {e}", path.display())),
+    }
 }
 
 fn save_to(path: &Path, config: &Config) -> Result<(), String> {
@@ -154,73 +177,171 @@ fn save_to(path: &Path, config: &Config) -> Result<(), String> {
         std::process::id(),
         WRITES.fetch_add(1, Ordering::Relaxed)
     ));
-    let result = write_private(&tmp, &json)
-        .and_then(|()| fs::rename(&tmp, path).map_err(|e| format!("failed to rename config: {e}")));
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    let result = write_private(&tmp, &json).and_then(|()| {
+        fs::rename(&tmp, path).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("failed to rename config: {e}")
+        })
+    });
+    remove_stale_temps(path);
     result
 }
 
+/// Created 0600, so the tokens are never readable by others, even briefly.
 fn write_private(path: &Path, contents: &str) -> Result<(), String> {
-    fs::write(path, contents).map_err(|e| format!("failed to write config: {e}"))?;
+    use std::io::Write;
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("failed to set config permissions: {e}"))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
     }
-    Ok(())
+    let mut file = opts
+        .open(path)
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    file.write_all(contents.as_bytes()).map_err(|e| {
+        let _ = fs::remove_file(path);
+        format!("failed to write config: {e}")
+    })
 }
 
-/// Tokens from a refresh in this process. The env and files still hold the
-/// expired access token, so these win over them.
-#[derive(Clone)]
-pub struct RefreshedTokens {
-    pub access: String,
-    pub refresh: Option<String>,
-    /// Whether rotations are written back to config.json.
-    pub persist: bool,
-}
+const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(60);
 
-static REFRESHED: Mutex<Option<RefreshedTokens>> = Mutex::new(None);
-
-pub fn refreshed_tokens() -> Option<RefreshedTokens> {
-    REFRESHED.lock().unwrap_or_else(|e| e.into_inner()).clone()
-}
-
-pub fn set_refreshed_tokens(tokens: RefreshedTokens) {
-    *REFRESHED.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens);
-}
-
-/// `TICKTICK_REFRESH_TOKEN`, else config.json's (true when from config.json).
-pub fn get_refresh_token() -> Option<(String, bool)> {
-    if let Some(token) = env_nonempty("TICKTICK_REFRESH_TOKEN") {
-        return Some((token, false));
+/// Temp files left by a process killed mid-save. Younger ones may belong to a
+/// save still in flight in another process.
+fn remove_stale_temps(path: &Path) {
+    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem().and_then(|s| s.to_str())) else {
+        return;
+    };
+    let prefix = format!("{stem}.");
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with(&prefix) || !name.ends_with(".tmp") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE_TEMP_AGE));
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
     }
-    load().refresh_token.map(|t| (t, true))
+}
+
+/// `TICKTICK_ACCESS_TOKEN` from the environment or a .env file. Such a token
+/// may belong to a different account than config.json, so it never mixes with
+/// config.json's refresh token or inbox ID, and its refreshes stay in memory.
+fn env_access_token() -> Option<String> {
+    env_nonempty("TICKTICK_ACCESS_TOKEN").or_else(|| load_env().ok()?.access_token)
+}
+
+/// The configured access token, before any refresh, and whether it's from env.
+fn source_access_token() -> Option<(String, bool)> {
+    if let Some(token) = env_access_token() {
+        return Some((token, true));
+    }
+    load()
+        .access_token
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| (t, false))
+}
+
+/// A refresh that config.json can't hold: always for env tokens, and for
+/// config.json's tokens only when saving them failed.
+struct Refreshed {
+    /// Applies only while the source still holds this token, so a new login
+    /// in config.json wins.
+    replaced: String,
+    access: String,
+    refresh: String,
+}
+
+static REFRESHED: Mutex<Option<Refreshed>> = Mutex::new(None);
+
+fn refreshed() -> MutexGuard<'static, Option<Refreshed>> {
+    REFRESHED.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    if let Some(tokens) = refreshed_tokens() {
-        return Ok(tokens.access);
-    }
-
-    // Needs no client ID/secret; only `login` and token refresh use those.
-    if let Some(token) = env_nonempty("TICKTICK_ACCESS_TOKEN") {
-        return Ok(token);
-    }
-
-    if let Ok(env) = load_env()
-        && let Some(token) = env.access_token
-    {
-        return Ok(token);
-    }
-
-    // Then check stored config
-    let config = load();
-    config.access_token.ok_or_else(|| {
+    let (source, _) = source_access_token().ok_or_else(|| {
         "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string()
+    })?;
+    Ok(refreshed()
+        .as_ref()
+        .filter(|r| r.replaced == source)
+        .map_or(source, |r| r.access.clone()))
+}
+
+/// What a token refresh starts from. Callers serialize refreshes.
+pub struct RefreshPlan {
+    pub refresh: String,
+    replaced: String,
+    from_env: bool,
+    /// config.json's refresh token when the plan was made.
+    file_refresh: Option<String>,
+}
+
+/// An env access token refreshes only with `TICKTICK_REFRESH_TOKEN`, a
+/// config.json one only with config.json's.
+pub fn plan_refresh() -> Option<RefreshPlan> {
+    let (source, from_env) = source_access_token()?;
+    let file_refresh = if from_env { None } else { load().refresh_token };
+    let remembered = refreshed()
+        .as_ref()
+        .filter(|r| r.replaced == source)
+        .map(|r| r.refresh.clone());
+    let refresh = remembered.or_else(|| {
+        if from_env {
+            env_nonempty("TICKTICK_REFRESH_TOKEN")
+        } else {
+            file_refresh.clone()
+        }
+    })?;
+    Some(RefreshPlan {
+        refresh,
+        replaced: source,
+        from_env,
+        file_refresh,
+    })
+}
+
+/// Store a refresh's tokens and return the access token to use. config.json is
+/// written only if its refresh token is unchanged since `plan`; otherwise
+/// another login happened, and its access token is returned instead.
+pub fn store_refresh(plan: RefreshPlan, access: String, refresh: String) -> Option<String> {
+    if !plan.from_env {
+        match store_refresh_at(&config_path(), &plan, &access, &refresh) {
+            Ok(token) => return token,
+            Err(e) => eprintln!("warning: refreshed token not saved: {e}"),
+        }
+    }
+    *refreshed() = Some(Refreshed {
+        replaced: plan.replaced,
+        access: access.clone(),
+        refresh,
+    });
+    Some(access)
+}
+
+fn store_refresh_at(
+    path: &Path,
+    plan: &RefreshPlan,
+    access: &str,
+    refresh: &str,
+) -> Result<Option<String>, String> {
+    update_if_at(path, |cfg| {
+        if cfg.refresh_token != plan.file_refresh {
+            return (cfg.access_token.clone(), false);
+        }
+        cfg.access_token = Some(access.to_string());
+        cfg.refresh_token = Some(refresh.to_string());
+        (Some(access.to_string()), true)
     })
 }
 
@@ -237,7 +358,7 @@ TICKTICK_CLIENT_SECRET=
 # TICKTICK_OAUTH_PORT=8080
 ";
 
-pub fn init(local: bool, force: bool) -> Result<(), String> {
+pub fn init(local: bool, force: bool) -> Result<PathBuf, String> {
     let path = if local {
         std::env::current_dir()
             .map_err(|e| format!("failed to get current directory: {e}"))?
@@ -265,8 +386,7 @@ pub fn init(local: bool, force: bool) -> Result<(), String> {
     }
 
     eprintln!("Created {}", path.display());
-    crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
-    Ok(())
+    Ok(path)
 }
 
 pub fn get_account_timezone() -> Option<String> {
@@ -277,11 +397,24 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
     update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
+/// With an env access token, the inbox ID is cached per process instead.
+static ENV_INBOX_ID: Mutex<Option<String>> = Mutex::new(None);
+
 pub fn get_inbox_project_id() -> Option<String> {
+    if env_access_token().is_some() {
+        return ENV_INBOX_ID
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+    }
     load().inbox_project_id
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
+    if env_access_token().is_some() {
+        *ENV_INBOX_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+        return Ok(());
+    }
     update(|c| c.inbox_project_id = Some(id.to_string()))
 }
 
@@ -294,7 +427,6 @@ pub fn logout() -> Result<(), String> {
         }
     }
     eprintln!("Logged out");
-    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
 
@@ -326,17 +458,22 @@ pub fn generate_device_id() -> String {
     hex
 }
 
-/// An unsaved ID is still returned when config.json can't be written.
 pub fn get_or_create_device_id() -> String {
-    if let Some(id) = load().v2_device_id {
+    device_id_at(&config_path())
+}
+
+/// When config.json can't be written, one unsaved ID serves the whole process.
+fn device_id_at(path: &Path) -> String {
+    static UNSAVED: OnceLock<String> = OnceLock::new();
+    if let Some(id) = load_from(path).v2_device_id {
         return id;
     }
-    update(|c| {
+    update_at(path, |c| {
         c.v2_device_id
             .get_or_insert_with(generate_device_id)
             .clone()
     })
-    .unwrap_or_else(|_| generate_device_id())
+    .unwrap_or_else(|_| UNSAVED.get_or_init(generate_device_id).clone())
 }
 
 /// Env wins so the long-running MCP server can be fed a fresh cookie.
@@ -425,5 +562,121 @@ mod tests {
             .filter(|n| n != "config.json")
             .collect();
         assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+    }
+
+    #[test]
+    fn update_refuses_to_overwrite_unparsable_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let corrupt = r#"{"access_token": "keep-me", "#;
+        fs::write(&path, corrupt).unwrap();
+
+        let ran = update_at(&path, |c| c.inbox_project_id = Some("x".into()));
+
+        assert!(ran.is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn save_removes_only_stale_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let stale = dir.path().join("config.111.0.tmp");
+        let fresh = dir.path().join("config.222.0.tmp");
+        let unrelated = dir.path().join("other.333.0.tmp");
+        for p in [&stale, &fresh, &unrelated] {
+            fs::write(p, "{}").unwrap();
+        }
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        for p in [&stale, &unrelated] {
+            fs::File::options()
+                .write(true)
+                .open(p)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+
+        save_to(&path, &Config::default()).unwrap();
+
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_config_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save_to(&path, &Config::default()).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn unwritable_config_reuses_one_device_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("not-a-dir");
+        fs::write(&blocker, "").unwrap();
+        let path = blocker.join("config.json");
+
+        let first = device_id_at(&path);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        assert_eq!(device_id_at(&path), first);
+    }
+
+    #[test]
+    fn device_id_is_saved_and_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let first = device_id_at(&path);
+        assert_eq!(load_from(&path).v2_device_id.as_deref(), Some(&*first));
+        assert_eq!(device_id_at(&path), first);
+    }
+
+    fn plan(file_refresh: &str) -> RefreshPlan {
+        RefreshPlan {
+            refresh: file_refresh.into(),
+            replaced: "a0".into(),
+            from_env: false,
+            file_refresh: Some(file_refresh.into()),
+        }
+    }
+
+    #[test]
+    fn refresh_is_saved_while_config_still_holds_the_used_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"access_token":"a0","refresh_token":"r1"}"#).unwrap();
+
+        let token = store_refresh_at(&path, &plan("r1"), "a1", "r2").unwrap();
+
+        assert_eq!(token.as_deref(), Some("a1"));
+        let c = load_from(&path);
+        assert_eq!(c.access_token.as_deref(), Some("a1"));
+        assert_eq!(c.refresh_token.as_deref(), Some("r2"));
+    }
+
+    #[test]
+    fn refresh_yields_to_a_login_that_happened_meanwhile() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let login = r#"{"access_token":"login","refresh_token":"r9"}"#;
+        fs::write(&path, login).unwrap();
+
+        let token = store_refresh_at(&path, &plan("r1"), "a1", "r2").unwrap();
+
+        assert_eq!(token.as_deref(), Some("login"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), login);
+    }
+
+    #[test]
+    fn update_creates_a_missing_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub/config.json");
+        update_at(&path, |c| c.inbox_project_id = Some("inbox1".into())).unwrap();
+        assert_eq!(load_from(&path).inbox_project_id.as_deref(), Some("inbox1"));
     }
 }
