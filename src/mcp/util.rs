@@ -92,40 +92,64 @@ pub fn session_token() -> Result<String, String> {
     })
 }
 
+/// The CLI's 401 hints point at `ticktick-cli login` and config.json, which
+/// MCP users may not have.
+const V1_UNAUTHORIZED: &str = "TickTick access token is invalid or expired. Update \
+     TICKTICK_ACCESS_TOKEN, or set TICKTICK_REFRESH_TOKEN, TICKTICK_CLIENT_ID and \
+     TICKTICK_CLIENT_SECRET so it refreshes automatically.";
+
+/// client.py's `_check_v2_response`.
+const V2_UNAUTHORIZED: &str = "V2 session token is invalid or expired. \
+     Update TICKTICK_V2_SESSION_TOKEN with a fresh 't' cookie from your browser.";
+
+fn v1(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
+    api::request(method, path, &token()?, body).map_err(|e| match *e {
+        ureq::Error::Status(401, _) => V1_UNAUTHORIZED.to_string(),
+        e => api::request_failed(&e),
+    })
+}
+
+fn v2(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
+    api::v2::v2_request(method, path, &session_token()?, body).map_err(|e| match *e {
+        ureq::Error::Status(401, _) => V2_UNAUTHORIZED.to_string(),
+        e => api::v2::v2_request_failed(&e),
+    })
+}
+
 pub fn v1_get(path: &str) -> Result<Value, String> {
-    parse(api::get(path, &token()?)?)
+    parse(v1("GET", path, None)?)
 }
 
 pub fn v1_post(path: &str, body: &Value) -> Result<Value, String> {
-    parse(api::post(path, &token()?, body)?)
+    parse(v1("POST", path, Some(body))?)
 }
 
 pub fn v1_post_empty(path: &str) -> Result<(), String> {
-    api::post_empty(path, &token()?).map(|_| ())
+    v1("POST", path, None).map(|_| ())
 }
 
 pub fn v1_put(path: &str, body: &Value) -> Result<Value, String> {
-    parse(api::put(path, &token()?, body)?)
+    parse(v1("PUT", path, Some(body))?)
 }
 
 pub fn v1_delete(path: &str) -> Result<(), String> {
-    api::delete(path, &token()?).map(|_| ())
+    v1("DELETE", path, None).map(|_| ())
 }
 
 pub fn v1_delete_json(path: &str, body: &Value) -> Result<(), String> {
-    api::delete_json(path, &token()?, body).map(|_| ())
+    v1("DELETE", path, Some(body)).map(|_| ())
 }
 
 pub fn v2_get(path: &str) -> Result<Value, String> {
-    parse(api::v2::v2_get(path, &session_token()?)?)
+    parse(v2("GET", path, None)?)
 }
 
 pub fn v2_post(path: &str, body: &Value) -> Result<Value, String> {
-    parse(api::v2::v2_post(path, &session_token()?, body)?)
+    parse(v2("POST", path, Some(body))?)
 }
 
 pub fn v2_put(path: &str, body: &Value) -> Result<Value, String> {
-    parse(api::v2::v2_put(path, &session_token()?, body)?)
+    parse(v2("PUT", path, Some(body))?)
 }
 
 pub fn as_list(v: Value) -> Vec<Value> {

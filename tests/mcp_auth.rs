@@ -280,9 +280,24 @@ fn v2_forbidden_means_premium_required() {
 }
 
 #[test]
-fn v2_unauthorized_hint_names_the_env_var() {
-    let text = trash_error(401);
-    assert!(text.contains("TICKTICK_V2_SESSION_TOKEN"), "{text}");
+fn v2_unauthorized_matches_python() {
+    // client.py's `_check_v2_response`.
+    assert_eq!(
+        trash_error(401),
+        "V2 session token is invalid or expired. \
+         Update TICKTICK_V2_SESSION_TOKEN with a fresh 't' cookie from your browser."
+    );
+}
+
+#[test]
+fn v1_unauthorized_names_the_env_vars_not_the_cli() {
+    let server = MockServer::start();
+    projects_with(&server, ACCESS_TOKEN, 401);
+    let mut c = McpBuilder::new(&server).start();
+    let res = c.call_tool("list_projects", json!({}));
+    assert!(res.is_error, "{}", res.text);
+    assert!(res.text.contains("TICKTICK_ACCESS_TOKEN"), "{}", res.text);
+    assert!(!res.text.contains("ticktick-cli"), "{}", res.text);
 }
 
 #[test]

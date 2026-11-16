@@ -86,13 +86,14 @@ fn try_refresh_token(failed: &str) -> Option<String> {
 }
 
 /// Send a v1 request, refreshing the token and retrying once on 401. Without a
-/// body the request has no Content-Type.
-fn send(
+/// body the request has no Content-Type. A 401 no refresh fixes stays
+/// `Status(401)`, which the CLI and the MCP server word differently.
+pub(crate) fn request(
     method: &str,
     endpoint: &str,
     token: &str,
     body: Option<&serde_json::Value>,
-) -> Result<ureq::Response, String> {
+) -> Result<ureq::Response, Box<ureq::Error>> {
     let url = format!("{}{endpoint}", base_url());
     if crate::output::verbose() >= 1 {
         eprintln!("> {method} {url}");
@@ -110,13 +111,28 @@ fn send(
         .map_err(Box::new)
     };
     match call(token) {
-        Ok(resp) => Ok(resp),
         Err(e) if matches!(*e, ureq::Error::Status(401, _)) => match try_refresh_token(token) {
-            Some(new_token) => call(&new_token).map_err(|e| format!("API request failed: {e}")),
-            None => Err(config::expired_token_error()),
+            Some(new_token) => call(&new_token),
+            None => Err(e),
         },
-        Err(e) => Err(format!("API request failed: {e}")),
+        result => result,
     }
+}
+
+pub(crate) fn request_failed(e: &ureq::Error) -> String {
+    format!("API request failed: {e}")
+}
+
+fn send(
+    method: &str,
+    endpoint: &str,
+    token: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<ureq::Response, String> {
+    request(method, endpoint, token, body).map_err(|e| match *e {
+        ureq::Error::Status(401, _) => config::expired_token_error(),
+        e => request_failed(&e),
+    })
 }
 
 pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
