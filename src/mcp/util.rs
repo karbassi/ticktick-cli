@@ -283,20 +283,9 @@ pub fn resolve_folder_id(folder: &str) -> Result<(String, String), String> {
 
 pub use api::task::{ParsedDateTime, parse_datetime, parse_duration};
 
-/// Reject a timezone name the system does not know, instead of silently
-/// formatting the date in UTC.
+/// Reject a name that is not a tz database zone (paths included).
 pub fn check_timezone(tz: &str) -> Result<(), String> {
-    let known = tz == "UTC"
-        || (!tz.contains('\0')
-            && !tz.contains("..")
-            && std::path::Path::new("/usr/share/zoneinfo")
-                .join(tz)
-                .is_file());
-    if known {
-        Ok(())
-    } else {
-        Err(format!("Unknown timezone '{tz}'"))
-    }
+    api::task::time_zone(Some(tz)).map(|_| ())
 }
 
 /// Format a parsed date for the API with a UTC offset. The offset comes from
@@ -408,7 +397,19 @@ mod tests {
     fn timezone_check() {
         assert!(check_timezone("America/Chicago").is_ok());
         assert!(check_timezone("UTC").is_ok());
-        assert!(check_timezone("Mars/Olympus").is_err());
-        assert!(check_timezone("../etc/passwd").is_err());
+        assert!(check_timezone("Asia/Kolkata").is_ok());
+        for bad in [
+            "Mars/Olympus",
+            "../etc/passwd",
+            "/etc/hosts",
+            "/usr/share/zoneinfo/America/Chicago",
+            "America/../Europe/London",
+            "",
+        ] {
+            assert_eq!(
+                check_timezone(bad),
+                Err(format!("Unknown timezone '{bad}'"))
+            );
+        }
     }
 }

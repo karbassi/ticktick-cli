@@ -250,6 +250,25 @@ fn add_task_rejects_bad_input_as_tool_errors() {
     assert!(res.is_error, "{}", res.text);
 }
 
+#[test]
+fn add_task_rejects_timezone_paths() {
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    for tz in ["/etc/hosts", "../../etc/hosts", "America/../Europe/London"] {
+        let res = c.call_tool(
+            "add_task",
+            json!({"title": "x", "due": "2027-03-01T10:00", "timezone": tz}),
+        );
+        assert!(res.is_error, "{tz}: {}", res.text);
+        assert_eq!(res.text, format!("Unknown timezone '{tz}'"));
+    }
+    create.assert_calls(0);
+}
+
 // ---------------------------------------------------------------------------
 // edit_task
 // ---------------------------------------------------------------------------
