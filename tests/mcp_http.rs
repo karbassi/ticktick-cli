@@ -102,6 +102,31 @@ fn sigterm_and_sigint_shut_down_with_an_sse_stream_open() {
 }
 
 #[test]
+fn idle_session_expires_after_the_env_timeout() {
+    let server = HttpServer::start(&[], &[("TICKTICK_MCP_SESSION_TIMEOUT", "1")]);
+    let session = server.session();
+    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
+    let live = http_post(server.port, &server.host(), Some(&session), &list);
+    assert_eq!(live.status, 200, "{live:?}");
+    std::thread::sleep(Duration::from_millis(2500));
+    let gone = http_post(server.port, &server.host(), Some(&session), &list);
+    assert_eq!(gone.status, 404, "{gone:?}");
+}
+
+#[test]
+fn bad_session_timeout_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = isolated_command(dir.path())
+        .args(["mcp", "--http", "--port", "0"])
+        .env("TICKTICK_MCP_SESSION_TIMEOUT", "soon")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("TICKTICK_MCP_SESSION_TIMEOUT"), "{stderr}");
+}
+
+#[test]
 fn http_transport_and_port_from_env() {
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = isolated_command(dir.path());

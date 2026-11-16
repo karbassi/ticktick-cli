@@ -206,6 +206,24 @@ fn env_json_list(name: &str) -> Result<Vec<String>, String> {
     }
 }
 
+/// Idle time before a session is dropped. rmcp defaults to 300s; the Python
+/// server allowed 1800s.
+fn session_timeout() -> Result<Duration, String> {
+    match env_var("TICKTICK_MCP_SESSION_TIMEOUT") {
+        None => Ok(Duration::from_secs(1800)),
+        Some(s) => s
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(Duration::from_secs)
+            .ok_or_else(|| {
+                format!(
+                    "TICKTICK_MCP_SESSION_TIMEOUT must be a positive number of seconds, got '{s}'"
+                )
+            }),
+    }
+}
+
 /// Logs go to stderr only: stdout carries the stdio transport.
 pub fn run(opts: McpOptions) -> Result<(), String> {
     let transport = transport(opts)?;
@@ -269,12 +287,11 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
         .with_allowed_hosts(hosts)
         .with_allowed_origins(origins);
     let cancel = config.cancellation_token.clone();
+    let mut sessions = LocalSessionManager::default();
+    sessions.session_config.keep_alive = Some(session_timeout()?);
     let server = TickTickServer::new();
-    let service = StreamableHttpService::new(
-        move || Ok(server.clone()),
-        Arc::new(LocalSessionManager::default()),
-        config,
-    );
+    let service =
+        StreamableHttpService::new(move || Ok(server.clone()), Arc::new(sessions), config);
     let app = axum::Router::new().nest_service("/mcp", service);
 
     let mut sigterm = signal(SignalKind::terminate())
