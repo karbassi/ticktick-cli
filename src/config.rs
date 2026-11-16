@@ -155,7 +155,7 @@ fn load_strict(path: &Path) -> Result<Config, String> {
     match fs::read_to_string(path) {
         Ok(s) => serde_json::from_str(&s).map_err(|e| {
             format!(
-                "{} is not valid config JSON: {e}\n\n  hint: Fix or delete the file",
+                "{} is not valid config JSON: {e}\n\n  hint: Fix it, or run 'ticktick-cli logout' to delete it",
                 path.display()
             )
         }),
