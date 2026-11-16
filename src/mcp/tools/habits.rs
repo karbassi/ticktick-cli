@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::mcp::TickTickServer;
-use crate::mcp::util::{self, ToolResult, looks_like_id, nonempty, resolve_name_with_etag, run};
+use crate::mcp::util::{self, ToolResult, nonempty, resolve_name_with_etag, run};
 
 fn default_habit_type() -> String {
     "Boolean".to_string()
@@ -33,61 +33,12 @@ fn resolve_habits(names: &[String]) -> Result<Vec<(String, String)>, String> {
 /// Python `_resolve_section`; like Python, always fetches the sections first.
 fn resolve_section(name_or_id: &str) -> Result<String, String> {
     let sections = util::as_list(util::v1_get("/habit/sections")?);
-    let id_of = |s: &Value| s["id"].as_str().unwrap_or("").to_string();
-    let name_of = |s: &Value| s["name"].as_str().unwrap_or("").to_string();
-
-    if looks_like_id(name_or_id) {
-        return Ok(name_or_id.to_string());
-    }
-
-    let search = name_or_id.to_lowercase();
-    if let Some(s) = sections
-        .iter()
-        .find(|s| name_of(s).to_lowercase() == search)
-    {
-        return Ok(id_of(s));
-    }
-    let matches: Vec<&Value> = sections
-        .iter()
-        .filter(|s| name_of(s).to_lowercase().contains(&search))
-        .collect();
-    match matches.len() {
-        1 => Ok(id_of(matches[0])),
-        0 => Err(format!("No habit section found matching '{name_or_id}'")),
-        _ => {
-            let names: Vec<String> = matches.iter().map(|s| name_of(s)).collect();
-            Err(format!(
-                "Multiple sections match '{name_or_id}': {}",
-                names.join(", ")
-            ))
-        }
-    }
-}
-
-/// Python `date_to_stamp`.
-fn date_to_stamp(input: &str) -> Result<i64, String> {
-    let s = input.trim().to_lowercase();
-    if s == "today" || s == "yesterday" {
-        return crate::api::habit::date_to_stamp(&s);
-    }
-    let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 3 {
-        return Err(format!(
-            "Invalid date '{input}': expected YYYY-MM-DD, 'today', or 'yesterday'"
-        ));
-    }
-    let nums: Result<Vec<i64>, _> = parts.iter().map(|p| p.trim().parse::<i64>()).collect();
-    let Ok(nums) = nums else {
-        return Err(format!("Invalid date '{input}': non-numeric components"));
-    };
-    let (year, month, day) = (nums[0], nums[1], nums[2]);
-    if !(1..=12).contains(&month) {
-        return Err(format!("Month out of range in '{input}'"));
-    }
-    if !(1..=31).contains(&day) {
-        return Err(format!("Day out of range in '{input}'"));
-    }
-    Ok(year * 10000 + month * 100 + day)
+    util::resolve_name_with(
+        name_or_id,
+        &sections,
+        |query, _| format!("No habit section found matching '{query}'"),
+        |query, names| format!("Multiple sections match '{query}': {}", names.join(", ")),
+    )
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -312,7 +263,7 @@ impl TickTickServer {
     async fn checkin_habit(&self, Parameters(p): Parameters<CheckinHabitParams>) -> ToolResult {
         run(move || {
             let (id, _) = resolve_habit(&p.habit)?;
-            let stamp = date_to_stamp(&p.date)?;
+            let stamp = crate::api::habit::date_to_stamp(&p.date)?;
             util::v2_post(
                 "/habitCheckins/batch",
                 &json!({
@@ -343,7 +294,7 @@ impl TickTickServer {
                 .into_iter()
                 .map(|(id, _)| id)
                 .collect();
-            let stamp = date_to_stamp(&p.after)?;
+            let stamp = crate::api::habit::date_to_stamp(&p.after)?;
             util::v2_post(
                 "/habitCheckins/query",
                 &json!({ "habitIds": ids, "afterStamp": stamp }),
