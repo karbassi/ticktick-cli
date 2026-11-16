@@ -479,3 +479,63 @@ fn expired_env_token_hint_names_the_env_vars_not_login() {
     assert!(err.contains("could not refresh it"), "{err}");
     assert!(!err.contains("login"), "{err}");
 }
+
+#[test]
+fn login_clears_the_previous_accounts_inbox_and_timezone() {
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/oauth/token")
+            .body_includes("grant_type=authorization_code&code=c1&");
+        then.status(200)
+            .json_body(json!({"access_token": "new", "refresh_token": "new-r"}));
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    common::write_config(
+        tmp.path(),
+        &json!({
+            "access_token": "old",
+            "refresh_token": "old-r",
+            "inbox_project_id": "inboxOld",
+            "account_timezone": "Europe/London",
+            "v2_device_id": "dev1",
+        }),
+    );
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut login = common::isolated_command(tmp.path())
+        .env("TICKTICK_CLIENT_ID", "cid")
+        .env("TICKTICK_CLIENT_SECRET", "sec")
+        .env("TICKTICK_OAUTH_TOKEN_URL", server.url("/oauth/token"))
+        .env("TICKTICK_OAUTH_PORT", port.to_string())
+        .arg("login")
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let started = Instant::now();
+    let mut callback = loop {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(s) => break s,
+            Err(_) if started.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            Err(e) => panic!("login never listened: {e}"),
+        }
+    };
+    callback
+        .write_all(b"GET /callback?code=c1&state=x HTTP/1.1\r\n\r\n")
+        .unwrap();
+    assert!(login.wait().unwrap().success());
+
+    assert_eq!(
+        read_config(&tmp),
+        json!({"access_token": "new", "refresh_token": "new-r", "v2_device_id": "dev1"})
+    );
+}

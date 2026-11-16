@@ -39,6 +39,9 @@ pub fn login() -> Result<(), String> {
     config::update(|cfg| {
         cfg.access_token = Some(token.access_token);
         cfg.refresh_token = token.refresh_token;
+        // They may belong to the account logged in before.
+        cfg.inbox_project_id = None;
+        cfg.account_timezone = None;
     })?;
 
     eprintln!("Successfully authenticated!");

@@ -2,7 +2,6 @@
 //! output and errors match it.
 
 use std::io::Read;
-use std::sync::{Mutex, OnceLock};
 
 use jiff::tz::TimeZone;
 use rmcp::ErrorData;
@@ -265,21 +264,10 @@ pub fn resolve_name_with_etag(
         .map(|i| (field(i, "id").to_string(), field(i, "etag").to_string()))
 }
 
-/// Discovered by creating and deleting a probe task, so cached per process.
-/// Discovery is serialized so concurrent callers don't each create a probe.
+/// Read from the token source's cache each time, so a new login or env token
+/// is never served the previous account's inbox.
 pub fn inbox_id() -> Result<String, String> {
-    static INBOX: OnceLock<String> = OnceLock::new();
-    static DISCOVERING: Mutex<()> = Mutex::new(());
-    if let Some(id) = INBOX.get() {
-        return Ok(id.clone());
-    }
-    let _discovering = DISCOVERING.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(id) = INBOX.get() {
-        return Ok(id.clone());
-    }
-    let id = api::project::get_inbox_id()
-        .map_err(|e| format!("Could not discover inbox project ID: {e}"))?;
-    Ok(INBOX.get_or_init(|| id).clone())
+    api::project::get_inbox_id().map_err(|e| format!("Could not discover inbox project ID: {e}"))
 }
 
 /// The ID for `project` when it needs no `/project` lookup.

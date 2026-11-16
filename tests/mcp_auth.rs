@@ -222,6 +222,41 @@ fn env_access_token_probes_the_inbox_instead_of_using_config() {
     assert_eq!(env_inboxes, [&json!("inbox123")]);
 }
 
+#[test]
+fn inbox_is_rediscovered_after_config_switches_accounts() {
+    let server = MockServer::start();
+    let cfg = ConfigDir::new(&json!({"access_token": "a", "inbox_project_id": "inboxA"}));
+    let inbox_a = server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inboxA/data"));
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let probe_b = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task"))
+            .header("Authorization", "Bearer b");
+        then.status(200)
+            .json_body(json!({"id": "probe", "title": "__inbox_probe__", "projectId": "inboxB"}));
+    });
+    server.mock(|when, then| {
+        when.method(DELETE).path(v1("/project/inboxB/task/probe"));
+        then.status(200);
+    });
+    let inbox_b = server.mock(|when, then| {
+        when.method(GET).path(v1("/project/inboxB/data"));
+        then.status(200).json_body(json!({"tasks": []}));
+    });
+    let mut c = config_tokens(&server, &cfg).start();
+
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+    // `ticktick-cli login` to account B in another process.
+    cfg.write(&json!({"access_token": "b"}));
+    c.call_tool("list_tasks", json!({"project": "inbox"})).ok();
+
+    inbox_a.assert_calls(1);
+    probe_b.assert_calls(1);
+    inbox_b.assert_calls(1);
+}
+
 fn trash_error(status: u16) -> String {
     let server = MockServer::start();
     server.mock(|when, then| {
