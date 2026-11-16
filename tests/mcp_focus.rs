@@ -459,3 +459,33 @@ fn save_rejects_invalid_end() {
     }
     save.assert_calls(0);
 }
+
+#[test]
+fn log_today_is_taken_in_ticktick_timezone() {
+    // Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+    let zone = jiff::tz::TimeZone::get("Pacific/Kiritimati").unwrap();
+    let today = jiff::Timestamp::now().to_zoned_datetime(zone).date();
+    let server = MockServer::start();
+    let mut mocks = Vec::new();
+    for focus_type in [0u8, 1] {
+        mocks.push(focus_chunk(
+            &server,
+            &format!("{today}T00:00:00.000+0000"),
+            &format!("{today}T23:59:59.999+0000"),
+            focus_type,
+            json!([]),
+        ));
+    }
+    let mut mcp = McpBuilder::new(&server)
+        .env("TZ", "Pacific/Pago_Pago")
+        .env("TICKTICK_TIMEZONE", "Pacific/Kiritimati")
+        .start();
+    mcp.call_tool(
+        "focus_log",
+        json!({"from_date": "today", "to_date": "today"}),
+    )
+    .ok();
+    for m in &mocks {
+        m.assert();
+    }
+}

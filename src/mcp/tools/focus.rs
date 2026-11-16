@@ -237,14 +237,14 @@ fn to_iso(ms: i64) -> Result<String, String> {
 /// Python `date_to_epoch_ms`; midnight UTC.
 fn date_to_epoch_ms(input: &str) -> Result<i64, String> {
     let s = input.trim().to_lowercase();
-    let today = || {
-        Timestamp::now()
-            .to_zoned_datetime(crate::api::task::system_zone())
-            .date()
+    let today = || -> Result<Date, String> {
+        Ok(Timestamp::now()
+            .to_zoned_datetime(crate::mcp::util::local_zone()?)
+            .date())
     };
     let date = match s.as_str() {
-        "today" => today(),
-        "yesterday" => today().yesterday().map_err(|e| e.to_string())?,
+        "today" => today()?,
+        "yesterday" => today()?.yesterday().map_err(|e| e.to_string())?,
         _ => parse_date(&s).ok_or_else(|| format!("Invalid date '{input}'"))??,
     };
     let midnight = TimeZone::UTC
