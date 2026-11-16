@@ -1545,24 +1545,8 @@ fn add_dry_run_explicit_reminder_wins() {
     assert_eq!(v["reminders"], serde_json::json!(["TRIGGER:-PT15M"]));
 }
 
-/// Only discriminates on a host whose `/etc/localtime` is not UTC.
 #[test]
-fn empty_tz_falls_back_to_etc_localtime() {
-    let Ok(target) = fs::read_link("/etc/localtime") else {
-        return;
-    };
-    let target = target.to_string_lossy().to_string();
-    let Some(idx) = target.find("zoneinfo/") else {
-        return;
-    };
-    let zone = jiff::tz::TimeZone::get(&target[idx + "zoneinfo/".len()..]).unwrap();
-    let expected = jiff::civil::date(2027, 7, 1)
-        .at(10, 0, 0, 0)
-        .to_zoned_datetime(zone)
-        .unwrap()
-        .strftime("%Y-%m-%dT%H:%M:%S.000%z")
-        .to_string();
-
+fn empty_tz_is_utc_like_libc_and_python() {
     let output = cmd()
         .env("TZ", "")
         .args(["task", "add", "--dry-run", "x", "--due", "2027-07-01T10:00"])
@@ -1570,7 +1554,7 @@ fn empty_tz_falls_back_to_etc_localtime() {
         .unwrap();
     assert!(output.status.success());
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(v["dueDate"], expected);
+    assert_eq!(v["dueDate"], "2027-07-01T10:00:00.000+0000");
 }
 
 #[test]

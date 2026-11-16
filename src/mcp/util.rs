@@ -1,7 +1,9 @@
 //! Mirrors the Python server's `client.py`, `resolve.py` and `dates.py` so tool
 //! output and errors match it.
 
+use std::cell::RefCell;
 use std::io::Read;
+use std::sync::Arc;
 
 use jiff::tz::TimeZone;
 use rmcp::ErrorData;
@@ -31,13 +33,69 @@ impl From<String> for Output {
     }
 }
 
+/// Whether the current request was cancelled. A closure because rmcp's
+/// `CancellationToken` type isn't exported.
+type IsCancelled = Arc<dyn Fn() -> bool + Send + Sync>;
+
+tokio::task_local! {
+    static REQUEST_CANCELLED: IsCancelled;
+}
+
+thread_local! {
+    static BLOCKING_CANCELLED: RefCell<Option<IsCancelled>> = const { RefCell::new(None) };
+}
+
+/// Runs `fut` with `is_cancelled` visible to the blocking bodies it starts
+/// through [`run`] and [`blocking`], whose API helpers check it before each request.
+pub async fn cancellable<T>(
+    is_cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    fut: impl Future<Output = T>,
+) -> T {
+    REQUEST_CANCELLED.scope(Arc::new(is_cancelled), fut).await
+}
+
+/// Pool threads are reused, so the previous value is restored on drop, panics included.
+struct InstallCancelled(Option<IsCancelled>);
+
+impl InstallCancelled {
+    fn new(check: Option<IsCancelled>) -> Self {
+        Self(BLOCKING_CANCELLED.replace(check))
+    }
+}
+
+impl Drop for InstallCancelled {
+    fn drop(&mut self) {
+        BLOCKING_CANCELLED.set(self.0.take());
+    }
+}
+
+fn spawn_blocking<F, T>(f: F) -> tokio::task::JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let check = REQUEST_CANCELLED.try_with(Arc::clone).ok();
+    tokio::task::spawn_blocking(move || {
+        let _installed = InstallCancelled::new(check);
+        f()
+    })
+}
+
+fn check_cancelled() -> Result<(), String> {
+    if BLOCKING_CANCELLED.with_borrow(|c| c.as_ref().is_some_and(|f| f())) {
+        Err("cancelled".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// Panics also become `isError` results.
 pub async fn run<F, O>(f: F) -> ToolResult
 where
     F: FnOnce() -> Result<O, String> + Send + 'static,
     O: Into<Output> + Send + 'static,
 {
-    Ok(match tokio::task::spawn_blocking(f).await {
+    Ok(match spawn_blocking(f).await {
         Ok(Ok(out)) => success(out.into()),
         Ok(Err(msg)) => tool_error(msg),
         Err(e) => tool_error(format!("internal error: {e}")),
@@ -49,7 +107,7 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
+    spawn_blocking(f)
         .await
         .map_err(|e| format!("internal error: {e}"))?
 }
@@ -110,10 +168,12 @@ fn v1_error(e: Box<ureq::Error>) -> String {
 }
 
 fn v1(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
+    check_cancelled()?;
     api::request(method, path, &token()?, body).map_err(v1_error)
 }
 
 fn v2(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
+    check_cancelled()?;
     api::v2::v2_request(method, path, &session_token()?, body).map_err(|e| match *e {
         ureq::Error::Status(401, _) => V2_UNAUTHORIZED.to_string(),
         e => api::v2::v2_request_failed(&e),

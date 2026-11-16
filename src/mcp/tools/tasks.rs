@@ -94,7 +94,7 @@ pub struct AddTaskParams {
     /// Whether this is an all-day task. Auto-detected from date format.
     #[serde(default)]
     pub all_day: Option<bool>,
-    /// IANA timezone name (e.g. "America/Chicago"). Defaults to the TickTick account timezone if known, else the system timezone.
+    /// IANA timezone name (e.g. "America/Chicago"). Defaults to TICKTICK_TIMEZONE if set, else the system timezone.
     #[serde(default)]
     pub timezone: Option<String>,
     /// Kanban column name or ID to put the task in. Requires project.
