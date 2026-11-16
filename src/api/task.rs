@@ -1,6 +1,7 @@
 use jiff::civil::DateTime;
 use jiff::tz::{AmbiguousOffset, TimeZone};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -704,45 +705,58 @@ fn complete_tasks_body(project_id: &str, task_ids: &[String]) -> serde_json::Val
     serde_json::json!({ "projectId": project_id, "taskIds": task_ids })
 }
 
-/// Complete tasks with the batch endpoint, 50 per request.
-///
-/// Returns one result per input ID (duplicates removed, order kept): `Ok(())` when the
-/// endpoint reported the ID as completed, otherwise an error. The endpoint returns only
-/// the IDs it completed, so unknown IDs come back as errors.
-pub fn complete_many(
-    token: &str,
-    project_id: &str,
-    task_ids: &[String],
-) -> Vec<(String, Result<(), String>)> {
-    let mut seen = std::collections::HashSet::new();
+/// One `completeTasks` request: its IDs, and the IDs the endpoint reported
+/// completed or the request's error.
+pub struct CompleteChunk {
+    pub ids: Vec<String>,
+    pub completed: Result<HashSet<String>, String>,
+}
+
+/// Complete tasks with the batch endpoint, 50 per request, duplicates removed
+/// and order kept. A failed request doesn't stop the later ones.
+pub fn complete_chunks(token: &str, project_id: &str, task_ids: &[String]) -> Vec<CompleteChunk> {
+    let mut seen = HashSet::new();
     let ids: Vec<String> = task_ids
         .iter()
         .filter(|id| seen.insert(id.as_str()))
         .cloned()
         .collect();
-    let mut out = Vec::with_capacity(ids.len());
-    for chunk in ids.chunks(COMPLETE_BATCH_SIZE) {
-        let body = complete_tasks_body(project_id, chunk);
-        let completed = super::post("/task/completeTasks", token, &body).and_then(|resp| {
-            resp.into_json::<Vec<String>>()
-                .map_err(|e| format!("failed to parse completeTasks response: {e}"))
-        });
-        match completed {
-            Ok(done) => {
-                let done: std::collections::HashSet<String> = done.into_iter().collect();
-                for id in chunk {
-                    let r = if done.contains(id) {
-                        Ok(())
-                    } else {
-                        Err("not completed (task not found in project?)".to_string())
-                    };
-                    out.push((id.clone(), r));
-                }
+    ids.chunks(COMPLETE_BATCH_SIZE)
+        .map(|chunk| {
+            let body = complete_tasks_body(project_id, chunk);
+            let completed = super::post("/task/completeTasks", token, &body).and_then(|resp| {
+                resp.into_json::<Vec<String>>()
+                    .map(|done| done.into_iter().collect())
+                    .map_err(|e| format!("failed to parse completeTasks response: {e}"))
+            });
+            CompleteChunk {
+                ids: chunk.to_vec(),
+                completed,
             }
-            Err(e) => out.extend(chunk.iter().map(|id| (id.clone(), Err(e.clone())))),
-        }
-    }
-    out
+        })
+        .collect()
+}
+
+/// [`complete_chunks`] as one result per ID. The endpoint returns only the IDs
+/// it completed, so unknown IDs come back as errors.
+pub fn complete_many(
+    token: &str,
+    project_id: &str,
+    task_ids: &[String],
+) -> Vec<(String, Result<(), String>)> {
+    complete_chunks(token, project_id, task_ids)
+        .into_iter()
+        .flat_map(|CompleteChunk { ids, completed }| {
+            ids.into_iter().map(move |id| {
+                let r = match &completed {
+                    Ok(done) if done.contains(&id) => Ok(()),
+                    Ok(_) => Err("not completed (task not found in project?)".to_string()),
+                    Err(e) => Err(e.clone()),
+                };
+                (id, r)
+            })
+        })
+        .collect()
 }
 
 pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {

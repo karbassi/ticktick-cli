@@ -397,7 +397,7 @@ fn complete_task_batch_dedupes_chunks_and_reports_failures() {
 }
 
 #[test]
-fn complete_task_chunk_failure_reports_progress_and_stops() {
+fn complete_task_chunk_failure_reports_it_and_continues() {
     let server = MockServer::start();
     let ids: Vec<String> = (0..120).map(|i| format!("t{i}")).collect();
     let first = server.mock(|when, then| {
@@ -430,14 +430,34 @@ fn complete_task_chunk_failure_reports_progress_and_stops() {
     );
     first.assert();
     second.assert();
-    third.assert_calls(0);
-    assert!(res.is_error);
-    assert!(
-        res.text
-            .starts_with("Completed 49 of 120 tasks; chunk 2 of 3 failed: "),
-        "{}",
-        res.text
+    third.assert();
+    assert!(!res.is_error);
+    let not_completed: Vec<String> = std::iter::once("t7".to_string())
+        .chain(ids[50..100].iter().cloned())
+        .collect();
+    let prefix = format!(
+        "Completed 69 of 120 tasks; not completed: {}; chunk 2 failed: ",
+        not_completed.join(", ")
     );
+    assert!(res.text.starts_with(&prefix), "{}", res.text);
+    assert!(res.text.contains("500"), "{}", res.text);
+}
+
+#[test]
+fn complete_task_is_an_error_when_nothing_completed() {
+    let server = MockServer::start();
+    let batch = server.mock(|when, then| {
+        when.method(POST).path(v1("/task/completeTasks"));
+        then.status(200).json_body(json!([]));
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "complete_task",
+        json!({"project": HEX_PROJECT, "task_ids": ["a", "b"]}),
+    );
+    batch.assert();
+    assert!(res.is_error);
+    assert_eq!(res.text, "Completed 0 of 2 tasks; not completed: a, b");
 }
 
 #[test]

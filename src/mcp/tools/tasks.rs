@@ -7,10 +7,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::api::task::{
-    COMPLETE_BATCH_SIZE, ChecklistItem, DEFAULT_ALL_DAY_REMINDER, DEFAULT_TIMED_REMINDER,
-    DateField, TaskFields, TaskMove, assign_body, unassign_body,
+    ChecklistItem, DEFAULT_ALL_DAY_REMINDER, DEFAULT_TIMED_REMINDER, DateField, TaskFields,
+    TaskMove, assign_body, complete_chunks, unassign_body,
 };
 use crate::api::v2::TaskParent;
+use crate::config;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{
     self, ToolResult, api_date, as_list, check_timezone, nonempty, parse_datetime, parse_duration,
@@ -403,42 +404,30 @@ fn complete_task(p: CompleteTaskParams) -> Result<String, String> {
         util::v1_post_empty(&format!("/project/{pid}/task/{}/complete", ids[0]))?;
         return Ok(format!("Task {} completed", ids[0]));
     }
-    let mut done = std::collections::HashSet::new();
-    let chunks = ids.chunks(COMPLETE_BATCH_SIZE);
-    let total_chunks = chunks.len();
-    for (i, chunk) in chunks.enumerate() {
-        let result = util::v1_post(
-            "/task/completeTasks",
-            &json!({ "projectId": pid, "taskIds": chunk }),
-        )
-        .map_err(|e| {
-            format!(
-                "Completed {} of {} tasks; chunk {} of {total_chunks} failed: {e}",
-                done.len(),
-                ids.len(),
-                i + 1
-            )
-        })?;
-        for id in as_list(result) {
-            if let Value::String(id) = id {
-                done.insert(id);
+    let chunks = complete_chunks(&config::get_access_token()?, &pid, &ids);
+    let mut not_completed: Vec<&String> = Vec::new();
+    let mut chunk_errors = Vec::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        match &chunk.completed {
+            Ok(completed) => {
+                not_completed.extend(chunk.ids.iter().filter(|id| !completed.contains(*id)));
+            }
+            Err(e) => {
+                not_completed.extend(&chunk.ids);
+                chunk_errors.push(format!("chunk {} failed: {e}", i + 1));
             }
         }
     }
-    let failed: Vec<&str> = ids
-        .iter()
-        .filter(|id| !done.contains(*id))
-        .map(String::as_str)
-        .collect();
-    let mut msg = format!(
-        "Completed {} of {} tasks",
-        ids.len() - failed.len(),
-        ids.len()
-    );
-    if !failed.is_empty() {
-        msg.push_str(&format!("; not completed: {}", failed.join(", ")));
+    let done = ids.len() - not_completed.len();
+    let mut msg = format!("Completed {done} of {} tasks", ids.len());
+    if !not_completed.is_empty() {
+        let ids: Vec<&str> = not_completed.iter().map(|id| id.as_str()).collect();
+        msg.push_str(&format!("; not completed: {}", ids.join(", ")));
     }
-    Ok(msg)
+    for e in chunk_errors {
+        msg.push_str(&format!("; {e}"));
+    }
+    if done == 0 { Err(msg) } else { Ok(msg) }
 }
 
 fn status_code(err: &str) -> Option<u16> {
