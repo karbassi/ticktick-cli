@@ -59,10 +59,9 @@ fn dirs_home() -> PathBuf {
 }
 
 pub fn load_env() -> Result<Env, String> {
-    // First try environment variables
-    let mut client_id = std::env::var("TICKTICK_CLIENT_ID").ok();
-    let mut client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok();
-    let mut access_token = std::env::var("TICKTICK_ACCESS_TOKEN").ok();
+    let mut client_id = env_nonempty("TICKTICK_CLIENT_ID");
+    let mut client_secret = env_nonempty("TICKTICK_CLIENT_SECRET");
+    let mut access_token = env_nonempty("TICKTICK_ACCESS_TOKEN");
 
     // Fall back to .env file for any missing values
     if (client_id.is_none() || client_secret.is_none())
@@ -74,7 +73,10 @@ pub fn load_env() -> Result<Env, String> {
                 continue;
             }
             if let Some((key, value)) = line.split_once('=') {
-                let value = value.trim().trim_matches('"').trim_matches('\'');
+                let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+                if value.is_empty() {
+                    continue;
+                }
                 match key.trim() {
                     "TICKTICK_CLIENT_ID" if client_id.is_none() => {
                         client_id = Some(value.to_string())

@@ -34,6 +34,34 @@ fn api_base_env_redirects_v1_calls() {
     tags.assert();
 }
 
+fn write_config(tmp: &tempfile::TempDir, json: &str) {
+    let dir = tmp.path().join("ticktick-cli");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("config.json"), json).unwrap();
+}
+
+#[test]
+fn blank_access_token_env_falls_back_to_config() {
+    let server = MockServer::start();
+    let tags = server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/tag")
+            .header("Authorization", "Bearer file-token");
+        then.status(200).json_body(serde_json::json!([]));
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    write_config(&tmp, r#"{"access_token":"file-token","refresh_token":null}"#);
+    isolated(&tmp)
+        .env("TICKTICK_ACCESS_TOKEN", "  ")
+        .env("TICKTICK_CLIENT_ID", "cid")
+        .env("TICKTICK_CLIENT_SECRET", "sec")
+        .env("TICKTICK_API_BASE", server.url("/open/v1"))
+        .args(["tag", "list"])
+        .assert()
+        .success();
+    tags.assert();
+}
+
 #[test]
 fn v2_session_token_env_wins_over_config() {
     let server = MockServer::start();
