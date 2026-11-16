@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktick-cli mcp` runs an MCP server over stdio (default) or streamable HTTP (`--http`, `--host`, `--port`; serves `/mcp`). It is a drop-in replacement for the Python `ticktick-mcp` server: tool names, parameter names, required parameters and JSON types match, checked by `tests/mcp_contract.rs` against the Python server's tool list. This release ports the task tools (`list_tasks`, `get_task`, `add_task`, `edit_task`, `complete_task`, `delete_task`, `move_task`, `assign_task`, `unassign_task`, `set_subtask`, `unparent_task`, `list_trash`), the project and tag tools, `sync_account`, and the `ticktick://projects`, `tags`, `settings` and `profile` resources. The remaining tools are listed in `PENDING_TOOLS`.
+- The HTTP transport binds loopback only, because it has no auth. It checks `Host` and `Origin` against loopback on its port plus `FASTMCP_HTTP_ALLOWED_HOSTS` and `FASTMCP_HTTP_ALLOWED_ORIGINS` (JSON arrays). Env fallbacks: `TICKTICK_MCP_TRANSPORT`, `TICKTICK_MCP_HOST`, `TICKTICK_MCP_PORT`.
+- `TICKTICK_API_BASE`, `TICKTICK_V2_BASE`, `TICKTICK_MS_BASE` and `TICKTICK_OAUTH_TOKEN_URL` override the API endpoints, for tests against a mock server. Defaults are unchanged.
+
+### Changed
+
+- `TICKTICK_V2_SESSION_TOKEN` in the environment now wins over `v2_session_token` in config.json.
+- `TICKTICK_ACCESS_TOKEN` in the environment is now used on its own. Before, it was ignored unless `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET` were also set.
+
 ## [1.0.0-rc.3]
 
 ### Added
