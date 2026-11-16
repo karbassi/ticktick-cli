@@ -290,6 +290,21 @@ fn v2_unauthorized_matches_python() {
 }
 
 #[test]
+fn inbox_probe_unauthorized_is_worded_for_mcp() {
+    let server = MockServer::start();
+    let cfg = ConfigDir::new(&json!({"access_token": "a0"}));
+    server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(401);
+    });
+    let mut c = config_tokens(&server, &cfg).start();
+    let res = c.call_tool("add_task", json!({"title": "x", "project": "inbox"}));
+    assert!(res.is_error, "{}", res.text);
+    assert!(res.text.contains("TICKTICK_ACCESS_TOKEN"), "{}", res.text);
+    assert!(!res.text.contains("ticktick-cli"), "{}", res.text);
+}
+
+#[test]
 fn v1_unauthorized_names_the_env_vars_not_the_cli() {
     let server = MockServer::start();
     projects_with(&server, ACCESS_TOKEN, 401);

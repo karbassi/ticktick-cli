@@ -123,16 +123,21 @@ pub(crate) fn request_failed(e: &ureq::Error) -> String {
     format!("API request failed: {e}")
 }
 
+/// The CLI's wording of a [`request`] error.
+pub(crate) fn cli_error(e: Box<ureq::Error>) -> String {
+    match *e {
+        ureq::Error::Status(401, _) => config::expired_token_error(),
+        e => request_failed(&e),
+    }
+}
+
 fn send(
     method: &str,
     endpoint: &str,
     token: &str,
     body: Option<&serde_json::Value>,
 ) -> Result<ureq::Response, String> {
-    request(method, endpoint, token, body).map_err(|e| match *e {
-        ureq::Error::Status(401, _) => config::expired_token_error(),
-        e => request_failed(&e),
-    })
+    request(method, endpoint, token, body).map_err(cli_error)
 }
 
 pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {

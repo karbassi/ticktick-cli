@@ -102,11 +102,15 @@ const V1_UNAUTHORIZED: &str = "TickTick access token is invalid or expired. Upda
 const V2_UNAUTHORIZED: &str = "V2 session token is invalid or expired. \
      Update TICKTICK_V2_SESSION_TOKEN with a fresh 't' cookie from your browser.";
 
-fn v1(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
-    api::request(method, path, &token()?, body).map_err(|e| match *e {
+fn v1_error(e: Box<ureq::Error>) -> String {
+    match *e {
         ureq::Error::Status(401, _) => V1_UNAUTHORIZED.to_string(),
         e => api::request_failed(&e),
-    })
+    }
+}
+
+fn v1(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
+    api::request(method, path, &token()?, body).map_err(v1_error)
 }
 
 fn v2(method: &str, path: &str, body: Option<&Value>) -> Result<ureq::Response, String> {
@@ -291,7 +295,8 @@ pub fn resolve_name_with_etag(
 /// Read from the token source's cache each time, so a new login or env token
 /// is never served the previous account's inbox.
 pub fn inbox_id() -> Result<String, String> {
-    api::project::get_inbox_id().map_err(|e| format!("Could not discover inbox project ID: {e}"))
+    api::project::get_inbox_id_with(v1_error)
+        .map_err(|e| format!("Could not discover inbox project ID: {e}"))
 }
 
 /// The ID for `project` when it needs no `/project` lookup.

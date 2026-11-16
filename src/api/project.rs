@@ -68,6 +68,13 @@ pub fn get_all() -> Result<Vec<Project>, String> {
 /// The cached inbox project ID, else one found by creating a task with no
 /// project and deleting it again. Writes, so read-only paths use the cache only.
 pub fn get_inbox_id() -> Result<String, String> {
+    get_inbox_id_with(super::cli_error)
+}
+
+/// [`get_inbox_id`], with the caller's wording of request errors.
+pub(crate) fn get_inbox_id_with(
+    describe: impl Fn(Box<ureq::Error>) -> String,
+) -> Result<String, String> {
     // Concurrent callers in one process share a probe.
     static PROBING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     if let Some(id) = config::get_inbox_project_id() {
@@ -80,7 +87,7 @@ pub fn get_inbox_id() -> Result<String, String> {
 
     let token = config::get_access_token()?;
     let body = serde_json::json!({ "title": "__inbox_probe__" });
-    let resp = super::post("/task", &token, &body)?;
+    let resp = super::request("POST", "/task", &token, Some(&body)).map_err(&describe)?;
     let task: crate::api::task::Task = resp
         .into_json()
         .map_err(|e| format!("failed to parse probe task: {e}"))?;
@@ -92,11 +99,13 @@ pub fn get_inbox_id() -> Result<String, String> {
     // Before the delete, so a retry after a failed delete doesn't probe again.
     let _ = config::save_inbox_project_id(&inbox_id);
 
-    super::delete(&format!("/project/{inbox_id}/task/{}", task.id), &token).map_err(|e| {
+    let cleanup = format!("/project/{inbox_id}/task/{}", task.id);
+    super::request("DELETE", &cleanup, &token, None).map_err(|e| {
         format!(
-            "inbox probe task '{}' could not be deleted from {inbox_id}: {e}\n\n  \
+            "inbox probe task '{}' could not be deleted from {inbox_id}: {}\n\n  \
              hint: Delete the '__inbox_probe__' task in TickTick",
-            task.id
+            task.id,
+            describe(e)
         )
     })?;
     Ok(inbox_id)
