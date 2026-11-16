@@ -449,6 +449,17 @@ fn status_code(err: &str) -> Option<u16> {
         .ok()
 }
 
+/// A username that isn't a project member gets a bare 500 (seen live by the
+/// Python server); 403 is a permission refusal. Other errors pass through.
+fn assign_error(e: String) -> String {
+    match status_code(&e) {
+        Some(code @ (403 | 500)) => format!(
+            "Assign failed ({code}). The assignee must be a member of a shared project; check list_project_members."
+        ),
+        _ => e,
+    }
+}
+
 #[tool_router(router = tasks_router, vis = "pub(crate)")]
 impl TickTickServer {
     #[tool(
@@ -575,14 +586,8 @@ impl TickTickServer {
     async fn assign_task(&self, Parameters(p): Parameters<AssignTaskParams>) -> ToolResult {
         run(move || {
             let pid = resolve_project_id(&p.project)?;
-            util::v1_post("/task/assign", &assign_body(&pid, &p.task_id, &p.assignee)).map_err(
-                |e| match status_code(&e) {
-                    Some(code) => format!(
-                        "Assign failed ({code}). The assignee must be a member of a shared project; check list_project_members."
-                    ),
-                    None => e,
-                },
-            )
+            util::v1_post("/task/assign", &assign_body(&pid, &p.task_id, &p.assignee))
+                .map_err(assign_error)
         })
         .await
     }
@@ -684,5 +689,20 @@ mod tests {
             Some(500)
         );
         assert_eq!(status_code("token expired"), None);
+    }
+
+    #[test]
+    fn assign_error_hints_only_on_membership_codes() {
+        for code in [403, 500] {
+            let e = assign_error(format!("API request failed: x: status code {code}"));
+            assert!(e.starts_with(&format!("Assign failed ({code})")), "{e}");
+        }
+        for e in [
+            "API request failed: x: status code 404",
+            "API request failed: x: status code 429",
+            "API request failed: timed out",
+        ] {
+            assert_eq!(assign_error(e.to_string()), e);
+        }
     }
 }

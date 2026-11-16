@@ -635,6 +635,23 @@ fn assign_failure_is_a_tool_error_with_hint() {
 }
 
 #[test]
+fn assign_not_found_passes_the_api_error_through() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path(v1("/task/assign"));
+        then.status(404).body("task not found");
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "assign_task",
+        json!({"task_id": "t1", "project": "inbox1", "assignee": "x"}),
+    );
+    assert!(res.is_error);
+    assert!(res.text.contains("404"), "{}", res.text);
+    assert!(!res.text.contains("must be a member"), "{}", res.text);
+}
+
+#[test]
 fn api_error_surfaces_as_is_error_not_protocol_error() {
     let server = MockServer::start();
     server.mock(|when, then| {
