@@ -240,11 +240,11 @@ Examples:
         http: bool,
 
         /// HTTP bind address; must be loopback [default: 127.0.0.1]
-        #[arg(long)]
+        #[arg(long, requires = "http")]
         host: Option<String>,
 
         /// HTTP port [default: 8502]
-        #[arg(long)]
+        #[arg(long, requires = "http")]
         port: Option<u16>,
     },
 

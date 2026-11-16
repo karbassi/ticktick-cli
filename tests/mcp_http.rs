@@ -230,3 +230,19 @@ fn non_loopback_host_is_refused() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("TICKTICK_MCP_TRANSPORT"));
 }
+
+#[test]
+fn host_or_port_without_http_is_refused_not_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [["mcp", "--host", "0.0.0.0"], ["mcp", "--port", "9000"]] {
+        let out = isolated_command(dir.path())
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?} served stdio");
+        assert!(out.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("--http"), "{stderr}");
+    }
+}
