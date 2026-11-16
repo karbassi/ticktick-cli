@@ -88,6 +88,32 @@ fn read_resource_json(uri: &str) -> Result<Value, String> {
     }
 }
 
+/// Python's `repr()` of a str.
+fn py_repr(s: &str) -> String {
+    let quote = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::from(quote);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if (c as u32) < 0x20 || c == '\x7f' => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for TickTickServer {
     fn get_info(&self) -> ServerConfig {
@@ -109,10 +135,12 @@ impl ServerHandler for TickTickServer {
         mut request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        if let (Some(tool), Some(args)) = (
-            self.tool_router.get(&request.name),
-            request.arguments.as_mut(),
-        ) {
+        let Some(tool) = self.tool_router.get(&request.name) else {
+            // FastMCP's text, as a tool error rather than rmcp's -32602.
+            let name = py_repr(&request.name);
+            return Ok(util::tool_error(format!("Unknown tool: {name}")).into());
+        };
+        if let Some(args) = request.arguments.as_mut() {
             coerce::coerce_arguments(&tool.input_schema, args);
         }
         self.tool_router
@@ -344,3 +372,19 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
 
 /// How long in-flight requests get to finish after SIGINT/SIGTERM.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+#[cfg(test)]
+mod tests {
+    use super::py_repr;
+
+    #[test]
+    fn repr_like_python() {
+        // Expected values printed by CPython's repr().
+        assert_eq!(py_repr("nope"), "'nope'");
+        assert_eq!(py_repr("it's"), "\"it's\"");
+        assert_eq!(py_repr("a\"b'c"), "'a\"b\\'c'");
+        assert_eq!(py_repr("tab\there"), "'tab\\there'");
+        assert_eq!(py_repr("back\\slash"), "'back\\\\slash'");
+        assert_eq!(py_repr("ü\x01"), "'ü\\x01'");
+    }
+}

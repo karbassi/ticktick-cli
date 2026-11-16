@@ -1201,6 +1201,15 @@ fn profile_resource_merges_status() {
     assert!(resp.get("error").is_some(), "{resp}");
 }
 
+#[test]
+fn unknown_tool_is_a_tool_error_like_fastmcp() {
+    let server = MockServer::start();
+    let mut c = start(&server);
+    let res = c.call_tool("nope", json!({}));
+    assert!(res.is_error);
+    assert_eq!(res.text, "Unknown tool: 'nope'");
+}
+
 /// Runs `args` with stdout a pipe whose reader is already closed, and stdin
 /// holding `input`.
 fn run_with_broken_stdout(args: &[&str], input: &str) -> std::process::ExitStatus {
