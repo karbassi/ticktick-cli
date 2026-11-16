@@ -36,10 +36,10 @@ pub fn login() -> Result<(), String> {
 
     let token = exchange_code(&code, &env.client_id, &env.client_secret)?;
 
-    let mut cfg = config::load();
-    cfg.access_token = Some(token.access_token);
-    cfg.refresh_token = token.refresh_token;
-    config::save(&cfg)?;
+    config::update(|cfg| {
+        cfg.access_token = Some(token.access_token);
+        cfg.refresh_token = token.refresh_token;
+    })?;
 
     eprintln!("Successfully authenticated!");
     Ok(())

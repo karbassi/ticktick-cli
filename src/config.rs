@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -109,35 +110,66 @@ pub fn oauth_port() -> u16 {
 }
 
 pub fn load() -> Config {
-    let path = config_path();
-    fs::read_to_string(&path)
+    load_from(&config_path())
+}
+
+fn load_from(path: &Path) -> Config {
+    fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-pub fn save(config: &Config) -> Result<(), String> {
-    let dir = config_dir();
-    fs::create_dir_all(&dir).map_err(|e| format!("failed to create config dir: {e}"))?;
+/// Held by every write to config.json, so concurrent load-modify-save
+/// sequences don't drop each other's changes.
+static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
-    let path = config_path();
+fn config_lock() -> MutexGuard<'static, ()> {
+    CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Change config.json in one locked load-modify-save. `f` must not call `update`.
+pub fn update<R>(f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
+    update_at(&config_path(), f)
+}
+
+fn update_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
+    let _lock = config_lock();
+    let mut config = load_from(path);
+    let out = f(&mut config);
+    save_to(path, &config)?;
+    Ok(out)
+}
+
+fn save_to(path: &Path, config: &Config) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("failed to create config dir: {e}"))?;
+    }
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("failed to serialize config: {e}"))?;
 
-    let tmp = path.with_extension("tmp");
-    if tmp.exists() {
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let tmp = path.with_extension(format!(
+        "{}.{}.tmp",
+        std::process::id(),
+        WRITES.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = write_private(&tmp, &json)
+        .and_then(|()| fs::rename(&tmp, path).map_err(|e| format!("failed to rename config: {e}")));
+    if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
-    fs::write(&tmp, &json).map_err(|e| format!("failed to write config: {e}"))?;
+    result
+}
 
+fn write_private(path: &Path, contents: &str) -> Result<(), String> {
+    fs::write(path, contents).map_err(|e| format!("failed to write config: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("failed to set config permissions: {e}"))?;
     }
-
-    fs::rename(&tmp, &path).map_err(|e| format!("failed to rename config: {e}"))?;
     Ok(())
 }
 
@@ -242,9 +274,7 @@ pub fn get_account_timezone() -> Option<String> {
 }
 
 pub fn save_account_timezone(tz: &str) -> Result<(), String> {
-    let mut config = load();
-    config.account_timezone = Some(tz.to_string());
-    save(&config)
+    update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
 pub fn get_inbox_project_id() -> Option<String> {
@@ -252,15 +282,16 @@ pub fn get_inbox_project_id() -> Option<String> {
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
-    let mut config = load();
-    config.inbox_project_id = Some(id.to_string());
-    save(&config)
+    update(|c| c.inbox_project_id = Some(id.to_string()))
 }
 
 pub fn logout() -> Result<(), String> {
-    let path = config_path();
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("failed to remove config: {e}"))?;
+    {
+        let _lock = config_lock();
+        let path = config_path();
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| format!("failed to remove config: {e}"))?;
+        }
     }
     eprintln!("Logged out");
     crate::output::success(&serde_json::json!({"status": "ok"}));
@@ -295,16 +326,17 @@ pub fn generate_device_id() -> String {
     hex
 }
 
+/// An unsaved ID is still returned when config.json can't be written.
 pub fn get_or_create_device_id() -> String {
-    let config = load();
-    if let Some(id) = config.v2_device_id {
+    if let Some(id) = load().v2_device_id {
         return id;
     }
-    let id = generate_device_id();
-    let mut config = load();
-    config.v2_device_id = Some(id.clone());
-    let _ = save(&config);
-    id
+    update(|c| {
+        c.v2_device_id
+            .get_or_insert_with(generate_device_id)
+            .clone()
+    })
+    .unwrap_or_else(|_| generate_device_id())
 }
 
 /// Env wins so the long-running MCP server can be fed a fresh cookie.
@@ -350,5 +382,48 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1));
         let id2 = generate_device_id();
         assert_ne!(id1, id2, "two device IDs should be different");
+    }
+
+    #[test]
+    fn concurrent_updates_to_different_fields_all_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let setters: [fn(&mut Config, String); 6] = [
+            |c, v| c.access_token = Some(v),
+            |c, v| c.refresh_token = Some(v),
+            |c, v| c.account_timezone = Some(v),
+            |c, v| c.inbox_project_id = Some(v),
+            |c, v| c.v2_session_token = Some(v),
+            |c, v| c.v2_device_id = Some(v),
+        ];
+        std::thread::scope(|s| {
+            for (field, set) in setters.into_iter().enumerate() {
+                let path = &path;
+                s.spawn(move || {
+                    for n in 0..25 {
+                        update_at(path, |c| set(c, format!("{field}-{n}"))).unwrap();
+                    }
+                });
+            }
+        });
+
+        let c = load_from(&path);
+        let got = [
+            c.access_token,
+            c.refresh_token,
+            c.account_timezone,
+            c.inbox_project_id,
+            c.v2_session_token,
+            c.v2_device_id,
+        ];
+        for (field, value) in got.into_iter().enumerate() {
+            assert_eq!(value, Some(format!("{field}-24")), "field {field}");
+        }
+        let leftovers: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| n != "config.json")
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
     }
 }

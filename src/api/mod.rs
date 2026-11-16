@@ -82,10 +82,10 @@ fn try_refresh_token(failed: &str) -> Option<String> {
     let (access, rotated) = auth::refresh_token(&refresh).ok()?;
     let refresh = rotated.unwrap_or(refresh);
     if persist {
-        let mut cfg = config::load();
-        cfg.access_token = Some(access.clone());
-        cfg.refresh_token = Some(refresh.clone());
-        let _ = config::save(&cfg);
+        let _ = config::update(|cfg| {
+            cfg.access_token = Some(access.clone());
+            cfg.refresh_token = Some(refresh.clone());
+        });
     }
     config::set_refreshed_tokens(RefreshedTokens {
         access: access.clone(),
