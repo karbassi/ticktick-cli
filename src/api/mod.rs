@@ -113,9 +113,7 @@ fn send(
         Ok(resp) => Ok(resp),
         Err(e) if matches!(*e, ureq::Error::Status(401, _)) => match try_refresh_token(token) {
             Some(new_token) => call(&new_token).map_err(|e| format!("API request failed: {e}")),
-            None => Err(
-                "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string(),
-            ),
+            None => Err(config::expired_token_error()),
         },
         Err(e) => Err(format!("API request failed: {e}")),
     }

@@ -321,6 +321,24 @@ pub fn get_access_token() -> Result<String, String> {
         .map_or(source, |r| r.access.clone()))
 }
 
+/// The CLI's error for a 401 a refresh couldn't fix. `login` can't override
+/// an env token, so for one the hint names the env vars instead.
+pub fn expired_token_error() -> String {
+    let hint = match Source::current() {
+        Source::Env { settings, .. } if settings.get("TICKTICK_REFRESH_TOKEN").is_none() => {
+            "TICKTICK_ACCESS_TOKEN (from the environment or .env) is expired. Set \
+             TICKTICK_REFRESH_TOKEN, TICKTICK_CLIENT_ID and TICKTICK_CLIENT_SECRET to \
+             refresh it automatically, or update or remove it"
+        }
+        Source::Env { .. } => {
+            "TICKTICK_ACCESS_TOKEN (from the environment or .env) is expired and \
+             TICKTICK_REFRESH_TOKEN could not refresh it. Update or remove both"
+        }
+        Source::Config(_) => "Run 'ticktick-cli login' to re-authenticate",
+    };
+    format!("token expired\n\n  hint: {hint}")
+}
+
 /// What a token refresh starts from. Callers serialize refreshes.
 pub struct RefreshPlan {
     pub refresh: String,

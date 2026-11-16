@@ -312,3 +312,90 @@ fn task_list_with_env_token_probes_for_the_inbox() {
     let tasks: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(tasks[0]["id"], "t1");
 }
+
+#[test]
+fn expired_dotenv_access_token_refreshes_with_dotenv_refresh_token() {
+    let server = MockServer::start();
+    let stale = server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/tag")
+            .header("Authorization", "Bearer dotenv-token");
+        then.status(401);
+    });
+    let refresh = server.mock(|when, then| {
+        when.method(POST)
+            .path("/oauth/token")
+            .header("Authorization", "Basic Y2lkOnNlYw==")
+            .body("grant_type=refresh_token&refresh_token=dotenv-refresh");
+        then.status(200)
+            .json_body(json!({"access_token": "fresh", "refresh_token": "r2"}));
+    });
+    let fresh = server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/tag")
+            .header("Authorization", "Bearer fresh");
+        then.status(200).json_body(json!([]));
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    common::write_config(
+        tmp.path(),
+        &json!({"access_token": "file-token", "refresh_token": "file-refresh"}),
+    );
+    fs::write(
+        tmp.path().join(".env"),
+        "TICKTICK_ACCESS_TOKEN=dotenv-token\nTICKTICK_REFRESH_TOKEN=dotenv-refresh\n",
+    )
+    .unwrap();
+    isolated(&tmp)
+        // Already in the env, which must not stop the .env file being read.
+        .env("TICKTICK_CLIENT_ID", "cid")
+        .env("TICKTICK_CLIENT_SECRET", "sec")
+        .env("TICKTICK_API_BASE", server.url("/open/v1"))
+        .env("TICKTICK_OAUTH_TOKEN_URL", server.url("/oauth/token"))
+        .args(["tag", "list"])
+        .assert()
+        .success();
+    stale.assert();
+    refresh.assert();
+    fresh.assert();
+    assert_eq!(
+        read_config(&tmp),
+        json!({"access_token": "file-token", "refresh_token": "file-refresh"})
+    );
+}
+
+fn expired_token_stderr(dotenv: &str) -> String {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/open/v1/tag");
+        then.status(401);
+    });
+    server.mock(|when, then| {
+        when.method(POST).path("/oauth/token");
+        then.status(400);
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join(".env"), dotenv).unwrap();
+    let out = isolated(&tmp)
+        .env("TICKTICK_API_BASE", server.url("/open/v1"))
+        .env("TICKTICK_OAUTH_TOKEN_URL", server.url("/oauth/token"))
+        .args(["tag", "list"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    String::from_utf8(out.stderr).unwrap()
+}
+
+#[test]
+fn expired_env_token_hint_names_the_env_vars_not_login() {
+    let err = expired_token_stderr("TICKTICK_ACCESS_TOKEN=a\n");
+    assert!(err.contains("Set TICKTICK_REFRESH_TOKEN"), "{err}");
+    assert!(!err.contains("login"), "{err}");
+
+    let err = expired_token_stderr(
+        "TICKTICK_ACCESS_TOKEN=a\nTICKTICK_REFRESH_TOKEN=r\n\
+         TICKTICK_CLIENT_ID=cid\nTICKTICK_CLIENT_SECRET=sec\n",
+    );
+    assert!(err.contains("could not refresh it"), "{err}");
+    assert!(!err.contains("login"), "{err}");
+}
