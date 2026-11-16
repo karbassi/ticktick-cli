@@ -87,6 +87,30 @@ fn log_queries_both_types_in_30_day_chunks() {
 }
 
 #[test]
+fn log_fetches_both_types_concurrently() {
+    let server = MockServer::start();
+    for focus_type in ["0", "1"] {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/open/v1/focus")
+                .query_param("type", focus_type);
+            then.status(200)
+                .json_body(json!([]))
+                .delay(std::time::Duration::from_millis(600));
+        });
+    }
+    let mut mcp = McpBuilder::new(&server).start();
+    let started = std::time::Instant::now();
+    mcp.call_tool(
+        "focus_log",
+        json!({"from_date": "2026-01-01", "to_date": "2026-01-01"}),
+    )
+    .ok();
+    // Serial fetches would take 1.2s.
+    assert!(started.elapsed() < std::time::Duration::from_millis(1100));
+}
+
+#[test]
 fn log_keeps_records_without_id() {
     let server = MockServer::start();
     let focus = server.mock(|when, then| {

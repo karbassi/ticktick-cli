@@ -175,14 +175,21 @@ fn v1_focus_records(start: i64, end: i64) -> Result<Value, String> {
     let mut chunk_start = start;
     while chunk_start < end {
         let chunk_end = (chunk_start + V1_FOCUS_MAX_RANGE_MS).min(end);
-        for focus_type in FOCUS_TYPES {
-            let path = format!(
-                "/focus?from={}&to={}&type={focus_type}",
-                url_encode(&to_iso(chunk_start)?),
-                url_encode(&to_iso(chunk_end)?),
-            );
-            records.extend(util::as_list(util::v1_get(&path)?));
-        }
+        let (from, to) = (
+            url_encode(&to_iso(chunk_start)?),
+            url_encode(&to_iso(chunk_end)?),
+        );
+        let fetch =
+            |focus_type: u8| util::v1_get(&format!("/focus?from={from}&to={to}&type={focus_type}"));
+        // The calling thread takes one type so it still honors cancellation.
+        let [first, second] = FOCUS_TYPES;
+        let (a, b) = std::thread::scope(|s| {
+            let b = s.spawn(|| fetch(second));
+            (fetch(first), b.join())
+        });
+        records.extend(util::as_list(a?));
+        let b = b.map_err(|_| "internal error: focus request panicked".to_string())?;
+        records.extend(util::as_list(b?));
         chunk_start = chunk_end;
     }
 
