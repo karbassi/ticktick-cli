@@ -4,7 +4,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, run};
@@ -43,13 +43,12 @@ impl TickTickServer {
         )
     )]
     async fn list_events(&self, Parameters(p): Parameters<ListEventsParams>) -> ToolResult {
-        run(move || -> Result<Value, String> {
-            // Python swallows every error here and returns an empty list.
-            Ok(util::v2_post(
+        // Python returns [] on any error; reporting it is deliberate.
+        run(move || {
+            util::v2_post(
                 "/calendar/bind/events/all",
                 &json!({ "begin": p.begin, "end": p.end }),
             )
-            .unwrap_or_else(|_| json!([])))
         })
         .await
     }

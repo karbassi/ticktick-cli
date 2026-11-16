@@ -109,6 +109,27 @@ fn add_task_all_day_flag_overrides_default() {
 }
 
 #[test]
+fn add_task_all_day_flag_applies_to_start_only_task() {
+    let server = MockServer::start();
+    let create = mock_create(
+        &server,
+        json!({
+            "title": "x",
+            "startDate": "2027-03-01T10:00:00.000-0600",
+            "isAllDay": true,
+            "reminders": ["TRIGGER:P0DT9H0M0S"],
+        }),
+    );
+    let mut c = start(&server);
+    c.call_tool(
+        "add_task",
+        json!({"title": "x", "start": "2027-03-01T10:00", "all_day": true}),
+    )
+    .ok();
+    create.assert();
+}
+
+#[test]
 fn add_task_empty_reminders_means_none_and_timezone_is_sent() {
     let server = MockServer::start();
     let create = mock_create(
@@ -241,6 +262,25 @@ fn add_task_rejects_bad_input_as_tool_errors() {
 }
 
 #[test]
+fn add_task_rejects_timezone_paths() {
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    for tz in ["/etc/hosts", "../../etc/hosts", "America/../Europe/London"] {
+        let res = c.call_tool(
+            "add_task",
+            json!({"title": "x", "due": "2027-03-01T10:00", "timezone": tz}),
+        );
+        assert!(res.is_error, "{tz}: {}", res.text);
+        assert_eq!(res.text, format!("Unknown timezone '{tz}'"));
+    }
+    create.assert_calls(0);
+}
+
+#[test]
 fn edit_task_sends_only_passed_fields() {
     let server = MockServer::start();
     mock_projects(&server, json!([{"id": "p1", "name": "Work"}]));
@@ -354,6 +394,50 @@ fn complete_task_batch_dedupes_chunks_and_reports_failures() {
     second.assert();
     third.assert();
     assert_eq!(res.text, "Completed 119 of 120 tasks; not completed: t7");
+}
+
+#[test]
+fn complete_task_chunk_failure_reports_progress_and_stops() {
+    let server = MockServer::start();
+    let ids: Vec<String> = (0..120).map(|i| format!("t{i}")).collect();
+    let first = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[..50]}));
+        then.status(200).json_body(json!(
+            ids[..50]
+                .iter()
+                .filter(|id| *id != "t7")
+                .collect::<Vec<_>>()
+        ));
+    });
+    let second = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[50..100]}));
+        then.status(500).body("boom");
+    });
+    let third = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/completeTasks"))
+            .json_body(json!({"projectId": HEX_PROJECT, "taskIds": &ids[100..]}));
+        then.status(200).json_body(json!(&ids[100..]));
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "complete_task",
+        json!({"project": HEX_PROJECT, "task_ids": ids}),
+    );
+    first.assert();
+    second.assert();
+    third.assert_calls(0);
+    assert!(res.is_error);
+    assert!(
+        res.text
+            .starts_with("Completed 49 of 120 tasks; chunk 2 of 3 failed: "),
+        "{}",
+        res.text
+    );
 }
 
 #[test]
@@ -567,6 +651,44 @@ fn api_error_surfaces_as_is_error_not_protocol_error() {
 }
 
 #[test]
+fn refreshed_token_replaces_the_stale_env_token_for_later_calls() {
+    let server = MockServer::start();
+    let stale = server.mock(|when, then| {
+        when.method(GET)
+            .path(v1("/project"))
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"));
+        then.status(401);
+    });
+    let refresh = server.mock(|when, then| {
+        when.method(POST)
+            .path("/oauth/token")
+            .header("Authorization", "Basic Y2lkOnNlYw==")
+            .body("grant_type=refresh_token&refresh_token=r1");
+        then.status(200)
+            .json_body(json!({"access_token": "fresh", "refresh_token": "r2"}));
+    });
+    let fresh = server.mock(|when, then| {
+        when.method(GET)
+            .path(v1("/project"))
+            .header("Authorization", "Bearer fresh");
+        then.status(200).json_body(json!([]));
+    });
+    // An unwritable config dir: the refresh must not depend on config.json.
+    let mut c = McpBuilder::new(&server)
+        .env("TICKTICK_REFRESH_TOKEN", "r1")
+        .env("TICKTICK_CLIENT_ID", "cid")
+        .env("TICKTICK_CLIENT_SECRET", "sec")
+        .env("TICKTICK_OAUTH_TOKEN_URL", &server.url("/oauth/token"))
+        .env("XDG_CONFIG_HOME", "/dev/null/config")
+        .start();
+    c.call_tool("list_projects", json!({})).ok();
+    c.call_tool("list_projects", json!({})).ok();
+    stale.assert_calls(1);
+    refresh.assert_calls(1);
+    fresh.assert_calls(2);
+}
+
+#[test]
 fn v2_tool_uses_env_session_token_over_config() {
     let server = MockServer::start();
     let trash = server.mock(|when, then| {
@@ -663,6 +785,50 @@ fn project_tools() {
     edit.assert();
     members.assert();
     delete.assert();
+}
+
+#[test]
+fn tag_batch_failure_reports_what_succeeded_and_stops() {
+    let server = MockServer::start();
+    let create = |name: &'static str, status: u16| {
+        server.mock(move |when, then| {
+            when.method(POST)
+                .path(v1("/tag"))
+                .json_body(json!({"label": name, "name": name}));
+            then.status(status).json_body(json!({"name": name}));
+        })
+    };
+    let (a, b, z) = (create("a", 200), create("b", 500), create("z", 200));
+    let delete = |name: &'static str, status: u16| {
+        server.mock(move |when, then| {
+            when.method(DELETE)
+                .path(v1("/tag/delete"))
+                .json_body(json!({"name": name}));
+            then.status(status);
+        })
+    };
+    let (da, db, dz) = (delete("a", 200), delete("b", 500), delete("z", 200));
+    let mut c = start(&server);
+
+    let res = c.call_tool("add_tags", json!({"names": ["a", "b", "z"]}));
+    assert!(res.is_error);
+    assert!(
+        res.text.starts_with("Created 1 of 3 tag(s); 'b' failed: "),
+        "{}",
+        res.text
+    );
+    let res = c.call_tool("delete_tags", json!({"names": ["a", "b", "z"]}));
+    assert!(res.is_error);
+    assert!(
+        res.text.starts_with("Deleted 1 of 3 tag(s); 'b' failed: "),
+        "{}",
+        res.text
+    );
+    for m in [&a, &b, &da, &db] {
+        m.assert();
+    }
+    z.assert_calls(0);
+    dz.assert_calls(0);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::task::local_today;
 use super::v2;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -397,27 +398,6 @@ pub fn date_to_stamp(input: &str) -> Result<i64, String> {
     };
 
     Ok(year as i64 * 10000 + month as i64 * 100 + day as i64)
-}
-
-/// Returns today's local date as (year, month, day).
-fn local_today() -> (i32, u32, u32) {
-    use std::mem::MaybeUninit;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as libc::time_t;
-
-    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
-    {
-        let _guard = crate::api::task::TZ_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        unsafe { libc::localtime_r(&now, &mut tm) };
-    }
-
-    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
 }
 
 /// Subtract one day from the given date.

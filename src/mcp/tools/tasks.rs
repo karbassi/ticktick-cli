@@ -288,14 +288,13 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
     let parsed_start = start.as_deref().map(parse_datetime).transpose()?;
 
     if let Some(ref d) = parsed_due {
-        fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())));
-        fields.is_all_day = Some(p.all_day.unwrap_or(d.is_all_day()));
+        fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
     }
     if let Some(ref s) = parsed_start {
-        fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())));
-        if p.all_day.is_none() && fields.is_all_day.is_none() {
-            fields.is_all_day = Some(s.is_all_day());
-        }
+        fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())?));
+    }
+    if let Some(date) = parsed_due.as_ref().or(parsed_start.as_ref()) {
+        fields.is_all_day = Some(p.all_day.unwrap_or(date.is_all_day()));
     }
 
     if let Some(duration) = nonempty(p.duration) {
@@ -311,11 +310,11 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
         let end = base.add_duration(&dur)?;
         match (&parsed_start, &parsed_due) {
             (Some(_), None) => {
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())));
+                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
             }
             (None, Some(d)) => {
-                fields.start_date = Some(DateField::Set(api_date(d, tz.as_deref())));
-                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())));
+                fields.start_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
+                fields.due_date = Some(DateField::Set(api_date(&end, tz.as_deref())?));
             }
             // Both given: Python leaves them as they are.
             _ => {}
@@ -367,14 +366,14 @@ fn edit_task(p: EditTaskParams) -> Result<Value, String> {
         fields.due_date = Some(DateField::Clear);
     } else if let Some(due) = nonempty(p.due) {
         let parsed = parse_datetime(&due)?;
-        fields.due_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())));
+        fields.due_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
         fields.is_all_day = Some(parsed.is_all_day());
     }
     if p.clear_start {
         fields.start_date = Some(DateField::Clear);
     } else if let Some(start) = nonempty(p.start) {
         let parsed = parse_datetime(&start)?;
-        fields.start_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())));
+        fields.start_date = Some(DateField::Set(api_date(&parsed, tz.as_deref())?));
     }
     if let Some(tz) = tz {
         fields.time_zone = Some(tz);
@@ -405,11 +404,21 @@ fn complete_task(p: CompleteTaskParams) -> Result<String, String> {
         return Ok(format!("Task {} completed", ids[0]));
     }
     let mut done = std::collections::HashSet::new();
-    for chunk in ids.chunks(COMPLETE_BATCH_SIZE) {
+    let chunks = ids.chunks(COMPLETE_BATCH_SIZE);
+    let total_chunks = chunks.len();
+    for (i, chunk) in chunks.enumerate() {
         let result = util::v1_post(
             "/task/completeTasks",
             &json!({ "projectId": pid, "taskIds": chunk }),
-        )?;
+        )
+        .map_err(|e| {
+            format!(
+                "Completed {} of {} tasks; chunk {} of {total_chunks} failed: {e}",
+                done.len(),
+                ids.len(),
+                i + 1
+            )
+        })?;
         for id in as_list(result) {
             if let Value::String(id) = id {
                 done.insert(id);

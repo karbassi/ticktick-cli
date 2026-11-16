@@ -12,7 +12,7 @@ pub mod tag;
 pub mod task;
 pub mod v2;
 
-use crate::config;
+use crate::config::{self, RefreshedTokens};
 
 const DEFAULT_BASE_URL: &str = "https://api.ticktick.com/open/v1";
 
@@ -32,23 +32,37 @@ fn is_unauthorized(err: &ureq::Error) -> bool {
     matches!(err, ureq::Error::Status(401, _))
 }
 
-fn try_refresh_token() -> Option<String> {
-    let cfg = config::load();
-    let refresh = cfg.refresh_token.as_ref()?;
+/// A fresh access token after `failed` got a 401. The result is kept in memory
+/// for the rest of the process; config.json is updated only when its refresh
+/// token was used, and a failed write is ignored.
+fn try_refresh_token(failed: &str) -> Option<String> {
+    let mut refreshed = config::refreshed_tokens();
+    let (refresh, persist) = match refreshed.as_ref() {
+        // Another request already refreshed.
+        Some(r) if r.access != failed => return Some(r.access.clone()),
+        Some(RefreshedTokens {
+            refresh: Some(t),
+            persist,
+            ..
+        }) => (t.clone(), *persist),
+        _ => config::get_refresh_token()?,
+    };
 
-    match auth::refresh_token(refresh) {
-        Ok((new_access, new_refresh)) => {
-            let mut cfg = config::load();
-            cfg.access_token = Some(new_access.clone());
-            if let Some(r) = new_refresh {
-                cfg.refresh_token = Some(r);
-            }
-            let _ = config::save(&cfg);
-            eprintln!("Token refreshed automatically");
-            Some(new_access)
-        }
-        Err(_) => None,
+    let (access, rotated) = auth::refresh_token(&refresh).ok()?;
+    let refresh = rotated.unwrap_or(refresh);
+    if persist {
+        let mut cfg = config::load();
+        cfg.access_token = Some(access.clone());
+        cfg.refresh_token = Some(refresh.clone());
+        let _ = config::save(&cfg);
     }
+    *refreshed = Some(RefreshedTokens {
+        access: access.clone(),
+        refresh: Some(refresh),
+        persist,
+    });
+    eprintln!("Token refreshed automatically");
+    Some(access)
 }
 
 pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
@@ -63,7 +77,7 @@ pub fn get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     match result {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token() {
+            if let Some(new_token) = try_refresh_token(token) {
                 ureq::get(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()
@@ -96,7 +110,7 @@ pub fn post(
     match result {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token() {
+            if let Some(new_token) = try_refresh_token(token) {
                 ureq::post(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .set("Content-Type", "application/json")
@@ -125,7 +139,7 @@ pub fn post_empty(endpoint: &str, token: &str) -> Result<ureq::Response, String>
     match result {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token() {
+            if let Some(new_token) = try_refresh_token(token) {
                 ureq::post(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()
@@ -161,7 +175,7 @@ fn send_json(
     };
     match call(token) {
         Ok(resp) => Ok(resp),
-        Err(e) if is_unauthorized(&e) => match try_refresh_token() {
+        Err(e) if is_unauthorized(&e) => match try_refresh_token(token) {
             Some(new_token) => call(&new_token).map_err(|e| format!("API request failed: {e}")),
             None => Err(
                 "token expired\n\n  hint: Run 'ticktick-cli login' to re-authenticate".to_string(),
@@ -200,7 +214,7 @@ pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     match result {
         Ok(resp) => Ok(resp),
         Err(e) if is_unauthorized(&e) => {
-            if let Some(new_token) = try_refresh_token() {
+            if let Some(new_token) = try_refresh_token(token) {
                 ureq::delete(&format!("{base}{endpoint}"))
                     .set("Authorization", &format!("Bearer {new_token}"))
                     .call()

@@ -121,7 +121,7 @@ fn kinds(kind: Option<Vec<String>>) -> Result<Option<Value>, String> {
 /// Python `_date`.
 fn date(value: Option<String>) -> Result<Option<Value>, String> {
     match util::nonempty(value) {
-        Some(v) => Ok(Some(json!(api_date(&parse_datetime(&v)?, None)))),
+        Some(v) => Ok(Some(json!(api_date(&parse_datetime(&v)?, None)?))),
         None => Ok(None),
     }
 }

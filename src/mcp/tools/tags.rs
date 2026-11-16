@@ -83,11 +83,9 @@ impl TickTickServer {
     )]
     async fn add_tags(&self, Parameters(p): Parameters<TagNamesParams>) -> ToolResult {
         run(move || {
-            let created = p
-                .names
-                .iter()
-                .map(|n| util::v1_post("/tag", &json!({ "label": n, "name": n })))
-                .collect::<Result<Vec<Value>, String>>()?;
+            let created = util::each(&p.names, "Created", "tag(s)", String::clone, |n| {
+                util::v1_post("/tag", &json!({ "label": n, "name": n }))
+            })?;
             Ok(Value::Array(created))
         })
         .await
@@ -104,9 +102,9 @@ impl TickTickServer {
     )]
     async fn delete_tags(&self, Parameters(p): Parameters<TagNamesParams>) -> ToolResult {
         run(move || {
-            for name in &p.names {
-                util::v1_delete_json("/tag/delete?scope=0", &json!({ "name": name }))?;
-            }
+            util::each(&p.names, "Deleted", "tag(s)", String::clone, |name| {
+                util::v1_delete_json("/tag/delete?scope=0", &json!({ "name": name }))
+            })?;
             Ok(format!("Deleted {} tag(s)", p.names.len()))
         })
         .await

@@ -133,6 +133,30 @@ pub fn as_list(v: Value) -> Vec<Value> {
     }
 }
 
+/// Earlier writes stay applied on failure, so the error says how many succeeded.
+pub fn each<T, R>(
+    items: &[T],
+    verb: &str,
+    noun: &str,
+    label: impl Fn(&T) -> String,
+    mut op: impl FnMut(&T) -> Result<R, String>,
+) -> Result<Vec<R>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        match op(item) {
+            Ok(r) => out.push(r),
+            Err(e) => {
+                return Err(format!(
+                    "{verb} {} of {} {noun}; '{}' failed: {e}",
+                    out.len(),
+                    items.len(),
+                    label(item)
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
 pub fn looks_like_id(query: &str) -> bool {
     query.len() >= 20 && query.chars().all(|c| c.is_ascii_hexdigit())
 }
@@ -247,22 +271,12 @@ pub fn resolve_folder_id(folder: &str) -> Result<(String, String), String> {
 
 pub use api::task::{ParsedDateTime, parse_datetime, parse_duration};
 
-/// Rejects unknown names, which would otherwise silently format in UTC.
+/// Rejects paths too, not just unknown names.
 pub fn check_timezone(tz: &str) -> Result<(), String> {
-    let known = tz == "UTC"
-        || (!tz.contains('\0')
-            && !tz.contains("..")
-            && std::path::Path::new("/usr/share/zoneinfo")
-                .join(tz)
-                .is_file());
-    if known {
-        Ok(())
-    } else {
-        Err(format!("Unknown timezone '{tz}'"))
-    }
+    api::task::time_zone(Some(tz)).map(|_| ())
 }
 
-pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> String {
+pub fn api_date(date: &ParsedDateTime, tz: Option<&str>) -> Result<String, String> {
     match tz {
         Some(tz) => date.to_api_string(Some(tz)),
         None => match config::get_account_timezone() {
@@ -358,7 +372,19 @@ mod tests {
     fn timezone_check() {
         assert!(check_timezone("America/Chicago").is_ok());
         assert!(check_timezone("UTC").is_ok());
-        assert!(check_timezone("Mars/Olympus").is_err());
-        assert!(check_timezone("../etc/passwd").is_err());
+        assert!(check_timezone("Asia/Kolkata").is_ok());
+        for bad in [
+            "Mars/Olympus",
+            "../etc/passwd",
+            "/etc/hosts",
+            "/usr/share/zoneinfo/America/Chicago",
+            "America/../Europe/London",
+            "",
+        ] {
+            assert_eq!(
+                check_timezone(bad),
+                Err(format!("Unknown timezone '{bad}'"))
+            );
+        }
     }
 }
