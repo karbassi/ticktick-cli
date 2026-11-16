@@ -206,6 +206,23 @@ fn add_task_duration_from_due_sets_start_and_end() {
 }
 
 #[test]
+fn add_task_duration_past_year_9999_is_an_error() {
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST).path(v1("/task"));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    let res = c.call_tool(
+        "add_task",
+        json!({"title": "x", "due": "2027-03-01T10:00", "duration": "80000000h"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "date value out of range");
+    create.assert_calls(0);
+}
+
+#[test]
 fn add_task_column_resolves_by_name() {
     let server = MockServer::start();
     let columns = server.mock(|when, then| {

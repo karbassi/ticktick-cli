@@ -1605,3 +1605,20 @@ fn add_rejects_etc_unknown_tz() {
         .failure()
         .stderr(predicate::str::contains("Unknown timezone 'Etc/Unknown'"));
 }
+
+#[test]
+fn add_duration_past_year_9999_is_an_error() {
+    cmd()
+        .args([
+            "task",
+            "add",
+            "--dry-run",
+            "x",
+            "--start",
+            "2027-03-01T10:00",
+        ])
+        .args(["--duration", "80000000h"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("date value out of range"));
+}

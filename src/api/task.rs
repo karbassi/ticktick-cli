@@ -300,24 +300,34 @@ impl ParsedDateTime {
             "cannot add duration to an all-day date (no time component)".to_string()
         })?;
 
-        let total_minutes = (hour * 60 + minute) + (duration.hours * 60 + duration.minutes);
-        let extra_days = total_minutes / (24 * 60);
+        let total_minutes = i64::from(hour) * 60
+            + i64::from(minute)
+            + i64::from(duration.hours) * 60
+            + i64::from(duration.minutes);
         let remaining = total_minutes % (24 * 60);
-        let new_hour = remaining / 60;
-        let new_minute = remaining % 60;
-
-        let mut y = self.year;
-        let mut m = self.month;
-        let mut d = self.day;
-        for _ in 0..extra_days {
-            (y, m, d) = add_days(y, m, d);
-        }
+        // Python's OverflowError text.
+        let out_of_range = |_| "date value out of range".to_string();
+        let date = civil_datetime(
+            self.year.into(),
+            self.month.into(),
+            self.day.into(),
+            0,
+            0,
+            0,
+        )?
+        .date()
+        .checked_add(
+            jiff::Span::new()
+                .try_days(total_minutes / (24 * 60))
+                .map_err(out_of_range)?,
+        )
+        .map_err(out_of_range)?;
 
         Ok(ParsedDateTime {
-            year: y,
-            month: m,
-            day: d,
-            time: Some((new_hour, new_minute)),
+            year: date.year().into(),
+            month: date.month().unsigned_abs().into(),
+            day: date.day().unsigned_abs().into(),
+            time: Some(((remaining / 60) as u32, (remaining % 60) as u32)),
         })
     }
 }
