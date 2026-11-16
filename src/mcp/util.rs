@@ -1,6 +1,7 @@
 //! Mirrors the Python server's `client.py`, `resolve.py` and `dates.py` so tool
 //! output and errors match it.
 
+use std::io::Read;
 use std::sync::{Mutex, OnceLock};
 
 use jiff::tz::TimeZone;
@@ -69,14 +70,16 @@ pub fn tool_error(msg: impl Into<String>) -> CallToolResult {
 
 // Raw JSON like Python, not the typed `api::*` structs, which drop fields.
 
+/// Not `into_string`: it caps bodies at 10 MiB, which large accounts exceed.
 fn parse(resp: ureq::Response) -> Result<Value, String> {
-    let text = resp
-        .into_string()
+    let mut body = Vec::new();
+    resp.into_reader()
+        .read_to_end(&mut body)
         .map_err(|e| format!("failed to read response: {e}"))?;
-    if text.trim().is_empty() {
+    if body.iter().all(u8::is_ascii_whitespace) {
         return Ok(Value::Null);
     }
-    serde_json::from_str(&text).map_err(|e| format!("failed to parse response: {e}"))
+    serde_json::from_slice(&body).map_err(|e| format!("failed to parse response: {e}"))
 }
 
 fn token() -> Result<String, String> {

@@ -47,6 +47,22 @@ fn list_filters() {
 }
 
 #[test]
+fn response_over_10_mib_is_read_whole() {
+    let server = MockServer::start();
+    let rule = "x".repeat(11 * 1024 * 1024);
+    mock_batch(
+        &server,
+        json!({"filters": [{"id": "f1", "name": "Big", "rule": rule}]}),
+    );
+    let mut c = McpBuilder::new(&server).start();
+    let res = c.call_tool("list_filters", json!({})).ok();
+    assert_eq!(
+        res.json()[0]["rule"].as_str().map(str::len),
+        Some(rule.len())
+    );
+}
+
+#[test]
 fn list_filters_missing_is_empty() {
     let server = MockServer::start();
     mock_batch(&server, json!({"filters": null}));
