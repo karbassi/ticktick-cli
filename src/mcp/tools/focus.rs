@@ -225,8 +225,11 @@ fn start_time(r: &Value) -> &str {
     r.get("startTime").and_then(Value::as_str).unwrap_or("")
 }
 
+// TODO: use util::local_zone once merged
 fn local_zone() -> TimeZone {
-    TimeZone::system()
+    crate::config::get_account_timezone()
+        .and_then(|name| TimeZone::get(&name).ok())
+        .unwrap_or_else(TimeZone::system)
 }
 
 /// Matches Python `_to_iso`.

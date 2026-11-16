@@ -345,6 +345,39 @@ fn save_naive_end_is_local_time() {
     save.assert();
 }
 
+fn naive_save_end_with_account_timezone(account_tz: &str, end: &str) {
+    let server = MockServer::start();
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server)
+        .config(json!({"account_timezone": account_tz}))
+        .start();
+    mcp.call_tool("focus_save", json!({"duration_minutes": 25, "end": end}))
+        .ok();
+    save.assert();
+}
+
+#[test]
+fn save_naive_end_follows_account_timezone() {
+    // Asia/Tokyo is +09:00, so 23:25 there is 14:25Z (the system zone would give 05:25Z).
+    naive_save_end_with_account_timezone("Asia/Tokyo", "2026-02-22T23:25:00");
+}
+
+#[test]
+fn save_naive_end_ignores_unknown_account_timezone() {
+    // Falls back to the system zone, America/Chicago (-06:00).
+    naive_save_end_with_account_timezone("Not/AZone", "2026-02-22T08:25:00");
+}
+
 #[test]
 fn save_offset_and_fraction_are_converted_to_utc() {
     let server = MockServer::start();

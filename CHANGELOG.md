@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After a 401, the refreshed access token is kept in memory and wins over `TICKTICK_ACCESS_TOKEN` and config.json for the rest of the process, so a long-running `mcp` server stops retrying the expired env token. The refresh token comes from the new `TICKTICK_REFRESH_TOKEN`, else config.json; config.json is rewritten only when its refresh token was used.
 - MCP `list_events` returns a tool error (`isError`) with the real message, such as the missing v2 session token hint. This intentionally differs from the Python server, which returns `[]` on any error.
 - Every HTTP request now times out: 10s to connect, 30s to read or write. `TICKTICK_HTTP_TIMEOUT_SECS` overrides the read/write timeout. Before, a stalled request could hang the CLI, and in the MCP server it blocked every other tool behind the token-refresh and inbox locks.
+- MCP `focus_save` reads an `end` without a UTC offset in the account timezone, like tasks do, falling back to the system zone when none is known or it is invalid. The Python server always used the system zone.
 
 ## [1.0.0-rc.3]
 
