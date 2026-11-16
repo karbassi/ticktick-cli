@@ -135,12 +135,35 @@ fn load_from(path: &Path) -> Config {
         .unwrap_or_default()
 }
 
-/// Held by every write to config.json, so concurrent load-modify-save
-/// sequences don't drop each other's changes.
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
-fn config_lock() -> MutexGuard<'static, ()> {
-    CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+/// Held by every write to config.json, so concurrent load-modify-save
+/// sequences don't drop each other's changes: the mutex within this process,
+/// an advisory lock on `config.json.lock` across processes.
+struct ConfigLock {
+    // Declared first so the file lock is released before the mutex.
+    _file: fs::File,
+    _mutex: MutexGuard<'static, ()>,
+}
+
+fn lock_config(path: &Path) -> Result<ConfigLock, String> {
+    let mutex = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("failed to create config dir: {e}"))?;
+    }
+    let lock_path = path.with_extension("json.lock");
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|e| format!("failed to open {}: {e}", lock_path.display()))?;
+    file.lock()
+        .map_err(|e| format!("failed to lock {}: {e}", lock_path.display()))?;
+    Ok(ConfigLock {
+        _file: file,
+        _mutex: mutex,
+    })
 }
 
 /// Change config.json in one locked load-modify-save. `f` must not call `update`.
@@ -154,7 +177,7 @@ fn update_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> R) -> Result<R, Stri
 
 /// Like `update_at`, but saves only when `f` returns true.
 fn update_if_at<R>(path: &Path, f: impl FnOnce(&mut Config) -> (R, bool)) -> Result<R, String> {
-    let _lock = config_lock();
+    let _lock = lock_config(path)?;
     let mut config = load_strict(path)?;
     let (out, save) = f(&mut config);
     if save {
@@ -488,12 +511,10 @@ pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
 }
 
 pub fn logout() -> Result<(), String> {
-    {
-        let _lock = config_lock();
-        let path = config_path();
-        if path.exists() {
-            fs::remove_file(&path).map_err(|e| format!("failed to remove config: {e}"))?;
-        }
+    let path = config_path();
+    if path.exists() {
+        let _lock = lock_config(&path)?;
+        fs::remove_file(&path).map_err(|e| format!("failed to remove config: {e}"))?;
     }
     eprintln!("Logged out");
     Ok(())
@@ -627,9 +648,28 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
-            .filter(|n| n != "config.json")
+            .filter(|n| n != "config.json" && n != "config.json.lock")
             .collect();
         assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+    }
+
+    #[test]
+    fn update_waits_for_another_processs_file_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let other = fs::File::create(dir.path().join("config.json.lock")).unwrap();
+        other.lock().unwrap();
+        let held = std::time::Duration::from_millis(300);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(held);
+            drop(other);
+        });
+
+        let started = std::time::Instant::now();
+        update_at(&path, |c| c.inbox_project_id = Some("x".into())).unwrap();
+
+        assert!(started.elapsed() >= held, "{:?}", started.elapsed());
+        release.join().unwrap();
     }
 
     #[test]
