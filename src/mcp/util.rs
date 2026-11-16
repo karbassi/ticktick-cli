@@ -95,10 +95,9 @@ where
     F: FnOnce() -> Result<O, String> + Send + 'static,
     O: Into<Output> + Send + 'static,
 {
-    Ok(match spawn_blocking(f).await {
-        Ok(Ok(out)) => success(out.into()),
-        Ok(Err(msg)) => tool_error(msg),
-        Err(e) => tool_error(format!("internal error: {e}")),
+    Ok(match blocking(f).await {
+        Ok(out) => success(out.into()),
+        Err(msg) => tool_error(msg),
     })
 }
 
