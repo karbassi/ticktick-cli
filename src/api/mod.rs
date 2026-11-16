@@ -74,7 +74,11 @@ fn try_refresh_token(failed: &str) -> Option<String> {
     }
 
     let plan = config::plan_refresh()?;
-    let (access, rotated) = auth::refresh_token(&plan.refresh).ok()?;
+    // Fails when another process already rotated the refresh token, but that
+    // process may have saved its new tokens in the meantime.
+    let Ok((access, rotated)) = auth::refresh_token(&plan.refresh) else {
+        return config::get_access_token().ok().filter(|t| t != failed);
+    };
     let refresh = rotated.unwrap_or_else(|| plan.refresh.clone());
     let token = config::store_refresh(plan, access, refresh)?;
     eprintln!("Token refreshed automatically");

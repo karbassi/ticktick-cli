@@ -126,6 +126,31 @@ fn refresh_does_not_overwrite_a_login_made_while_it_ran() {
 }
 
 #[test]
+fn failed_refresh_uses_tokens_another_process_saved_meanwhile() {
+    let server = MockServer::start();
+    let cfg = ConfigDir::new(&json!({"access_token": "a0", "refresh_token": "r1"}));
+    projects_with(&server, "a0", 401);
+    let rejected = server.mock(|when, then| {
+        when.method(POST).path("/oauth/token");
+        then.status(400).delay(Duration::from_secs(2));
+    });
+    let theirs = projects_with(&server, "a1", 200);
+    let mut c = config_tokens(&server, &cfg).start();
+
+    let file = cfg.file();
+    let other_process = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        let saved = json!({"access_token": "a1", "refresh_token": "r2"});
+        fs::write(file, saved.to_string()).unwrap();
+    });
+    c.call_tool("list_projects", json!({})).ok();
+    other_process.join().unwrap();
+
+    rejected.assert_calls(1);
+    theirs.assert_calls(1);
+}
+
+#[test]
 fn env_access_token_never_refreshes_with_config_refresh_token() {
     let server = MockServer::start();
     let cfg = ConfigDir::new(&json!({"access_token": "other", "refresh_token": "file-r"}));
