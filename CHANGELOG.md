@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `complete_task` with several IDs keeps going past a failed batch request and reports it, e.g. `Completed 70 of 120 tasks; not completed: …; chunk 2 failed: …`. It is a tool error only when no task was completed.
   - `assign_task` adds the "assignee must be a member" hint only for 403 and 500 (what a non-member username returns). The Python server adds it to every HTTP error.
   - `add_task` with `start` and `all_day=true` but no `due` sends `isAllDay` and the all-day reminder. The Python server ignores `all_day` there.
+  - Tools that take several habit, filter, folder or habit-section names fetch the list once per call, not once per name. Habit, filter and folder IDs skip the fetch unless an etag is needed (`archive_habits`). `focus_log` fetches its two focus types concurrently.
 
 ### Changed
 

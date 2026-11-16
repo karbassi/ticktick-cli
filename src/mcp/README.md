@@ -12,7 +12,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
   - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs: they drop fields.
 
-  - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_project_ids` (several names, one `/project` fetch), `resolve_column_id`, `resolve_folder_id` (returns etag), and the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys.
+  - Resolution like Python `resolve.py`: `resolve_project_id` (handles "inbox"), `resolve_project_ids` (several names, one `/project` fetch), `resolve_column_id`, `resolve_folder_id` (returns etag), the generic `resolve_name` / `resolve_name_with_etag` over `[Value]` with `id`/`name`/`etag` keys, and `resolve_all` (several names, one lazy list fetch, skipped for IDs when no etag is needed).
 
   - Dates like `dates.py`: `parse_datetime_in`, `parse_duration`, `zone(timezone)` (the caller's `timezone`, else `TICKTICK_TIMEZONE`, else system), `api_date(input, &zone)`, and `canonical_timezone` (rejects unknown names and paths). Also `priority_value` and `nonempty`.
 
