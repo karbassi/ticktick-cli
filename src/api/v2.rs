@@ -82,16 +82,25 @@ pub(crate) fn v2_request(
     .map_err(Box::new)
 }
 
+fn v2_send(
+    method: &str,
+    endpoint: &str,
+    token: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<ureq::Response, String> {
+    v2_request(method, endpoint, token, body).map_err(|e| v2_error(&e))
+}
+
 pub fn v2_post(
     endpoint: &str,
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    v2_request("POST", endpoint, token, Some(body)).map_err(|e| v2_error(&e))
+    v2_send("POST", endpoint, token, Some(body))
 }
 
 pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    v2_request("GET", endpoint, token, None).map_err(|e| v2_error(&e))
+    v2_send("GET", endpoint, token, None)
 }
 
 pub fn v2_put(
@@ -99,7 +108,7 @@ pub fn v2_put(
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    v2_request("PUT", endpoint, token, Some(body)).map_err(|e| v2_error(&e))
+    v2_send("PUT", endpoint, token, Some(body))
 }
 
 /// Minimal percent-encoding for URL query parameters.
