@@ -53,47 +53,46 @@ impl TickTickServer {
     }
 }
 
-const RESOURCES: &[(&str, &str, &str)] = &[
+type ReadFn = fn() -> Result<Value, String>;
+
+/// (uri, name, description, reader)
+const RESOURCES: &[(&str, &str, &str, ReadFn)] = &[
     (
         "ticktick://projects",
         "projects",
         "All projects (task lists) with their IDs, names, colors, and folder assignments.",
+        || util::v1_get("/project"),
     ),
     (
         "ticktick://tags",
         "tags",
         "All tags with their names, colors, and hierarchical relationships.",
+        || util::v1_get("/tag"),
     ),
     (
         "ticktick://settings",
         "settings",
         "User preference settings including web-specific options.",
+        || util::v2_get("/user/preferences/settings?includeWeb=true"),
     ),
     (
         "ticktick://profile",
         "profile",
         "User profile and subscription status merged into one view.",
+        read_profile,
     ),
 ];
 
-fn read_resource_json(uri: &str) -> Result<Value, String> {
-    match uri {
-        "ticktick://projects" => util::v1_get("/project"),
-        "ticktick://tags" => util::v1_get("/tag"),
-        "ticktick://settings" => util::v2_get("/user/preferences/settings?includeWeb=true"),
-        "ticktick://profile" => {
-            let mut profile = util::v2_get("/user/profile")?;
-            let status = util::v2_get("/user/status")?;
-            match profile.as_object_mut() {
-                Some(obj) => {
-                    obj.insert("status".to_string(), status);
-                }
-                None => profile = serde_json::json!({ "status": status }),
-            }
-            Ok(profile)
+fn read_profile() -> Result<Value, String> {
+    let mut profile = util::v2_get("/user/profile")?;
+    let status = util::v2_get("/user/status")?;
+    match profile.as_object_mut() {
+        Some(obj) => {
+            obj.insert("status".to_string(), status);
         }
-        _ => Err(format!("Unknown resource: {uri}")),
+        None => profile = serde_json::json!({ "status": status }),
     }
+    Ok(profile)
 }
 
 /// Python's `repr()` of a str.
@@ -167,7 +166,7 @@ impl ServerHandler for TickTickServer {
     ) -> Result<ListResourcesResult, ErrorData> {
         let resources = RESOURCES
             .iter()
-            .map(|(uri, name, description)| {
+            .map(|(uri, name, description, _)| {
                 Resource::new(*uri, *name)
                     .with_description(*description)
                     .with_mime_type("text/plain")
@@ -182,20 +181,16 @@ impl ServerHandler for TickTickServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
         let uri = request.uri;
-        if !RESOURCES.iter().any(|(u, _, _)| *u == uri) {
+        let Some(&(_, _, _, read)) = RESOURCES.iter().find(|(u, ..)| *u == uri) else {
             return Err(ErrorData::resource_not_found(
                 format!("Unknown resource: {uri}"),
                 None,
             ));
-        }
-        let key = uri.clone();
+        };
         let ct = context.ct;
-        let value = util::cancellable(
-            move || ct.is_cancelled(),
-            util::blocking(move || read_resource_json(&key)),
-        )
-        .await
-        .map_err(|e| ErrorData::internal_error(e, None))?;
+        let value = util::cancellable(move || ct.is_cancelled(), util::blocking(read))
+            .await
+            .map_err(|e| ErrorData::internal_error(e, None))?;
         Ok(ReadResourceResult::new(vec![ResourceContents::text(value.to_string(), uri)]).into())
     }
 }
