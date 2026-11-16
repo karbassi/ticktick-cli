@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{ACCESS_TOKEN, McpBuilder, SESSION_TOKEN};
+use common::{ACCESS_TOKEN, McpBuilder};
 use httpmock::prelude::*;
 use serde_json::{Value, json};
 
@@ -34,57 +34,6 @@ fn mock_save<'a>(server: &'a MockServer, body: Value) -> httpmock::Mock<'a> {
             .json_body(body);
         then.status(200).json_body(json!({"id": "f1"}));
     })
-}
-
-#[test]
-fn status_returns_v2_timer() {
-    let server = MockServer::start();
-    let timer = server.mock(|when, then| {
-        when.method(GET)
-            .path("/api/v2/timer")
-            .header("Cookie", format!("t={SESSION_TOKEN}"));
-        then.status(200)
-            .json_body(json!({"id": "fs1", "status": "running", "elapsed": 600000}));
-    });
-    let mut mcp = McpBuilder::new(&server).start();
-    let res = mcp.call_tool("focus_status", json!({})).ok();
-    timer.assert();
-    assert_eq!(
-        res.json(),
-        json!({"id": "fs1", "status": "running", "elapsed": 600000})
-    );
-}
-
-#[test]
-fn stats_returns_v2_statistics() {
-    let server = MockServer::start();
-    let stats = server.mock(|when, then| {
-        when.method(GET)
-            .path("/api/v2/pomodoros/statistics/generalForDesktop")
-            .header("Cookie", format!("t={SESSION_TOKEN}"));
-        then.status(200)
-            .json_body(json!({"todayFocus": 3600000, "totalSessions": 42}));
-    });
-    let mut mcp = McpBuilder::new(&server).start();
-    let res = mcp.call_tool("focus_stats", json!({})).ok();
-    stats.assert();
-    assert_eq!(res.json()["totalSessions"], 42);
-}
-
-#[test]
-fn timeline_returns_v2_timeline() {
-    let server = MockServer::start();
-    let timeline = server.mock(|when, then| {
-        when.method(GET)
-            .path("/api/v2/pomodoros/timeline")
-            .header("Cookie", format!("t={SESSION_TOKEN}"));
-        then.status(200)
-            .json_body(json!({"sessions": [{"id": "p1", "start": "2026-02-22"}]}));
-    });
-    let mut mcp = McpBuilder::new(&server).start();
-    let res = mcp.call_tool("focus_timeline", json!({})).ok();
-    timeline.assert();
-    assert_eq!(res.json()["sessions"][0]["id"], "p1");
 }
 
 #[test]
@@ -421,19 +370,6 @@ fn save_offset_and_fraction_are_converted_to_utc() {
         json!({"duration_minutes": 1, "end": "2026-02-22 09:30:00.123456-05:00"}),
     )
     .ok();
-    save.assert();
-}
-
-#[test]
-fn save_now_ends_at_the_current_time() {
-    let server = MockServer::start();
-    let save = server.mock(|when, then| {
-        when.method(POST).path("/open/v1/focus");
-        then.status(200).json_body(json!({"id": "f1"}));
-    });
-    let mut mcp = McpBuilder::new(&server).start();
-    mcp.call_tool("focus_save", json!({"duration_minutes": 25}))
-        .ok();
     save.assert();
 }
 

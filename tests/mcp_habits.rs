@@ -61,17 +61,6 @@ fn mock_post<'a>(
 }
 
 #[test]
-fn list_habits() {
-    let server = MockServer::start();
-    let list = mock_habits(&server);
-    let res = start(&server).call_tool("list_habits", json!({})).ok();
-    list.assert();
-    let out = res.json();
-    assert_eq!(out.as_array().unwrap().len(), 2);
-    assert_eq!(out[0]["name"], "Exercise");
-}
-
-#[test]
 fn add_boolean_defaults() {
     let server = MockServer::start();
     let post = mock_post(

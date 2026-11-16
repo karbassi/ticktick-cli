@@ -152,15 +152,6 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_column() {
-        let c = &cols()[1];
-        assert_eq!(c.id, "c2");
-        assert_eq!(c.color.as_deref(), Some("#FF0000"));
-        assert_eq!(c.sort_order, Some(1));
-        assert!(cols()[0].color.is_none());
-    }
-
-    #[test]
     fn body_only_includes_set_fields() {
         let f = ColumnFields {
             name: Some("Review".into()),

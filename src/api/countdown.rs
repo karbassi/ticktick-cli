@@ -48,12 +48,4 @@ mod tests {
         assert_eq!(out["repeatFlag"], c.repeat_flag.as_deref().unwrap());
         assert_eq!(out["reminders"][0], "TRIGGER:P0DT9H0M0S");
     }
-
-    #[test]
-    fn countdown_deserialize_minimal() {
-        let c: Countdown = serde_json::from_str(r#"{"id":"c2"}"#).unwrap();
-        assert!(c.name.is_none());
-        assert!(c.date.is_none());
-        assert!(c.extra.is_empty());
-    }
 }

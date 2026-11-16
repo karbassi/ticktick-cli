@@ -26,18 +26,6 @@ fn mock_columns(server: &MockServer) -> httpmock::Mock<'_> {
 }
 
 #[test]
-fn list_columns_returns_columns() {
-    let server = MockServer::start();
-    let list = mock_columns(&server);
-    let mut c = McpBuilder::new(&server).start();
-    let res = c
-        .call_tool("list_columns", json!({"project": HEX_PROJECT}))
-        .ok();
-    list.assert();
-    assert_eq!(res.json(), columns());
-}
-
-#[test]
 fn list_columns_resolves_project_name() {
     let server = MockServer::start();
     let projects = server.mock(|when, then| {

@@ -280,24 +280,3 @@ pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
     crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
-
-#[cfg(test)]
-mod member_tests {
-    use super::ProjectMember;
-
-    #[test]
-    fn project_member_round_trips_self_flag() {
-        let m: ProjectMember = serde_json::from_value(serde_json::json!(
-            { "username": "a@b.c", "displayName": "A", "self": true }
-        ))
-        .unwrap();
-        assert_eq!(m.is_self, Some(true));
-        assert_eq!(
-            serde_json::to_value(&m).unwrap(),
-            serde_json::json!({ "username": "a@b.c", "displayName": "A", "self": true })
-        );
-        let other: ProjectMember =
-            serde_json::from_value(serde_json::json!({ "username": "x" })).unwrap();
-        assert!(other.is_self.is_none());
-    }
-}

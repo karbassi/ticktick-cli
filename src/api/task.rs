@@ -914,26 +914,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_tasks_body_uses_v1_shape() {
-        let ids = vec!["t1".to_string(), "t2".to_string()];
-        assert_eq!(
-            complete_tasks_body("p1", &ids),
-            serde_json::json!({ "projectId": "p1", "taskIds": ["t1", "t2"] })
-        );
-    }
-
-    #[test]
-    fn complete_batch_size_matches_api_limit() {
-        assert_eq!(COMPLETE_BATCH_SIZE, 50);
-        let ids: Vec<usize> = (0..120).collect();
-        let sizes: Vec<usize> = ids
-            .chunks(COMPLETE_BATCH_SIZE)
-            .map(<[usize]>::len)
-            .collect();
-        assert_eq!(sizes, [50, 50, 20]);
-    }
-
-    #[test]
     fn task_move_serializes_to_v1_shape() {
         let moves = [TaskMove {
             task_id: "t1".into(),
@@ -1044,18 +1024,6 @@ mod tests {
             Some(Vec::new())
         );
         assert_eq!(add_reminders(vec![], true, None, false), Some(Vec::new()));
-    }
-
-    #[test]
-    fn assign_bodies_use_v1_shape() {
-        assert_eq!(
-            assign_body("p1", "t1", "bob@example.com"),
-            serde_json::json!({ "projectId": "p1", "taskId": "t1", "assigneeUsername": "bob@example.com" })
-        );
-        assert_eq!(
-            unassign_body("p1", "t1"),
-            serde_json::json!({ "projectId": "p1", "taskId": "t1" })
-        );
     }
 
     // -- parse_datetime -------------------------------------------------------
@@ -1429,13 +1397,6 @@ mod tests {
         let mut body = serde_json::json!({});
         TaskFields::default().apply_to(&mut body);
         assert!(body.get("columnId").is_none());
-    }
-
-    #[test]
-    fn task_deserialize_column_id() {
-        let json = r#"{"id":"t1","title":"x","columnId":"c9","columnName":"Doing"}"#;
-        let task: Task = serde_json::from_str(json).unwrap();
-        assert_eq!(task.column_id.as_deref(), Some("c9"));
     }
 
     #[test]

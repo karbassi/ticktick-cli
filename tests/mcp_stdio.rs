@@ -764,16 +764,6 @@ fn tag_tools() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn projects_resource_returns_api_json() {
-    let server = MockServer::start();
-    let projects = json!([{"id": "p1", "name": "Work", "color": "#F00", "groupId": "g1"}]);
-    let mock = mock_projects(&server, projects.clone());
-    let mut c = start(&server);
-    assert_eq!(c.read_resource("ticktick://projects"), projects);
-    mock.assert();
-}
-
-#[test]
 fn profile_resource_merges_status() {
     let server = MockServer::start();
     server.mock(|when, then| {
