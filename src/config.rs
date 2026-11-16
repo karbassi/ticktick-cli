@@ -170,23 +170,61 @@ fn save_to(path: &Path, config: &Config) -> Result<(), String> {
         std::process::id(),
         WRITES.fetch_add(1, Ordering::Relaxed)
     ));
-    let result = write_private(&tmp, &json)
-        .and_then(|()| fs::rename(&tmp, path).map_err(|e| format!("failed to rename config: {e}")));
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    let result = write_private(&tmp, &json).and_then(|()| {
+        fs::rename(&tmp, path).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("failed to rename config: {e}")
+        })
+    });
+    remove_stale_temps(path);
     result
 }
 
+/// Created 0600, so the tokens are never readable by others, even briefly.
 fn write_private(path: &Path, contents: &str) -> Result<(), String> {
-    fs::write(path, contents).map_err(|e| format!("failed to write config: {e}"))?;
+    use std::io::Write;
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("failed to set config permissions: {e}"))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
     }
-    Ok(())
+    let mut file = opts
+        .open(path)
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    file.write_all(contents.as_bytes()).map_err(|e| {
+        let _ = fs::remove_file(path);
+        format!("failed to write config: {e}")
+    })
+}
+
+const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Temp files left by a process killed mid-save. Younger ones may belong to a
+/// save still in flight in another process.
+fn remove_stale_temps(path: &Path) {
+    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem().and_then(|s| s.to_str())) else {
+        return;
+    };
+    let prefix = format!("{stem}.");
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with(&prefix) || !name.ends_with(".tmp") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE_TEMP_AGE));
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Tokens from a refresh in this process. The env and files still hold the
@@ -454,6 +492,44 @@ mod tests {
 
         assert!(ran.is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn save_removes_only_stale_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let stale = dir.path().join("config.111.0.tmp");
+        let fresh = dir.path().join("config.222.0.tmp");
+        let unrelated = dir.path().join("other.333.0.tmp");
+        for p in [&stale, &fresh, &unrelated] {
+            fs::write(p, "{}").unwrap();
+        }
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        for p in [&stale, &unrelated] {
+            fs::File::options()
+                .write(true)
+                .open(p)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+
+        save_to(&path, &Config::default()).unwrap();
+
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_config_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save_to(&path, &Config::default()).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

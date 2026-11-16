@@ -50,7 +50,10 @@ fn blank_access_token_env_falls_back_to_config() {
         then.status(200).json_body(serde_json::json!([]));
     });
     let tmp = tempfile::tempdir().unwrap();
-    write_config(&tmp, r#"{"access_token":"file-token","refresh_token":null}"#);
+    write_config(
+        &tmp,
+        r#"{"access_token":"file-token","refresh_token":null}"#,
+    );
     isolated(&tmp)
         .env("TICKTICK_ACCESS_TOKEN", "  ")
         .env("TICKTICK_CLIENT_ID", "cid")
