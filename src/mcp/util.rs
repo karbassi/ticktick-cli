@@ -351,6 +351,17 @@ pub fn resolve_name_with_etag(
         .map(|i| (field(i, "id").to_string(), field(i, "etag").to_string()))
 }
 
+/// The full record `query` names. v2 batch updates replace the whole record,
+/// so edits must go onto this rather than onto a bare `{id, etag}`.
+pub fn resolve_record(query: &str, items: &[Value], entity: &str) -> Result<Value, String> {
+    let (id, etag) = resolve_name_with_etag(query, items, entity)?;
+    Ok(items
+        .iter()
+        .find(|i| field(i, "id") == id)
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({ "id": id, "etag": etag })))
+}
+
 /// [`resolve_name_with_etag`] for each query, with `fetch` called at most
 /// once, and only when a query is a name or `with_etag` wants an ID's etag.
 pub fn resolve_all(

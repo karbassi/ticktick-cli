@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Editing or archiving a habit, and editing a filter, no longer wipes the fields you didn't change (a habit's name and color, a filter's name and rule). TickTick's v2 batch update replaces the whole record, so the CLI and the MCP tools now send the full record with the changes applied. The Python server has the same bug.
+- `habit list` and `filter list` no longer fail on a record whose name is `null`.
 - Answering "n" at a delete confirmation now cancels the delete. Before, task, comment, tag, folder, habit, habit section and filter deletes went ahead anyway.
 - A blank `TICKTICK_ACCESS_TOKEN` or empty `.env` value no longer overrides config.json.
 - A config.json that fails to parse is no longer overwritten with defaults; saves report the parse error.

@@ -26,16 +26,20 @@ fn habits() -> Result<Vec<Value>, String> {
     Ok(util::as_list(util::v2_get("/habits")?))
 }
 
+fn habit_records(names: &[String]) -> Result<Vec<Value>, String> {
+    let all = habits()?;
+    names
+        .iter()
+        .map(|name| util::resolve_record(name, &all, "habit"))
+        .collect()
+}
+
 fn resolve_habit(name_or_id: &str) -> Result<(String, String), String> {
     resolve_name_with_etag(name_or_id, &habits()?, "habit")
 }
 
-fn resolve_habits(names: &[String], with_etag: bool) -> Result<Vec<(String, String)>, String> {
-    util::resolve_all(names, "habit", with_etag, habits)
-}
-
 fn resolve_habit_ids(names: &[String]) -> Result<Vec<String>, String> {
-    Ok(resolve_habits(names, false)?
+    Ok(util::resolve_all(names, "habit", false, habits)?
         .into_iter()
         .map(|(id, _)| id)
         .collect())
@@ -224,8 +228,7 @@ impl TickTickServer {
     )]
     async fn edit_habit(&self, Parameters(p): Parameters<EditHabitParams>) -> ToolResult {
         run(move || {
-            let (id, etag) = resolve_habit(&p.habit)?;
-            let mut update = json!({ "id": id, "etag": etag });
+            let mut update = habit_records(std::slice::from_ref(&p.habit))?.remove(0);
             HabitFields {
                 name: p.name,
                 habit_type: None,
@@ -321,10 +324,10 @@ impl TickTickServer {
     )]
     async fn archive_habits(&self, Parameters(p): Parameters<ArchiveHabitsParams>) -> ToolResult {
         run(move || {
-            let updates: Vec<Value> = resolve_habits(&p.habits, true)?
-                .into_iter()
-                .map(|(id, etag)| json!({ "id": id, "etag": etag, "status": 1 }))
-                .collect();
+            let mut updates = habit_records(&p.habits)?;
+            for habit in &mut updates {
+                habit["status"] = json!(1);
+            }
             util::v2_post("/habits/batch", &json!({ "update": updates }))
         })
         .await

@@ -176,3 +176,9 @@ pub fn delete_json(
 pub fn delete(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
     send("DELETE", endpoint, token, None)
 }
+
+/// A record whose name was wiped comes back with `"name": null`.
+pub(crate) fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    use serde::Deserialize;
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}

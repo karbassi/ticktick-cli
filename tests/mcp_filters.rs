@@ -89,12 +89,12 @@ fn add_filter_all_fields() {
 }
 
 #[test]
-fn edit_filter_resolves_name_and_sends_etag() {
+fn edit_filter_keeps_unchanged_fields() {
     let server = MockServer::start();
     mock_batch(&server, batch());
     let edit = mock_filter_post(
         &server,
-        json!({"update": [{"id": "f1", "etag": "e1", "name": "Very High Priority"}]}),
+        json!({"update": [{"id": "f1", "name": "Very High Priority", "etag": "e1", "rule": "{\"and\":[],\"type\":0}"}]}),
     );
     let mut c = McpBuilder::new(&server).start();
     c.call_tool(

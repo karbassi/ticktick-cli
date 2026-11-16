@@ -7,6 +7,7 @@ use super::v2;
 #[allow(dead_code)]
 pub struct Filter {
     pub id: String,
+    #[serde(default, deserialize_with = "super::null_as_empty")]
     pub name: String,
     #[serde(default)]
     pub rule: Option<String>,
@@ -63,13 +64,14 @@ pub fn create(fields: &FilterFields) -> Result<serde_json::Value, String> {
         .map_err(|e| format!("failed to parse filter create response: {e}"))
 }
 
-/// Update a filter.
+/// Update a filter. v2 replaces the whole filter, so the changes go onto the full record.
 pub fn update(id: &str, etag: &str, fields: &FilterFields) -> Result<serde_json::Value, String> {
     let token = v2::get_session_token()?;
-    let mut filter = serde_json::json!({
-        "id": id,
-        "etag": etag,
-    });
+    let mut filter = v2::batch_check()?
+        .get("filters")
+        .and_then(|v| v.as_array())
+        .and_then(|all| all.iter().find(|f| f["id"] == id).cloned())
+        .unwrap_or_else(|| serde_json::json!({ "id": id, "etag": etag }));
     fields.apply_to(&mut filter);
     let body = serde_json::json!({ "update": [filter] });
     let resp = v2::v2_post("/batch/filter", &token, &body)?;

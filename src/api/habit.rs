@@ -9,6 +9,7 @@ use jiff::tz::TimeZone;
 #[allow(dead_code)]
 pub struct Habit {
     pub id: String,
+    #[serde(default, deserialize_with = "super::null_as_empty")]
     pub name: String,
     #[serde(default)]
     pub icon_res: Option<String>,
@@ -252,13 +253,16 @@ pub fn delete(ids: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Update a habit.
+/// Update a habit. v2 replaces the whole habit, so the changes go onto the full record.
 pub fn update(id: &str, etag: &str, fields: &HabitFields) -> Result<serde_json::Value, String> {
     let token = v2::get_session_token()?;
-    let mut habit = serde_json::json!({
-        "id": id,
-        "etag": etag,
-    });
+    let all: Vec<serde_json::Value> = v2::v2_get("/habits", &token)?
+        .into_json()
+        .map_err(|e| format!("failed to parse habits: {e}"))?;
+    let mut habit = all
+        .into_iter()
+        .find(|h| h["id"] == id)
+        .unwrap_or_else(|| serde_json::json!({ "id": id, "etag": etag }));
     fields.apply_to(&mut habit);
     let body = serde_json::json!({ "update": [habit] });
     let resp = v2::v2_post("/habits/batch", &token, &body)?;

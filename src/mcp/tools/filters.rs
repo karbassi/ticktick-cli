@@ -8,17 +8,13 @@ use serde_json::{Value, json};
 
 use crate::api::filter::FilterFields;
 use crate::mcp::TickTickServer;
-use crate::mcp::util::{self, ToolResult, resolve_name_with_etag, run};
+use crate::mcp::util::{self, ToolResult, run};
 
 fn batch_filters() -> Result<Vec<Value>, String> {
     let data = util::v2_get("/batch/check/0")?;
     Ok(util::as_list(
         data.get("filters").cloned().unwrap_or(Value::Null),
     ))
-}
-
-fn resolve_filter(name_or_id: &str) -> Result<(String, String), String> {
-    resolve_name_with_etag(name_or_id, &batch_filters()?, "filter")
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -106,8 +102,7 @@ impl TickTickServer {
     )]
     async fn edit_filter(&self, Parameters(p): Parameters<EditFilterParams>) -> ToolResult {
         run(move || {
-            let (fid, etag) = resolve_filter(&p.filter_name)?;
-            let mut update = json!({ "id": fid, "etag": etag });
+            let mut update = util::resolve_record(&p.filter_name, &batch_filters()?, "filter")?;
             FilterFields {
                 name: p.name,
                 rule: p.rule,

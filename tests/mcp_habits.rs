@@ -116,13 +116,13 @@ fn add_habit_unknown_section_errors() {
 }
 
 #[test]
-fn edit_habit_sends_only_given_fields() {
+fn edit_habit_keeps_unchanged_fields() {
     let server = MockServer::start();
     mock_habits(&server);
     let post = mock_post(
         &server,
         "/habits/batch",
-        json!({"update": [{"id": "h1", "etag": "e1", "name": "Workout"}]}),
+        json!({"update": [{"id": "h1", "name": "Workout", "etag": "e1", "type": "Boolean", "goal": 1, "status": 0}]}),
         json!({"id2etag": {"h1": "e1_new"}}),
     );
     start(&server)
@@ -143,7 +143,7 @@ fn edit_habit_all_fields() {
         &server,
         "/habits/batch",
         json!({"update": [{
-            "id": "h2", "etag": "e2", "name": "Reading", "goal": 40.0, "unit": "pp",
+            "id": "h2", "etag": "e2", "type": "Numeric", "name": "Reading", "goal": 40.0, "unit": "pp",
             "sectionId": "s2", "repeatRule": "R", "color": "#111111",
         }]}),
         json!({}),
@@ -383,15 +383,15 @@ fn habit_log_query() {
 }
 
 #[test]
-fn archive_habits_sets_status_1() {
+fn archive_habits_sets_status_1_and_keeps_fields() {
     let server = MockServer::start();
     mock_habits(&server);
     let post = mock_post(
         &server,
         "/habits/batch",
         json!({"update": [
-            {"id": "h1", "etag": "e1", "status": 1},
-            {"id": "h2", "etag": "e2", "status": 1},
+            {"id": "h1", "name": "Exercise", "etag": "e1", "type": "Boolean", "goal": 1, "status": 1},
+            {"id": "h2", "name": "Read", "etag": "e2", "type": "Numeric", "goal": 30, "unit": "pages", "status": 1},
         ]}),
         json!({"id2etag": {"h1": "e1_arch"}}),
     );
