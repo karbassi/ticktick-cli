@@ -24,12 +24,6 @@ const PENDING_TOOLS: &[&str] = &[
     "delete_comment",
     // countdowns.py
     "list_countdowns",
-    // focus.py
-    "focus_status",
-    "focus_stats",
-    "focus_log",
-    "focus_timeline",
-    "focus_save",
     // habits.py
     "list_habits",
     "add_habit",

@@ -1,0 +1,473 @@
+//! End-to-end tests for the focus tools, ported from the Python suite
+//! (`ticktick-mcp/tests/test_tools/test_focus.py`).
+
+mod common;
+
+use common::{ACCESS_TOKEN, McpBuilder, SESSION_TOKEN};
+use httpmock::prelude::*;
+use serde_json::{Value, json};
+
+/// A GET mock on v1 `/focus` for one exact `from`/`to`/`type`.
+fn focus_chunk<'a>(
+    server: &'a MockServer,
+    from: &str,
+    to: &str,
+    focus_type: u8,
+    records: Value,
+) -> httpmock::Mock<'a> {
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/focus")
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"))
+            .query_param("from", from)
+            .query_param("to", to)
+            .query_param("type", focus_type.to_string());
+        then.status(200).json_body(records);
+    })
+}
+
+fn mock_save<'a>(server: &'a MockServer, body: Value) -> httpmock::Mock<'a> {
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/open/v1/focus")
+            .header("Authorization", format!("Bearer {ACCESS_TOKEN}"))
+            .json_body(body);
+        then.status(200).json_body(json!({"id": "f1"}));
+    })
+}
+
+#[test]
+fn status_returns_v2_timer() {
+    let server = MockServer::start();
+    let timer = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/v2/timer")
+            .header("Cookie", format!("t={SESSION_TOKEN}"));
+        then.status(200)
+            .json_body(json!({"id": "fs1", "status": "running", "elapsed": 600000}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp.call_tool("focus_status", json!({})).ok();
+    timer.assert();
+    assert_eq!(
+        res.json(),
+        json!({"id": "fs1", "status": "running", "elapsed": 600000})
+    );
+}
+
+#[test]
+fn stats_returns_v2_statistics() {
+    let server = MockServer::start();
+    let stats = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/v2/pomodoros/statistics/generalForDesktop")
+            .header("Cookie", format!("t={SESSION_TOKEN}"));
+        then.status(200)
+            .json_body(json!({"todayFocus": 3600000, "totalSessions": 42}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp.call_tool("focus_stats", json!({})).ok();
+    stats.assert();
+    assert_eq!(res.json()["totalSessions"], 42);
+}
+
+#[test]
+fn timeline_returns_v2_timeline() {
+    let server = MockServer::start();
+    let timeline = server.mock(|when, then| {
+        when.method(GET)
+            .path("/api/v2/pomodoros/timeline")
+            .header("Cookie", format!("t={SESSION_TOKEN}"));
+        then.status(200)
+            .json_body(json!({"sessions": [{"id": "p1", "start": "2026-02-22"}]}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp.call_tool("focus_timeline", json!({})).ok();
+    timeline.assert();
+    assert_eq!(res.json()["sessions"][0]["id"], "p1");
+}
+
+#[test]
+fn log_queries_both_types_in_30_day_chunks() {
+    let server = MockServer::start();
+    // 2026-01-01 .. 2026-02-14 is 45 days: 2 chunks x 2 types.
+    let ends = [
+        (
+            "2026-01-01T00:00:00.000+0000",
+            "2026-01-31T00:00:00.000+0000",
+        ),
+        (
+            "2026-01-31T00:00:00.000+0000",
+            "2026-02-14T23:59:59.999+0000",
+        ),
+    ];
+    let mut mocks = Vec::new();
+    for (from, to) in ends {
+        for focus_type in [0u8, 1] {
+            // Each type returns one record, whose id repeats in both chunks.
+            let record = json!([{
+                "id": format!("f{focus_type}"),
+                "startTime": format!("2026-0{}-01", focus_type + 1),
+            }]);
+            mocks.push(focus_chunk(&server, from, to, focus_type, record));
+        }
+    }
+    let v2_pomodoros = server.mock(|when, then| {
+        when.path_includes("/pomodoros");
+        then.status(200).json_body(json!([]));
+    });
+
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_log",
+            json!({"from_date": "2026-01-01", "to_date": "2026-02-14"}),
+        )
+        .ok();
+
+    for m in &mocks {
+        m.assert();
+    }
+    v2_pomodoros.assert_calls(0);
+    // Duplicates across chunks collapse; sorted by start.
+    let ids: Vec<Value> = res
+        .json()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].clone())
+        .collect();
+    assert_eq!(ids, vec![json!("f0"), json!("f1")]);
+}
+
+#[test]
+fn log_keeps_records_without_id() {
+    let server = MockServer::start();
+    // One chunk x two types, no ids: both kept, no crash.
+    let focus = server.mock(|when, then| {
+        when.method(GET).path("/open/v1/focus");
+        then.status(200)
+            .json_body(json!([{"startTime": "2026-01-02", "note": "x"}]));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_log",
+            json!({"from_date": "2026-01-01", "to_date": "2026-01-02"}),
+        )
+        .ok();
+    focus.assert_calls(2);
+    let notes: Vec<Value> = res
+        .json()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["note"].clone())
+        .collect();
+    assert_eq!(notes, vec![json!("x"), json!("x")]);
+}
+
+#[test]
+fn log_sorts_by_start_and_keeps_last_duplicate() {
+    let server = MockServer::start();
+    let type0 = server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/focus")
+            .query_param("type", "0");
+        then.status(200).json_body(json!([
+            {"id": "b", "startTime": "2026-01-03", "v": "old"},
+            {"id": "a", "startTime": "2026-01-01"},
+        ]));
+    });
+    let type1 = server.mock(|when, then| {
+        when.method(GET)
+            .path("/open/v1/focus")
+            .query_param("type", "1");
+        then.status(200)
+            .json_body(json!([{"id": "b", "startTime": "2026-01-03", "v": "new"}]));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_log",
+            json!({"from_date": "2026-01-01", "to_date": "2026-01-02"}),
+        )
+        .ok();
+    type0.assert();
+    type1.assert();
+    assert_eq!(
+        res.json(),
+        json!([
+            {"id": "a", "startTime": "2026-01-01"},
+            {"id": "b", "startTime": "2026-01-03", "v": "new"},
+        ])
+    );
+}
+
+#[test]
+fn log_accepts_today_and_yesterday() {
+    let server = MockServer::start();
+    let focus = server.mock(|when, then| {
+        when.method(GET).path("/open/v1/focus");
+        then.status(200).json_body(json!([]));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_log",
+            json!({"from_date": " Yesterday ", "to_date": "TODAY"}),
+        )
+        .ok();
+    // Two full days: a single chunk, two types.
+    focus.assert_calls(2);
+    assert_eq!(res.json(), json!([]));
+}
+
+#[test]
+fn log_rejects_invalid_dates() {
+    let server = MockServer::start();
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp.call_tool(
+        "focus_log",
+        json!({"from_date": "01/02/2026", "to_date": "2026-01-02"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "Invalid date '01/02/2026'");
+
+    let res = mcp.call_tool(
+        "focus_log",
+        json!({"from_date": "2026-01-01", "to_date": "2026-02-30"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "day is out of range for month");
+}
+
+#[test]
+fn log_with_reversed_range_is_empty() {
+    let server = MockServer::start();
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_log",
+            json!({"from_date": "2026-02-02", "to_date": "2026-01-01"}),
+        )
+        .ok();
+    assert_eq!(res.json(), json!([]));
+}
+
+#[test]
+fn save_basic() {
+    let server = MockServer::start();
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp
+        .call_tool(
+            "focus_save",
+            json!({"duration_minutes": 25, "end": "2026-02-22T14:25:00+00:00"}),
+        )
+        .ok();
+    save.assert();
+    assert_eq!(res.json(), json!({"id": "f1"}));
+}
+
+#[test]
+fn save_with_task() {
+    let server = MockServer::start();
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "Deep work session",
+            "taskId": "task1",
+            "tasks": [{
+                "taskId": "task1",
+                "startTime": "2026-02-22T14:00:00.000+0000",
+                "endTime": "2026-02-22T14:25:00.000+0000",
+                "projectId": "proj1",
+            }],
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool(
+        "focus_save",
+        json!({
+            "duration_minutes": 25,
+            "end": "2026-02-22T14:25:00+00:00",
+            "note": "Deep work session",
+            "task_id": "task1",
+            "project_id": "proj1",
+        }),
+    )
+    .ok();
+    save.assert();
+}
+
+#[test]
+fn save_with_project_only() {
+    let server = MockServer::start();
+    // No top-level taskId, and no taskId in the task entry.
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+            "tasks": [{
+                "startTime": "2026-02-22T14:00:00.000+0000",
+                "endTime": "2026-02-22T14:25:00.000+0000",
+                "projectId": "proj1",
+            }],
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool(
+        "focus_save",
+        json!({
+            "duration_minutes": 25,
+            "end": "2026-02-22T14:25:00+00:00",
+            "project_id": "proj1",
+        }),
+    )
+    .ok();
+    save.assert();
+}
+
+#[test]
+fn save_empty_task_and_project_are_ignored() {
+    let server = MockServer::start();
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool(
+        "focus_save",
+        json!({
+            "duration_minutes": 25,
+            "end": "2026-02-22T14:25:00Z",
+            "task_id": "",
+            "project_id": null,
+        }),
+    )
+    .ok();
+    save.assert();
+}
+
+#[test]
+fn save_naive_end_is_local_time() {
+    let server = MockServer::start();
+    // TZ is America/Chicago (CST, -06:00 in February): 08:25 local = 14:25Z.
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:00:00.000+0000",
+            "endTime": "2026-02-22T14:25:00.000+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool(
+        "focus_save",
+        json!({"duration_minutes": 25, "end": "2026-02-22T08:25:00"}),
+    )
+    .ok();
+    save.assert();
+}
+
+#[test]
+fn save_offset_and_fraction_are_converted_to_utc() {
+    let server = MockServer::start();
+    let save = mock_save(
+        &server,
+        json!({
+            "type": 0,
+            "startTime": "2026-02-22T14:29:00.123+0000",
+            "endTime": "2026-02-22T14:30:00.123+0000",
+            "status": 1,
+            "pauseDuration": 0,
+            "note": "",
+        }),
+    );
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool(
+        "focus_save",
+        json!({"duration_minutes": 1, "end": "2026-02-22 09:30:00.123456-05:00"}),
+    )
+    .ok();
+    save.assert();
+}
+
+#[test]
+fn save_now_ends_at_the_current_time() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/focus");
+        then.status(200).json_body(json!({"id": "f1"}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    mcp.call_tool("focus_save", json!({"duration_minutes": 25}))
+        .ok();
+    save.assert();
+}
+
+#[test]
+fn save_rejects_short_duration() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/focus");
+        then.status(200).json_body(json!({}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    let res = mcp.call_tool("focus_save", json!({"duration_minutes": 0}));
+    assert!(res.is_error);
+    assert_eq!(res.text, "duration_minutes must be >= 1");
+    save.assert_calls(0);
+}
+
+#[test]
+fn save_rejects_invalid_end() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/focus");
+        then.status(200).json_body(json!({}));
+    });
+    let mut mcp = McpBuilder::new(&server).start();
+    for end in ["soon", "2026-02-22T25:00:00", "2026-13-01"] {
+        let res = mcp.call_tool("focus_save", json!({"duration_minutes": 5, "end": end}));
+        assert!(res.is_error);
+        assert_eq!(
+            res.text,
+            format!(
+                "Invalid end time '{end}'. Use 'now' or ISO format like '2026-02-22T14:30:00'."
+            )
+        );
+    }
+    save.assert_calls(0);
+}
