@@ -236,6 +236,11 @@ fn transport(opts: McpOptions) -> Result<Transport, String> {
         }
     };
     if !http {
+        if opts.host.is_some() || opts.port.is_some() {
+            return Err(
+                "--host and --port need --http (or TICKTICK_MCP_TRANSPORT=http)".to_string(),
+            );
+        }
         return Ok(Transport::Stdio);
     }
     let host = opts

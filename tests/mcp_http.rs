@@ -333,3 +333,21 @@ fn host_or_port_without_http_is_refused_not_ignored() {
         assert!(stderr.contains("--http"), "{stderr}");
     }
 }
+
+#[test]
+fn port_flag_applies_when_the_env_picks_http() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = isolated_command(dir.path())
+        .args(["mcp", "--port", "0"])
+        .env("TICKTICK_MCP_TRANSPORT", "http")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut stderr, &mut line).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(line.contains("listening on http://127.0.0.1:"), "{line}");
+}
