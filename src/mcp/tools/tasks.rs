@@ -292,13 +292,12 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
 
     if let Some(ref d) = parsed_due {
         fields.due_date = Some(DateField::Set(api_date(d, tz.as_deref())?));
-        fields.is_all_day = Some(p.all_day.unwrap_or(d.is_all_day()));
     }
     if let Some(ref s) = parsed_start {
         fields.start_date = Some(DateField::Set(api_date(s, tz.as_deref())?));
-        if p.all_day.is_none() && fields.is_all_day.is_none() {
-            fields.is_all_day = Some(s.is_all_day());
-        }
+    }
+    if let Some(date) = parsed_due.as_ref().or(parsed_start.as_ref()) {
+        fields.is_all_day = Some(p.all_day.unwrap_or(date.is_all_day()));
     }
 
     if let Some(duration) = nonempty(p.duration) {

@@ -119,6 +119,27 @@ fn add_task_all_day_flag_overrides_default() {
 }
 
 #[test]
+fn add_task_all_day_flag_applies_to_start_only_task() {
+    let server = MockServer::start();
+    let create = mock_create(
+        &server,
+        json!({
+            "title": "x",
+            "startDate": "2027-03-01T10:00:00.000-0600",
+            "isAllDay": true,
+            "reminders": ["TRIGGER:P0DT9H0M0S"],
+        }),
+    );
+    let mut c = start(&server);
+    c.call_tool(
+        "add_task",
+        json!({"title": "x", "start": "2027-03-01T10:00", "all_day": true}),
+    )
+    .ok();
+    create.assert();
+}
+
+#[test]
 fn add_task_empty_reminders_means_none_and_timezone_is_sent() {
     let server = MockServer::start();
     let create = mock_create(
