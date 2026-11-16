@@ -166,6 +166,33 @@ fn field<'a>(item: &'a Value, key: &str) -> &'a str {
 }
 
 fn find_item<'a>(query: &str, items: &'a [Value], entity: &str) -> Result<&'a Value, String> {
+    find_item_with(
+        query,
+        items,
+        |query, closest| {
+            let mut msg = format!("No {entity} found matching '{query}'");
+            if let Some(name) = closest {
+                msg.push_str(&format!(". Did you mean '{name}'?"));
+            }
+            msg
+        },
+        |query, names| {
+            format!(
+                "Multiple {entity}s match '{query}': {}. Use a more specific name or the full ID.",
+                names.join(", ")
+            )
+        },
+    )
+}
+
+/// Exact, then unique-substring name match; callers supply the error texts.
+/// `not_found` gets the closest name when it is within edit distance 3.
+fn find_item_with<'a>(
+    query: &str,
+    items: &'a [Value],
+    not_found: impl Fn(&str, Option<&str>) -> String,
+    ambiguous: impl Fn(&str, &[&str]) -> String,
+) -> Result<&'a Value, String> {
     let search = query.to_lowercase();
     if let Some(item) = items
         .iter()
@@ -180,29 +207,35 @@ fn find_item<'a>(query: &str, items: &'a [Value], entity: &str) -> Result<&'a Va
     match matches.len() {
         1 => Ok(matches[0]),
         0 => {
-            let mut msg = format!("No {entity} found matching '{query}'");
             let closest = items
                 .iter()
                 .map(|i| {
                     let name = field(i, "name");
                     (name, strsim::levenshtein(&search, &name.to_lowercase()))
                 })
-                .min_by_key(|(_, d)| *d);
-            if let Some((name, dist)) = closest
-                && dist <= 3
-            {
-                msg.push_str(&format!(". Did you mean '{name}'?"));
-            }
-            Err(msg)
+                .min_by_key(|(_, d)| *d)
+                .filter(|(_, d)| *d <= 3)
+                .map(|(name, _)| name);
+            Err(not_found(query, closest))
         }
         _ => {
             let names: Vec<&str> = matches.iter().map(|m| field(m, "name")).collect();
-            Err(format!(
-                "Multiple {entity}s match '{query}': {}. Use a more specific name or the full ID.",
-                names.join(", ")
-            ))
+            Err(ambiguous(query, &names))
         }
     }
+}
+
+/// `resolve_name` with caller-supplied error texts.
+pub fn resolve_name_with(
+    query: &str,
+    items: &[Value],
+    not_found: impl Fn(&str, Option<&str>) -> String,
+    ambiguous: impl Fn(&str, &[&str]) -> String,
+) -> Result<String, String> {
+    if looks_like_id(query) {
+        return Ok(query.to_string());
+    }
+    find_item_with(query, items, not_found, ambiguous).map(|i| field(i, "id").to_string())
 }
 
 pub fn resolve_name(query: &str, items: &[Value], entity: &str) -> Result<String, String> {

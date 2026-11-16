@@ -375,25 +375,27 @@ pub fn date_to_stamp(input: &str) -> Result<i64, String> {
             let parts: Vec<&str> = trimmed.split('-').collect();
             if parts.len() != 3 {
                 return Err(format!(
-                    "invalid date '{input}': expected YYYY-MM-DD, 'today', or 'yesterday'"
+                    "Invalid date '{input}': expected YYYY-MM-DD, 'today', or 'yesterday'"
                 ));
             }
-            let year: i32 = parts[0]
-                .parse()
-                .map_err(|_| format!("invalid year in '{input}'"))?;
-            let month: u32 = parts[1]
-                .parse()
-                .map_err(|_| format!("invalid month in '{input}'"))?;
-            let day: u32 = parts[2]
-                .parse()
-                .map_err(|_| format!("invalid day in '{input}'"))?;
+            let nums: Result<Vec<i64>, _> = parts.iter().map(|p| p.trim().parse::<i64>()).collect();
+            let Ok(nums) = nums else {
+                return Err(format!("Invalid date '{input}': non-numeric components"));
+            };
+            let (year, month, day) = (nums[0], nums[1], nums[2]);
             if !(1..=12).contains(&month) {
-                return Err(format!("month out of range in '{input}'"));
+                return Err(format!("Month out of range in '{input}'"));
             }
             if !(1..=31).contains(&day) {
-                return Err(format!("day out of range in '{input}'"));
+                return Err(format!("Day out of range in '{input}'"));
             }
-            (year, month, day)
+            let real = i16::try_from(year)
+                .ok()
+                .and_then(|y| jiff::civil::Date::new(y, month as i8, day as i8).ok());
+            let Some(date) = real else {
+                return Err(format!("Invalid date '{input}': no such calendar day"));
+            };
+            (date.year() as i32, month as u32, day as u32)
         }
     };
 
@@ -522,6 +524,9 @@ mod tests {
         assert!(date_to_stamp("").is_err());
         assert!(date_to_stamp("2026-13-01").is_err());
         assert!(date_to_stamp("2026-00-01").is_err());
+        assert!(date_to_stamp("2026-02-30").is_err());
+        assert!(date_to_stamp("2025-02-29").is_err());
+        assert_eq!(date_to_stamp("2024-02-29").unwrap(), 20240229);
     }
 
     #[test]

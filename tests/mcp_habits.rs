@@ -281,6 +281,23 @@ fn checkin_invalid_date_errors() {
 }
 
 #[test]
+fn checkin_impossible_date_errors_without_request() {
+    let server = MockServer::start();
+    mock_habits(&server);
+    let post = server.mock(|when, then| {
+        when.method(POST).path(format!("{V2}/habitCheckins/batch"));
+        then.status(200).json_body(json!({}));
+    });
+    let res = start(&server).call_tool(
+        "checkin_habit",
+        json!({"habit": "Exercise", "date": "2026-02-30"}),
+    );
+    assert!(res.is_error);
+    assert_eq!(res.text, "Invalid date '2026-02-30': no such calendar day");
+    post.assert_calls(0);
+}
+
+#[test]
 fn habit_log_query() {
     let server = MockServer::start();
     mock_habits(&server);
