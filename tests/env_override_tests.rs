@@ -85,3 +85,40 @@ fn v2_session_token_falls_back_to_config() {
         .success();
     sync.assert();
 }
+
+fn saved_account_timezone(tz_args: &[&str], echoed_tz: &str) -> Option<String> {
+    let server = MockServer::start();
+    let create = server.mock(|when, then| {
+        when.method(POST).path("/open/v1/task");
+        then.status(200).json_body(serde_json::json!({
+            "id": "t1",
+            "title": "x",
+            "projectId": "p1",
+            "timeZone": echoed_tz,
+        }));
+    });
+    let tmp = tempfile::tempdir().unwrap();
+    isolated(&tmp)
+        .env("TICKTICK_ACCESS_TOKEN", "env-token")
+        .env("TICKTICK_API_BASE", server.url("/open/v1/"))
+        .args(["task", "add", "x", "--due", "2027-03-01T10:00"])
+        .args(tz_args)
+        .assert()
+        .success();
+    create.assert();
+    let config = fs::read_to_string(tmp.path().join("ticktick-cli/config.json")).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&config).unwrap();
+    config["account_timezone"].as_str().map(str::to_string)
+}
+
+#[test]
+fn explicit_tz_is_not_cached_as_the_account_timezone() {
+    assert_eq!(
+        saved_account_timezone(&["--tz", "Europe/London"], "Europe/London"),
+        None
+    );
+    assert_eq!(
+        saved_account_timezone(&[], "America/Chicago").as_deref(),
+        Some("America/Chicago")
+    );
+}

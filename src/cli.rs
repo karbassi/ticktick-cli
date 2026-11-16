@@ -2083,9 +2083,10 @@ fn detect_inbox_id(task: &crate::api::task::Task) {
 }
 
 /// After a task create/update, detect the TickTick account timezone from the
-/// response and store it in config if not already known.
-fn detect_account_timezone(task: &crate::api::task::Task) {
-    if crate::config::get_account_timezone().is_some() {
+/// response and store it in config if not already known. A `timeZone` we sent
+/// is echoed back, so it says nothing about the account.
+fn detect_account_timezone(task: &crate::api::task::Task, sent_tz: bool) {
+    if sent_tz || crate::config::get_account_timezone().is_some() {
         return;
     }
     if let Some(ref tz) = task.time_zone {
@@ -2273,7 +2274,7 @@ pub fn run() -> Result<(), String> {
                         };
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, time_zone.is_some());
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: title.clone(),
@@ -2418,7 +2419,7 @@ pub fn run() -> Result<(), String> {
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, time_zone.is_some());
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: task_id.clone(),
@@ -2574,7 +2575,7 @@ pub fn run() -> Result<(), String> {
                     .map(|task_id| {
                         match crate::api::task::get_by_id(&token, &dest_project_id, task_id) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, false);
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: task_id.clone(),
