@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::api::task::{
-    ChecklistItem, DEFAULT_ALL_DAY_REMINDER, DEFAULT_TIMED_REMINDER, DateField, TaskFields,
-    TaskMove, assign_body, complete_chunks, unassign_body,
+    ChecklistItem, DateField, TaskFields, TaskMove, add_reminders, assign_body, complete_chunks,
+    unassign_body,
 };
 use crate::api::v2::TaskParent;
 use crate::config;
@@ -347,18 +347,13 @@ fn add_task(p: AddTaskParams) -> Result<Value, String> {
         fields.time_zone = Some(tz.clone());
     }
 
-    fields.reminders = match p.reminders {
-        Some(r) => Some(r),
-        None if due.is_some() || start.is_some() => Some(vec![
-            if fields.is_all_day == Some(true) {
-                DEFAULT_ALL_DAY_REMINDER
-            } else {
-                DEFAULT_TIMED_REMINDER
-            }
-            .to_string(),
-        ]),
-        None => None,
-    };
+    let no_reminder = p.reminders.as_ref().is_some_and(Vec::is_empty);
+    fields.reminders = add_reminders(
+        p.reminders.unwrap_or_default(),
+        no_reminder,
+        fields.is_all_day,
+        due.is_some() || start.is_some(),
+    );
 
     let mut body = json!({});
     fields.apply_to(&mut body);

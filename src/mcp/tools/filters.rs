@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::api::filter::FilterFields;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, resolve_name_with_etag, run};
 
@@ -82,13 +83,13 @@ impl TickTickServer {
     )]
     async fn add_filter(&self, Parameters(p): Parameters<AddFilterParams>) -> ToolResult {
         run(move || {
-            let mut f = json!({ "name": p.name });
-            if let Some(rule) = p.rule {
-                f["rule"] = json!(rule);
+            let mut f = json!({});
+            FilterFields {
+                name: Some(p.name),
+                rule: p.rule,
+                sort_type: p.sort_type,
             }
-            if let Some(sort_type) = p.sort_type {
-                f["sortType"] = json!(sort_type);
-            }
+            .apply_to(&mut f);
             util::v2_post("/batch/filter", &json!({ "add": [f] }))
         })
         .await
@@ -107,15 +108,12 @@ impl TickTickServer {
         run(move || {
             let (fid, etag) = resolve_filter(&p.filter_name)?;
             let mut update = json!({ "id": fid, "etag": etag });
-            if let Some(name) = p.name {
-                update["name"] = json!(name);
+            FilterFields {
+                name: p.name,
+                rule: p.rule,
+                sort_type: p.sort_type,
             }
-            if let Some(rule) = p.rule {
-                update["rule"] = json!(rule);
-            }
-            if let Some(sort_type) = p.sort_type {
-                update["sortType"] = json!(sort_type);
-            }
+            .apply_to(&mut update);
             util::v2_post("/batch/filter", &json!({ "update": [update] }))
         })
         .await

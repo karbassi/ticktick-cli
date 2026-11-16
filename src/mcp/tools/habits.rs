@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::api::habit::HabitFields;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, nonempty, resolve_name_with_etag, run};
 
@@ -39,6 +40,11 @@ fn resolve_section(name_or_id: &str) -> Result<String, String> {
         |query, _| format!("No habit section found matching '{query}'"),
         |query, names| format!("Multiple sections match '{query}': {}", names.join(", ")),
     )
+}
+
+/// An empty section means none, like Python's falsy check.
+fn resolve_optional_section(section: Option<String>) -> Result<Option<String>, String> {
+    nonempty(section).map(|s| resolve_section(&s)).transpose()
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -173,22 +179,18 @@ impl TickTickServer {
     )]
     async fn add_habit(&self, Parameters(p): Parameters<AddHabitParams>) -> ToolResult {
         run(move || {
-            let mut habit = json!({ "name": p.name, "type": p.habit_type });
-            if let Some(goal) = p.goal {
-                habit["goal"] = json!(goal);
+            let mut habit = json!({});
+            HabitFields {
+                name: Some(p.name),
+                habit_type: Some(p.habit_type),
+                goal: p.goal,
+                unit: p.unit,
+                section_id: resolve_optional_section(p.section)?,
+                repeat_rule: p.repeat_rule,
+                color: p.color,
+                status: None,
             }
-            if let Some(unit) = p.unit {
-                habit["unit"] = json!(unit);
-            }
-            if let Some(section) = nonempty(p.section) {
-                habit["sectionId"] = json!(resolve_section(&section)?);
-            }
-            if let Some(rule) = p.repeat_rule {
-                habit["repeatRule"] = json!(rule);
-            }
-            if let Some(color) = p.color {
-                habit["color"] = json!(color);
-            }
+            .apply_to(&mut habit);
             util::v2_post("/habits/batch", &json!({ "add": [habit] }))
         })
         .await
@@ -207,24 +209,17 @@ impl TickTickServer {
         run(move || {
             let (id, etag) = resolve_habit(&p.habit)?;
             let mut update = json!({ "id": id, "etag": etag });
-            if let Some(name) = p.name {
-                update["name"] = json!(name);
+            HabitFields {
+                name: p.name,
+                habit_type: None,
+                goal: p.goal,
+                unit: p.unit,
+                section_id: resolve_optional_section(p.section)?,
+                repeat_rule: p.repeat_rule,
+                color: p.color,
+                status: None,
             }
-            if let Some(goal) = p.goal {
-                update["goal"] = json!(goal);
-            }
-            if let Some(unit) = p.unit {
-                update["unit"] = json!(unit);
-            }
-            if let Some(section) = nonempty(p.section) {
-                update["sectionId"] = json!(resolve_section(&section)?);
-            }
-            if let Some(rule) = p.repeat_rule {
-                update["repeatRule"] = json!(rule);
-            }
-            if let Some(color) = p.color {
-                update["color"] = json!(color);
-            }
+            .apply_to(&mut update);
             util::v2_post("/habits/batch", &json!({ "update": [update] }))
         })
         .await

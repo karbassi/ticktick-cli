@@ -4,8 +4,9 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use crate::api::column::ColumnFields;
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, resolve_column_id, resolve_project_id, run};
 
@@ -81,14 +82,12 @@ impl TickTickServer {
     async fn add_column(&self, Parameters(p): Parameters<AddColumnParams>) -> ToolResult {
         run(move || {
             let pid = resolve_project_id(&p.project)?;
-            let mut body = json!({ "name": p.name });
-            if let Some(order) = p.sort_order {
-                body["sortOrder"] = json!(order);
-            }
-            if let Some(color) = p.color {
-                body["color"] = json!(color);
-            }
-            util::v1_post(&format!("/project/{pid}/column"), &body)
+            let fields = ColumnFields {
+                name: Some(p.name),
+                sort_order: p.sort_order,
+                color: p.color,
+            };
+            util::v1_post(&format!("/project/{pid}/column"), &fields.to_body())
         })
         .await
     }
@@ -106,20 +105,15 @@ impl TickTickServer {
         run(move || {
             let pid = resolve_project_id(&p.project)?;
             let cid = resolve_column_id(&pid, &p.column)?;
-            let mut body = json!({});
-            if let Some(name) = p.name {
-                body["name"] = json!(name);
-            }
-            if let Some(order) = p.sort_order {
-                body["sortOrder"] = json!(order);
-            }
-            if let Some(color) = p.color {
-                body["color"] = json!(color);
-            }
-            if body.as_object().is_some_and(|o| o.is_empty()) {
+            let fields = ColumnFields {
+                name: p.name,
+                sort_order: p.sort_order,
+                color: p.color,
+            };
+            if fields.is_empty() {
                 return Err("Provide at least one of name, sort_order, color".to_string());
             }
-            util::v1_post(&format!("/project/{pid}/column/{cid}"), &body)
+            util::v1_post(&format!("/project/{pid}/column/{cid}"), &fields.to_body())
         })
         .await
     }

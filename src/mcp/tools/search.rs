@@ -4,8 +4,9 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
+use crate::api::task::{TaskFilter, TaskSearch};
 use crate::mcp::TickTickServer;
 use crate::mcp::util::{self, ToolResult, api_date, priority_value, resolve_project_ids, run};
 
@@ -58,75 +59,63 @@ pub struct FilterTasksParams {
     pub kind: Option<Vec<String>>,
 }
 
-/// Python `_project_ids`.
-fn project_ids(projects: Option<Vec<String>>) -> Result<Option<Value>, String> {
+/// Python `_project_ids`. Empty lists are left out of the request body.
+fn project_ids(projects: Option<Vec<String>>) -> Result<Vec<String>, String> {
     match projects {
-        Some(list) if !list.is_empty() => Ok(Some(json!(resolve_project_ids(&list)?))),
-        _ => Ok(None),
+        Some(list) if !list.is_empty() => resolve_project_ids(&list),
+        _ => Ok(Vec::new()),
     }
 }
 
-fn mapped(
+fn mapped<T>(
     items: Option<Vec<String>>,
-    lookup: impl Fn(&str) -> Result<Value, String>,
-) -> Result<Option<Value>, String> {
-    match items {
-        Some(list) if !list.is_empty() => {
-            let out = list
-                .iter()
-                .map(|s| lookup(s))
-                .collect::<Result<Vec<Value>, String>>()?;
-            Ok(Some(Value::Array(out)))
-        }
-        _ => Ok(None),
-    }
+    lookup: impl Fn(&str) -> Result<T, String>,
+) -> Result<Vec<T>, String> {
+    items
+        .unwrap_or_default()
+        .iter()
+        .map(|s| lookup(s))
+        .collect()
 }
 
-fn statuses(status: Option<Vec<String>>) -> Result<Option<Value>, String> {
+fn statuses(status: Option<Vec<String>>) -> Result<Vec<i32>, String> {
     mapped(status, |s| match s.to_lowercase().as_str() {
-        "active" => Ok(json!(0)),
-        "completed" => Ok(json!(2)),
-        "abandoned" => Ok(json!(-1)),
+        "active" => Ok(0),
+        "completed" => Ok(2),
+        "abandoned" => Ok(-1),
         _ => Err(format!(
             "Invalid status '{s}'. Use: active, completed, abandoned"
         )),
     })
 }
 
-fn priorities(priority: Option<Vec<String>>) -> Result<Option<Value>, String> {
+fn priorities(priority: Option<Vec<String>>) -> Result<Vec<i32>, String> {
     mapped(priority, |p| {
         priority_value(p)
-            .map(|v| json!(v))
             .map_err(|_| format!("Invalid priority '{p}'. Use: none, low, medium, high"))
     })
 }
 
-fn kinds(kind: Option<Vec<String>>) -> Result<Option<Value>, String> {
+fn kinds(kind: Option<Vec<String>>) -> Result<Vec<String>, String> {
     mapped(kind, |k| match k.to_lowercase().as_str() {
-        "text" | "task" => Ok(json!("TASK")),
-        "note" => Ok(json!("NOTE")),
-        "checklist" => Ok(json!("CHECKLIST")),
+        "text" | "task" => Ok("TASK".to_string()),
+        "note" => Ok("NOTE".to_string()),
+        "checklist" => Ok("CHECKLIST".to_string()),
         _ => Err(format!("Invalid kind '{k}'. Use: text, note, checklist")),
     })
 }
 
 /// Python `_date`.
-fn date(value: Option<String>) -> Result<Option<Value>, String> {
+fn date(value: Option<String>) -> Result<Option<String>, String> {
     match util::nonempty(value) {
-        Some(v) => Ok(Some(json!(api_date(&v, &util::local_zone()?)?))),
+        Some(v) => Ok(Some(api_date(&v, &util::local_zone()?)?)),
         None => Ok(None),
     }
 }
 
-/// Python `tags or None`.
-fn tag_list(tags: Option<Vec<String>>) -> Option<Value> {
-    tags.filter(|t| !t.is_empty()).map(|t| json!(t))
-}
-
-fn put(body: &mut Map<String, Value>, key: &str, value: Option<Value>) {
-    if let Some(v) = value {
-        body.insert(key.to_string(), v);
-    }
+fn post(endpoint: &str, body: &impl serde::Serialize) -> Result<Value, String> {
+    let body = serde_json::to_value(body).map_err(|e| e.to_string())?;
+    util::v1_post(endpoint, &body).map(or_empty)
 }
 
 /// Python `... or []`: an empty or null response is an empty list.
@@ -147,14 +136,15 @@ impl TickTickServer {
     )]
     async fn search_tasks(&self, Parameters(p): Parameters<SearchTasksParams>) -> ToolResult {
         run(move || {
-            let mut body = Map::new();
-            body.insert("keywords".into(), json!(p.query));
-            put(&mut body, "projectIds", project_ids(p.projects)?);
-            put(&mut body, "tags", tag_list(p.tags));
-            put(&mut body, "status", statuses(p.status)?);
-            put(&mut body, "dueFrom", date(p.due_from)?);
-            put(&mut body, "dueTo", date(p.due_to)?);
-            util::v1_post("/task/search", &Value::Object(body)).map(or_empty)
+            let search = TaskSearch {
+                keywords: p.query,
+                project_ids: project_ids(p.projects)?,
+                tags: p.tags.unwrap_or_default(),
+                status: statuses(p.status)?,
+                due_from: date(p.due_from)?,
+                due_to: date(p.due_to)?,
+            };
+            post("/task/search", &search)
         })
         .await
     }
@@ -170,15 +160,16 @@ impl TickTickServer {
     )]
     async fn filter_tasks(&self, Parameters(p): Parameters<FilterTasksParams>) -> ToolResult {
         run(move || {
-            let mut body = Map::new();
-            put(&mut body, "projectIds", project_ids(p.projects)?);
-            put(&mut body, "startDate", date(p.start_date)?);
-            put(&mut body, "endDate", date(p.end_date)?);
-            put(&mut body, "priority", priorities(p.priority)?);
-            put(&mut body, "tag", tag_list(p.tags));
-            put(&mut body, "status", statuses(p.status)?);
-            put(&mut body, "kind", kinds(p.kind)?);
-            util::v1_post("/task/filter", &Value::Object(body)).map(or_empty)
+            let filter = TaskFilter {
+                project_ids: project_ids(p.projects)?,
+                start_date: date(p.start_date)?,
+                end_date: date(p.end_date)?,
+                priority: priorities(p.priority)?,
+                tag: p.tags.unwrap_or_default(),
+                status: statuses(p.status)?,
+                kind: kinds(p.kind)?,
+            };
+            post("/task/filter", &filter)
         })
         .await
     }
