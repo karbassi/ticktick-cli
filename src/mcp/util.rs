@@ -354,11 +354,11 @@ pub fn check_timezone(tz: &str) -> Result<String, String> {
 
 /// `TICKTICK_TIMEZONE` (IANA name) if set, else the system zone like Python.
 pub fn local_zone() -> Result<TimeZone, String> {
-    match std::env::var("TICKTICK_TIMEZONE") {
-        Ok(name) if !name.is_empty() => {
+    match config::env_nonempty("TICKTICK_TIMEZONE") {
+        Some(name) => {
             api::task::time_zone(Some(&name)).map_err(|e| format!("TICKTICK_TIMEZONE: {e}"))
         }
-        _ => Ok(api::task::system_zone()),
+        None => Ok(api::task::system_zone()),
     }
 }
 

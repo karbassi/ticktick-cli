@@ -410,6 +410,29 @@ fn add_task_ignores_config_account_timezone() {
 }
 
 #[test]
+fn ticktick_timezone_is_trimmed_and_blank_means_unset() {
+    // Europe/London is +0000 and the pinned TZ (America/Chicago) -0600 on that date.
+    for (env, offset) in [(" Europe/London ", "+0000"), ("  ", "-0600")] {
+        let server = MockServer::start();
+        let create = mock_create(
+            &server,
+            json!({
+                "title": "x",
+                "dueDate": format!("2027-03-01T10:00:00.000{offset}"),
+                "isAllDay": false,
+                "reminders": ["TRIGGER:PT0S"],
+            }),
+        );
+        let mut c = McpBuilder::new(&server)
+            .env("TICKTICK_TIMEZONE", env)
+            .start();
+        c.call_tool("add_task", json!({"title": "x", "due": "2027-03-01T10:00"}))
+            .ok();
+        create.assert();
+    }
+}
+
+#[test]
 fn invalid_ticktick_timezone_errors_unless_timezone_is_given() {
     let server = MockServer::start();
     let create = mock_create(

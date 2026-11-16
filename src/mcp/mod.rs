@@ -170,12 +170,7 @@ enum Transport {
     Http { host: String, port: u16 },
 }
 
-fn env_var(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
+use crate::config::env_nonempty as env_var;
 
 fn transport(opts: McpOptions) -> Result<Transport, String> {
     let http = if opts.http {
