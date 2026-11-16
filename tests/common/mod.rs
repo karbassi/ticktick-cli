@@ -113,24 +113,33 @@ impl McpBuilder {
         }
         let mut child = cmd.spawn().expect("spawn ticktick-cli mcp");
         let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
+        let lines = read_lines(child.stdout.take().unwrap());
+        drain(child.stderr.take().unwrap());
         McpClient {
             child,
             stdin: Some(stdin),
-            lines: rx,
+            lines,
             next_id: 1,
             _dir: self.dir,
         }
     }
+}
+
+/// Lines from `pipe`. It is drained for the child's lifetime, even after the
+/// receiver is dropped, so the child never blocks on a full pipe or gets EPIPE.
+fn read_lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(pipe).split(b'\n') {
+            let Ok(line) = line else { break };
+            let _ = tx.send(String::from_utf8_lossy(&line).into_owned());
+        }
+    });
+    rx
+}
+
+fn drain(pipe: impl Read + Send + 'static) {
+    drop(read_lines(pipe));
 }
 
 #[derive(Debug)]
@@ -271,16 +280,7 @@ impl HttpServer {
             cmd.env(k, v);
         }
         let mut child = cmd.spawn().expect("spawn ticktick-cli mcp --http");
-        let stderr = child.stderr.take().unwrap();
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines() {
-                let Ok(line) = line else { break };
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
+        let rx = read_lines(child.stderr.take().unwrap());
         let port = loop {
             let line = rx
                 .recv_timeout(TIMEOUT)
