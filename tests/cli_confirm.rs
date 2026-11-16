@@ -58,7 +58,12 @@ fn declining_a_delete_sends_no_request() {
     let dir = tempfile::tempdir().unwrap();
 
     for args in [
-        &["task", "delete", common::HEX_PROJECT, "bbbbbbbbbbbbbbbbbbbbbbbb"][..],
+        &[
+            "task",
+            "delete",
+            common::HEX_PROJECT,
+            "bbbbbbbbbbbbbbbbbbbbbbbb",
+        ][..],
         &["tag", "delete", "work"][..],
         &["folder", "delete", "Home"][..],
         &["habit", "delete", "Read"][..],
