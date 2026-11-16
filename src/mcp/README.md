@@ -8,7 +8,7 @@ A drop-in replacement for the Python `ticktick-mcp` server (FastMCP). Callers us
 
 - `util.rs`: shared helpers. Use these instead of re-deriving:
 
-  - `run(move || -> Result<impl Into<Output>, String>)` runs a blocking body on the blocking pool. `Ok(Value)` becomes compact JSON text, `Ok(String)` becomes plain text, and `Err(msg)` or a panic becomes an `isError: true` result. Every tool returns `ToolResult`.
+  - `run(move || -> Result<impl Into<Output>, String>)` runs a blocking body on the blocking pool. `Ok(Value)` becomes compact JSON text, `Ok(String)` becomes plain text, and `Err(msg)` or a panic becomes an `isError: true` result. Every tool returns `ToolResult`. Once the request is cancelled, the raw JSON helpers below return `Err("cancelled")` instead of sending, so multi-request tools stop between requests.
 
   - Raw JSON API: `v1_get/v1_post/v1_post_empty/v1_put/v1_delete/v1_delete_json`, `v2_get/v2_post/v2_put`, `as_list`. They return the API's JSON untouched, like Python. Don't call the typed `api::*` functions that return structs: they drop fields.
 

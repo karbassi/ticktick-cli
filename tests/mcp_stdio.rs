@@ -1202,6 +1202,37 @@ fn profile_resource_merges_status() {
 }
 
 #[test]
+fn a_cancelled_tool_issues_no_further_requests() {
+    let server = MockServer::start();
+    let delete = |name: &'static str, delay_ms: u64| {
+        server.mock(move |when, then| {
+            when.method(DELETE)
+                .path("/open/v1/tag/delete")
+                .json_body(json!({"name": name}));
+            then.status(200)
+                .delay(std::time::Duration::from_millis(delay_ms));
+        })
+    };
+    let a = delete("a", 1500);
+    let b = delete("b", 0);
+    let c = delete("c", 0);
+    let mut client = start(&server);
+    client.send(&json!({
+        "jsonrpc": "2.0", "id": 100, "method": "tools/call",
+        "params": {"name": "delete_tags", "arguments": {"names": ["a", "b", "c"]}}
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    client.send(&json!({
+        "jsonrpc": "2.0", "method": "notifications/cancelled",
+        "params": {"requestId": 100}
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+    a.assert_calls(1);
+    b.assert_calls(0);
+    c.assert_calls(0);
+}
+
+#[test]
 fn unknown_tool_is_a_tool_error_like_fastmcp() {
     let server = MockServer::start();
     let mut c = start(&server);

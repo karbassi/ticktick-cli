@@ -143,9 +143,13 @@ impl ServerHandler for TickTickServer {
         if let Some(args) = request.arguments.as_mut() {
             coerce::coerce_arguments(&tool.input_schema, args);
         }
-        self.tool_router
-            .call(ToolCallContext::new(self, request, context))
-            .await
+        let ct = context.ct.clone();
+        util::cancellable(
+            move || ct.is_cancelled(),
+            self.tool_router
+                .call(ToolCallContext::new(self, request, context)),
+        )
+        .await
     }
 
     async fn list_resources(
@@ -167,7 +171,7 @@ impl ServerHandler for TickTickServer {
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
         let uri = request.uri;
         if !RESOURCES.iter().any(|(u, _, _)| *u == uri) {
@@ -177,9 +181,13 @@ impl ServerHandler for TickTickServer {
             ));
         }
         let key = uri.clone();
-        let value = util::blocking(move || read_resource_json(&key))
-            .await
-            .map_err(|e| ErrorData::internal_error(e, None))?;
+        let ct = context.ct;
+        let value = util::cancellable(
+            move || ct.is_cancelled(),
+            util::blocking(move || read_resource_json(&key)),
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e, None))?;
         Ok(ReadResourceResult::new(vec![ResourceContents::text(value.to_string(), uri)]).into())
     }
 }
