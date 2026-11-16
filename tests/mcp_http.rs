@@ -158,6 +158,19 @@ fn sigterm_and_sigint_shut_down_with_an_sse_stream_open() {
 }
 
 #[test]
+fn a_signal_right_after_the_address_line_shuts_down_cleanly() {
+    for sig in [libc::SIGINT, libc::SIGTERM] {
+        let mut server = HttpServer::start(&[], &[]);
+        server.signal(sig);
+        let status = server.wait_exit(Duration::from_secs(3));
+        assert!(
+            status.is_some_and(|s| s.success()),
+            "signal {sig}: {status:?}"
+        );
+    }
+}
+
+#[test]
 fn idle_session_expires_after_the_env_timeout() {
     let server = HttpServer::start(&[], &[("TICKTICK_MCP_SESSION_TIMEOUT", "1")]);
     let session = server.session();

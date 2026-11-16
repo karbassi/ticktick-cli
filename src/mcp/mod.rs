@@ -339,12 +339,16 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
             guard.clone().check(req, next)
         }));
 
+    // Registered before the address is printed, so a supervisor that signals
+    // as soon as it sees it gets a graceful stop.
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
+    let mut sigint =
+        signal(SignalKind::interrupt()).map_err(|e| format!("failed to listen for SIGINT: {e}"))?;
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let shutdown = async move {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
+            _ = sigint.recv() => {}
             _ = sigterm.recv() => {}
         }
         // Open SSE streams would otherwise hold the graceful drain forever.
