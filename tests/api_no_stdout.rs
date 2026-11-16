@@ -1,4 +1,5 @@
-//! `src/api` is shared with the MCP server, whose stdio transport owns stdout.
+//! `src/api` and `src/config.rs` are shared with the MCP server, whose stdio
+//! transport owns stdout.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,10 +37,10 @@ fn has_token_ignores_stderr_macros() {
 
 #[test]
 fn api_layer_never_writes_to_stdout() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api");
-    let mut files = Vec::new();
-    rust_files(&root, &mut files);
-    assert!(!files.is_empty(), "no files found under {}", root.display());
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![src.join("config.rs")];
+    rust_files(&src.join("api"), &mut files);
+    assert!(files.len() > 1, "no files found under {}", src.display());
 
     let mut hits = Vec::new();
     for file in &files {
@@ -57,7 +58,7 @@ fn api_layer_never_writes_to_stdout() {
     }
     assert!(
         hits.is_empty(),
-        "src/api must not write to stdout:\n{}",
+        "src/api and src/config.rs must not write to stdout:\n{}",
         hits.join("\n")
     );
 }

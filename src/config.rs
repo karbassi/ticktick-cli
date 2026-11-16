@@ -358,7 +358,7 @@ TICKTICK_CLIENT_SECRET=
 # TICKTICK_OAUTH_PORT=8080
 ";
 
-pub fn init(local: bool, force: bool) -> Result<(), String> {
+pub fn init(local: bool, force: bool) -> Result<PathBuf, String> {
     let path = if local {
         std::env::current_dir()
             .map_err(|e| format!("failed to get current directory: {e}"))?
@@ -386,8 +386,7 @@ pub fn init(local: bool, force: bool) -> Result<(), String> {
     }
 
     eprintln!("Created {}", path.display());
-    crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
-    Ok(())
+    Ok(path)
 }
 
 pub fn get_account_timezone() -> Option<String> {
@@ -428,7 +427,6 @@ pub fn logout() -> Result<(), String> {
         }
     }
     eprintln!("Logged out");
-    crate::output::success(&serde_json::json!({"status": "ok"}));
     Ok(())
 }
 
