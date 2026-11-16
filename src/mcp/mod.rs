@@ -4,8 +4,10 @@
 mod tools;
 pub mod util;
 
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::model::{
@@ -19,6 +21,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 use serde_json::Value;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Clone)]
 pub struct TickTickServer {
@@ -265,6 +268,7 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     let config = StreamableHttpServerConfig::default()
         .with_allowed_hosts(hosts)
         .with_allowed_origins(origins);
+    let cancel = config.cancellation_token.clone();
     let server = TickTickServer::new();
     let service = StreamableHttpService::new(
         move || Ok(server.clone()),
@@ -273,11 +277,33 @@ async fn serve_http(host: &str, port: u16) -> Result<(), String> {
     );
     let app = axum::Router::new().nest_service("/mcp", service);
 
+    let mut sigterm = signal(SignalKind::terminate())
+        .map_err(|e| format!("failed to listen for SIGTERM: {e}"))?;
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let shutdown = async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+        // Open SSE streams would otherwise hold the graceful drain forever.
+        cancel.cancel();
+        let _ = stop_tx.send(());
+    };
+
     eprintln!("ticktick-cli MCP server listening on http://{bound}/mcp");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .map_err(|e| format!("MCP HTTP server failed: {e}"))
+    let serve = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .into_future();
+    tokio::pin!(serve);
+    tokio::select! {
+        res = &mut serve => return res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+        _ = stop_rx => {}
+    }
+    match tokio::time::timeout(SHUTDOWN_GRACE, serve).await {
+        Ok(res) => res.map_err(|e| format!("MCP HTTP server failed: {e}")),
+        Err(_) => Ok(()),
+    }
 }
+
+/// How long in-flight requests get to finish after SIGINT/SIGTERM.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);

@@ -2,6 +2,7 @@ mod common;
 
 use common::{HttpServer, http_post, http_post_with, initialize_request, isolated_command};
 use serde_json::json;
+use std::time::Duration;
 
 #[test]
 fn http_initialize_and_list_tools() {
@@ -82,6 +83,22 @@ fn http_allows_hosts_and_origins_from_env() {
     assert_eq!(proxied.json()["result"]["serverInfo"]["name"], "TickTick");
     let other = http_post(server.port, "other.ali.fyi", None, &initialize_request(1));
     assert_eq!(other.status, 403, "{other:?}");
+}
+
+#[test]
+fn sigterm_and_sigint_shut_down_with_an_sse_stream_open() {
+    for sig in [libc::SIGTERM, libc::SIGINT] {
+        let mut server = HttpServer::start(&[], &[]);
+        let session = server.session();
+        let _sse = server.open_sse(&session);
+        server.signal(sig);
+        // Under the 5s drain backstop, so the open stream must be cancelled.
+        let status = server.wait_exit(Duration::from_secs(3));
+        assert!(
+            status.is_some_and(|s| s.success()),
+            "signal {sig}: {status:?}"
+        );
+    }
 }
 
 #[test]
