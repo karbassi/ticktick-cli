@@ -109,14 +109,15 @@ fn split_url(url: &str) -> Option<Url> {
             let (host, after) = inner.split_once(']').unwrap_or((inner, ""));
             (host, after.strip_prefix(':'))
         }
-        None => match netloc.rsplit_once(':') {
+        None => match netloc.split_once(':') {
             Some((h, p)) => (h, Some(p)),
             None => (netloc, None),
         },
     };
     let port = match port {
         None | Some("") => None,
-        Some(p) => Some(p.parse::<u16>().ok()?),
+        Some(p) if p.bytes().all(|b| b.is_ascii_digit()) => Some(p.parse::<u16>().ok()?),
+        Some(_) => return None,
     };
     Some(Url {
         scheme: scheme.to_lowercase(),
@@ -239,6 +240,7 @@ mod tests {
         assert_eq!(normalize_origin("http://x:99999"), "http://x:99999");
         assert_eq!(normalize_origin("http://x/path"), "http://x/path");
         assert_eq!(normalize_origin("null"), "null");
+        assert_eq!(normalize_origin("http://x:+80"), "http://x:+80");
     }
 
     #[test]
