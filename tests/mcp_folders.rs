@@ -21,9 +21,9 @@ fn mock_groups(server: &MockServer) -> httpmock::Mock<'_> {
 }
 
 #[test]
-fn delete_folders_resolves_names() {
+fn delete_folders_resolves_names_with_one_fetch() {
     let server = MockServer::start();
-    let _list = mock_groups(&server);
+    let list = mock_groups(&server);
     let g1 = server.mock(|when, then| {
         when.method(DELETE).path("/open/v1/project/group/g1");
         then.status(200);
@@ -36,6 +36,7 @@ fn delete_folders_resolves_names() {
     let res = c
         .call_tool("delete_folders", json!({"folders": ["home", "Work"]}))
         .ok();
+    list.assert_calls(1);
     g1.assert();
     g2.assert();
     assert_eq!(res.text, "Deleted 2 folder(s)");

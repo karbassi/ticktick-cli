@@ -116,9 +116,9 @@ fn edit_filter_unknown() {
 }
 
 #[test]
-fn delete_filters_resolves_names() {
+fn delete_filters_resolves_names_with_one_fetch() {
     let server = MockServer::start();
-    mock_batch(&server, batch());
+    let list = mock_batch(&server, batch());
     let del = mock_filter_post(&server, json!({"delete": ["f1", "f2"]}));
     let mut c = McpBuilder::new(&server).start();
     let res = c
@@ -127,6 +127,19 @@ fn delete_filters_resolves_names() {
             json!({"filters": ["High Priority", "today"]}),
         )
         .ok();
+    list.assert_calls(1);
     del.assert();
     assert_eq!(res.text, "Deleted 2 filter(s)");
+}
+
+#[test]
+fn delete_filters_by_id_skips_the_fetch() {
+    let server = MockServer::start();
+    let list = mock_batch(&server, batch());
+    let id = "0123456789abcdef01234567";
+    let del = mock_filter_post(&server, json!({"delete": [id]}));
+    let mut c = McpBuilder::new(&server).start();
+    c.call_tool("delete_filters", json!({"filters": [id]})).ok();
+    list.assert_calls(0);
+    del.assert();
 }

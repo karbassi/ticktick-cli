@@ -171,9 +171,9 @@ fn edit_habit_no_match_suggests() {
 }
 
 #[test]
-fn delete_habits_resolves_each_and_confirms() {
+fn delete_habits_resolves_each_with_one_fetch_and_confirms() {
     let server = MockServer::start();
-    mock_habits(&server);
+    let list = mock_habits(&server);
     let post = mock_post(
         &server,
         "/habits/batch",
@@ -183,8 +183,30 @@ fn delete_habits_resolves_each_and_confirms() {
     let res = start(&server)
         .call_tool("delete_habits", json!({"habits": ["Exercise", "read"]}))
         .ok();
+    list.assert_calls(1);
     post.assert();
     assert_eq!(res.text, "Deleted 2 habit(s)");
+}
+
+#[test]
+fn habit_ids_skip_the_fetch_unless_the_etag_is_needed() {
+    let id = "0123456789abcdef01234567";
+    let server = MockServer::start();
+    let list = mock_habits(&server);
+    let delete = mock_post(&server, "/habits/batch", json!({"delete": [id]}), json!({}));
+    let archive = mock_post(
+        &server,
+        "/habits/batch",
+        json!({"update": [{"id": id, "etag": "", "status": 1}]}),
+        json!({}),
+    );
+    let mut c = start(&server);
+    c.call_tool("delete_habits", json!({"habits": [id]})).ok();
+    list.assert_calls(0);
+    delete.assert();
+    c.call_tool("archive_habits", json!({"habits": [id]})).ok();
+    list.assert_calls(1);
+    archive.assert();
 }
 
 #[test]
@@ -380,9 +402,9 @@ fn archive_habits_sets_status_1() {
 }
 
 #[test]
-fn sections_delete_resolves_and_confirms() {
+fn sections_delete_resolves_with_one_fetch_and_confirms() {
     let server = MockServer::start();
-    mock_sections(&server);
+    let list = mock_sections(&server);
     let post = mock_post(
         &server,
         "/habitSections/batch",
@@ -395,6 +417,7 @@ fn sections_delete_resolves_and_confirms() {
             json!({"action": "delete", "sections": ["Morning", "eve"]}),
         )
         .ok();
+    list.assert_calls(1);
     post.assert();
     assert_eq!(res.text, "Deleted 2 section(s)");
 }

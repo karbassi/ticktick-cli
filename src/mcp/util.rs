@@ -352,6 +352,30 @@ pub fn resolve_name_with_etag(
         .map(|i| (field(i, "id").to_string(), field(i, "etag").to_string()))
 }
 
+/// [`resolve_name_with_etag`] for each query, with `fetch` called at most
+/// once, and only when a query is a name or `with_etag` wants an ID's etag.
+pub fn resolve_all(
+    queries: &[String],
+    entity: &str,
+    with_etag: bool,
+    fetch: impl FnOnce() -> Result<Vec<Value>, String>,
+) -> Result<Vec<(String, String)>, String> {
+    let mut fetch = Some(fetch);
+    let mut items: Vec<Value> = Vec::new();
+    let mut out = Vec::with_capacity(queries.len());
+    for query in queries {
+        if !with_etag && looks_like_id(query) {
+            out.push((query.clone(), String::new()));
+            continue;
+        }
+        if let Some(fetch) = fetch.take() {
+            items = fetch()?;
+        }
+        out.push(resolve_name_with_etag(query, &items, entity)?);
+    }
+    Ok(out)
+}
+
 /// Read from the token source's cache each time, so a new login or env token
 /// is never served the previous account's inbox.
 pub fn inbox_id() -> Result<String, String> {

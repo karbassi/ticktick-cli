@@ -130,11 +130,10 @@ impl TickTickServer {
     )]
     async fn delete_filters(&self, Parameters(p): Parameters<DeleteFiltersParams>) -> ToolResult {
         run(move || {
-            let ids = p
-                .filters
-                .iter()
-                .map(|f| resolve_filter(f).map(|(id, _)| id))
-                .collect::<Result<Vec<String>, String>>()?;
+            let ids: Vec<String> = util::resolve_all(&p.filters, "filter", false, batch_filters)?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             util::v2_post("/batch/filter", &json!({ "delete": ids }))?;
             Ok(format!("Deleted {} filter(s)", ids.len()))
         })

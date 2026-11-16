@@ -71,11 +71,13 @@ impl TickTickServer {
     )]
     async fn delete_folders(&self, Parameters(p): Parameters<DeleteFoldersParams>) -> ToolResult {
         run(move || {
-            let targets = p
-                .folders
-                .iter()
-                .map(|f| resolve_folder_id(f).map(|(id, _)| (f.clone(), id)))
-                .collect::<Result<Vec<(String, String)>, String>>()?;
+            let groups = || Ok(util::as_list(util::v1_get("/project/group")?));
+            let targets: Vec<(String, String)> =
+                util::resolve_all(&p.folders, "folder", false, groups)?
+                    .into_iter()
+                    .zip(&p.folders)
+                    .map(|((id, _), name)| (name.clone(), id))
+                    .collect();
             util::each(
                 &targets,
                 "Deleted",

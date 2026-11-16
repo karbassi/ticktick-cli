@@ -22,21 +22,38 @@ fn default_value() -> f64 {
     1.0
 }
 
-fn resolve_habit(name_or_id: &str) -> Result<(String, String), String> {
-    let habits = util::as_list(util::v2_get("/habits")?);
-    resolve_name_with_etag(name_or_id, &habits, "habit")
+fn habits() -> Result<Vec<Value>, String> {
+    Ok(util::as_list(util::v2_get("/habits")?))
 }
 
-fn resolve_habits(names: &[String]) -> Result<Vec<(String, String)>, String> {
-    names.iter().map(|n| resolve_habit(n)).collect()
+fn resolve_habit(name_or_id: &str) -> Result<(String, String), String> {
+    resolve_name_with_etag(name_or_id, &habits()?, "habit")
+}
+
+fn resolve_habits(names: &[String], with_etag: bool) -> Result<Vec<(String, String)>, String> {
+    util::resolve_all(names, "habit", with_etag, habits)
+}
+
+fn resolve_habit_ids(names: &[String]) -> Result<Vec<String>, String> {
+    Ok(resolve_habits(names, false)?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect())
+}
+
+fn section_list() -> Result<Vec<Value>, String> {
+    Ok(util::as_list(util::v1_get("/habit/sections")?))
 }
 
 /// Python `_resolve_section`; like Python, always fetches the sections first.
 fn resolve_section(name_or_id: &str) -> Result<String, String> {
-    let sections = util::as_list(util::v1_get("/habit/sections")?);
+    resolve_section_in(name_or_id, &section_list()?)
+}
+
+fn resolve_section_in(name_or_id: &str, sections: &[Value]) -> Result<String, String> {
     util::resolve_name_with(
         name_or_id,
-        &sections,
+        sections,
         |query, _| format!("No habit section found matching '{query}'"),
         |query, names| format!("Multiple sections match '{query}': {}", names.join(", ")),
     )
@@ -236,10 +253,7 @@ impl TickTickServer {
     )]
     async fn delete_habits(&self, Parameters(p): Parameters<DeleteHabitsParams>) -> ToolResult {
         run(move || {
-            let ids: Vec<String> = resolve_habits(&p.habits)?
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let ids = resolve_habit_ids(&p.habits)?;
             util::v2_post("/habits/batch", &json!({ "delete": ids }))?;
             Ok(format!("Deleted {} habit(s)", ids.len()))
         })
@@ -285,10 +299,7 @@ impl TickTickServer {
     )]
     async fn habit_log(&self, Parameters(p): Parameters<HabitLogParams>) -> ToolResult {
         run(move || {
-            let ids: Vec<String> = resolve_habits(&p.habits)?
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let ids = resolve_habit_ids(&p.habits)?;
             let stamp =
                 crate::api::habit::date_to_stamp_in(&p.after, crate::mcp::util::local_zone)?;
             util::v2_post(
@@ -310,7 +321,7 @@ impl TickTickServer {
     )]
     async fn archive_habits(&self, Parameters(p): Parameters<ArchiveHabitsParams>) -> ToolResult {
         run(move || {
-            let updates: Vec<Value> = resolve_habits(&p.habits)?
+            let updates: Vec<Value> = resolve_habits(&p.habits, true)?
                 .into_iter()
                 .map(|(id, etag)| json!({ "id": id, "etag": etag, "status": 1 }))
                 .collect();
@@ -348,9 +359,10 @@ impl TickTickServer {
                     .sections
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| "'sections' is required for action='delete'".to_string())?;
+                let all = section_list()?;
                 let ids = sections
                     .iter()
-                    .map(|s| resolve_section(s))
+                    .map(|s| resolve_section_in(s, &all))
                     .collect::<Result<Vec<String>, String>>()?;
                 util::v2_post("/habitSections/batch", &json!({ "delete": ids }))?;
                 Ok(Out::Text(format!("Deleted {} section(s)", ids.len())))
