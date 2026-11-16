@@ -248,13 +248,23 @@ fn checkin_today_default_uses_yyyymmdd_stamp() {
     post.assert();
 }
 
-#[test]
-fn checkin_today_is_taken_in_ticktick_timezone() {
-    // Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+/// Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+fn kiritimati_today_stamp() -> i64 {
     let zone = jiff::tz::TimeZone::get("Pacific/Kiritimati").unwrap();
     let today = jiff::Timestamp::now().to_zoned_datetime(zone).date();
-    let stamp =
-        i64::from(today.year()) * 10000 + i64::from(today.month()) * 100 + i64::from(today.day());
+    i64::from(today.year()) * 10000 + i64::from(today.month()) * 100 + i64::from(today.day())
+}
+
+fn start_pago_pago_vs_kiritimati(server: &MockServer) -> McpClient {
+    McpBuilder::new(server)
+        .env("TZ", "Pacific/Pago_Pago")
+        .env("TICKTICK_TIMEZONE", "Pacific/Kiritimati")
+        .start()
+}
+
+#[test]
+fn checkin_today_is_taken_in_ticktick_timezone() {
+    let stamp = kiritimati_today_stamp();
     let server = MockServer::start();
     mock_habits(&server);
     let post = mock_post(
@@ -263,13 +273,30 @@ fn checkin_today_is_taken_in_ticktick_timezone() {
         json!({"add": [{"habitId": "h1", "checkinStamp": stamp, "value": 1.0, "status": 0}]}),
         json!({}),
     );
-    McpBuilder::new(&server)
-        .env("TZ", "Pacific/Pago_Pago")
-        .env("TICKTICK_TIMEZONE", "Pacific/Kiritimati")
-        .start()
+    start_pago_pago_vs_kiritimati(&server)
         .call_tool(
             "checkin_habit",
             json!({"habit": "Exercise", "date": "today"}),
+        )
+        .ok();
+    post.assert();
+}
+
+#[test]
+fn habit_log_today_is_taken_in_ticktick_timezone() {
+    let stamp = kiritimati_today_stamp();
+    let server = MockServer::start();
+    mock_habits(&server);
+    let post = mock_post(
+        &server,
+        "/habitCheckins/query",
+        json!({"habitIds": ["h1"], "afterStamp": stamp}),
+        json!({}),
+    );
+    start_pago_pago_vs_kiritimati(&server)
+        .call_tool(
+            "habit_log",
+            json!({"habits": ["Exercise"], "after": "today"}),
         )
         .ok();
     post.assert();

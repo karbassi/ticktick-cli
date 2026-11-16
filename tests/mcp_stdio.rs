@@ -914,6 +914,22 @@ fn assign_not_found_passes_the_api_error_through() {
 }
 
 #[test]
+fn unassign_task_resolves_project_name() {
+    let server = MockServer::start();
+    mock_projects(&server, json!([{"id": "p1", "name": "Team"}]));
+    let unassign = server.mock(|when, then| {
+        when.method(POST)
+            .path(v1("/task/unassign"))
+            .json_body(json!({"projectId": "p1", "taskId": "t1"}));
+        then.status(200).json_body(json!({"id": "t1"}));
+    });
+    let mut c = start(&server);
+    c.call_tool("unassign_task", json!({"task_id": "t1", "project": "team"}))
+        .ok();
+    unassign.assert();
+}
+
+#[test]
 fn api_error_surfaces_as_is_error_not_protocol_error() {
     let server = MockServer::start();
     server.mock(|when, then| {
