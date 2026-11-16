@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,7 +23,6 @@ pub struct Config {
 pub struct Env {
     pub client_id: String,
     pub client_secret: String,
-    pub access_token: Option<String>,
 }
 
 fn config_dir() -> PathBuf {
@@ -58,49 +58,51 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-pub fn load_env() -> Result<Env, String> {
-    let mut client_id = env_nonempty("TICKTICK_CLIENT_ID");
-    let mut client_secret = env_nonempty("TICKTICK_CLIENT_SECRET");
-    let mut access_token = env_nonempty("TICKTICK_ACCESS_TOKEN");
-
-    // Fall back to .env file for any missing values
-    if (client_id.is_none() || client_secret.is_none())
-        && let Some(content) = find_env_file()
-    {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                let value = value.trim().trim_matches('"').trim_matches('\'').trim();
-                if value.is_empty() {
-                    continue;
-                }
-                match key.trim() {
-                    "TICKTICK_CLIENT_ID" if client_id.is_none() => {
-                        client_id = Some(value.to_string())
-                    }
-                    "TICKTICK_CLIENT_SECRET" if client_secret.is_none() => {
-                        client_secret = Some(value.to_string())
-                    }
-                    "TICKTICK_ACCESS_TOKEN" if access_token.is_none() => {
-                        access_token = Some(value.to_string())
-                    }
-                    _ => {}
-                }
+/// Blank values are skipped; the first of a repeated key wins.
+fn parse_dotenv(content: &str) -> HashMap<String, String> {
+    let mut vars = HashMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !value.is_empty() {
+                vars.entry(key.trim().to_string())
+                    .or_insert_with(|| value.to_string());
             }
         }
     }
+    vars
+}
 
+/// Each key on its own: the process env wins, else the .env file.
+struct Settings(HashMap<String, String>);
+
+impl Settings {
+    fn load() -> Self {
+        Self(
+            find_env_file()
+                .map(|c| parse_dotenv(&c))
+                .unwrap_or_default(),
+        )
+    }
+
+    fn get(&self, key: &str) -> Option<String> {
+        env_nonempty(key).or_else(|| self.0.get(key).cloned())
+    }
+}
+
+pub fn load_env() -> Result<Env, String> {
+    let settings = Settings::load();
     Ok(Env {
-        client_id: client_id.ok_or(
+        client_id: settings.get("TICKTICK_CLIENT_ID").ok_or(
             "TICKTICK_CLIENT_ID not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
-        client_secret: client_secret.ok_or(
+        client_secret: settings.get("TICKTICK_CLIENT_SECRET").ok_or(
             "TICKTICK_CLIENT_SECRET not set\n\n  hint: Set it as an environment variable or in $XDG_CONFIG_HOME/ticktick-cli/.env"
         )?,
-        access_token,
     })
 }
 
@@ -234,22 +236,63 @@ fn remove_stale_temps(path: &Path) {
     }
 }
 
-/// `TICKTICK_ACCESS_TOKEN` from the environment or a .env file. Such a token
-/// may belong to a different account than config.json, so it never mixes with
-/// config.json's refresh token or inbox ID, and its refreshes stay in memory.
-fn env_access_token() -> Option<String> {
-    env_nonempty("TICKTICK_ACCESS_TOKEN").or_else(|| load_env().ok()?.access_token)
+/// Where the access token comes from. It decides every account-scoped value:
+/// an env token may belong to a different account than config.json, so the
+/// two never mix.
+enum Source {
+    /// `TICKTICK_ACCESS_TOKEN` from the process env or a .env file. Its refresh
+    /// token and v2 cookie come from there too, its refreshes stay in memory,
+    /// and config.json's tokens and account fields are never used.
+    Env {
+        access: String,
+        settings: Settings,
+    },
+    Config(Config),
 }
 
-/// The configured access token, before any refresh, and whether it's from env.
-fn source_access_token() -> Option<(String, bool)> {
-    if let Some(token) = env_access_token() {
-        return Some((token, true));
+impl Source {
+    fn current() -> Self {
+        let settings = Settings::load();
+        match settings.get("TICKTICK_ACCESS_TOKEN") {
+            Some(access) => Source::Env { access, settings },
+            None => Source::Config(load()),
+        }
     }
-    load()
-        .access_token
-        .filter(|t| !t.trim().is_empty())
-        .map(|t| (t, false))
+
+    fn is_env(&self) -> bool {
+        matches!(self, Source::Env { .. })
+    }
+
+    /// Before any refresh.
+    fn access_token(&self) -> Option<String> {
+        match self {
+            Source::Env { access, .. } => Some(access.clone()),
+            Source::Config(c) => c.access_token.clone().filter(|t| !t.trim().is_empty()),
+        }
+    }
+
+    fn refresh_token(&self) -> Option<String> {
+        match self {
+            Source::Env { settings, .. } => settings.get("TICKTICK_REFRESH_TOKEN"),
+            Source::Config(c) => c.refresh_token.clone(),
+        }
+    }
+
+    fn v2_session_token(&self) -> Option<String> {
+        match self {
+            Source::Env { settings, .. } => settings.get("TICKTICK_V2_SESSION_TOKEN"),
+            // Env wins so the long-running MCP server can be fed a fresh cookie.
+            Source::Config(c) => env_nonempty("TICKTICK_V2_SESSION_TOKEN")
+                .or_else(|| c.v2_session_token.clone().filter(|t| !t.trim().is_empty())),
+        }
+    }
+
+    fn account_timezone(&self) -> Option<String> {
+        match self {
+            Source::Env { .. } => None,
+            Source::Config(c) => c.account_timezone.clone(),
+        }
+    }
 }
 
 /// A refresh that config.json can't hold: always for env tokens, and for
@@ -269,7 +312,7 @@ fn refreshed() -> MutexGuard<'static, Option<Refreshed>> {
 }
 
 pub fn get_access_token() -> Result<String, String> {
-    let (source, _) = source_access_token().ok_or_else(|| {
+    let source = Source::current().access_token().ok_or_else(|| {
         "not authenticated\n\n  hint: Run 'ticktick-cli login' to authenticate".to_string()
     })?;
     Ok(refreshed()
@@ -290,23 +333,21 @@ pub struct RefreshPlan {
 /// An env access token refreshes only with `TICKTICK_REFRESH_TOKEN`, a
 /// config.json one only with config.json's.
 pub fn plan_refresh() -> Option<RefreshPlan> {
-    let (source, from_env) = source_access_token()?;
-    let file_refresh = if from_env { None } else { load().refresh_token };
+    let source = Source::current();
+    let replaced = source.access_token()?;
+    let file_refresh = match &source {
+        Source::Env { .. } => None,
+        Source::Config(c) => c.refresh_token.clone(),
+    };
     let remembered = refreshed()
         .as_ref()
-        .filter(|r| r.replaced == source)
+        .filter(|r| r.replaced == replaced)
         .map(|r| r.refresh.clone());
-    let refresh = remembered.or_else(|| {
-        if from_env {
-            env_nonempty("TICKTICK_REFRESH_TOKEN")
-        } else {
-            file_refresh.clone()
-        }
-    })?;
+    let refresh = remembered.or_else(|| source.refresh_token())?;
     Some(RefreshPlan {
         refresh,
-        replaced: source,
-        from_env,
+        replaced,
+        from_env: source.is_env(),
         file_refresh,
     })
 }
@@ -390,10 +431,14 @@ pub fn init(local: bool, force: bool) -> Result<PathBuf, String> {
 }
 
 pub fn get_account_timezone() -> Option<String> {
-    load().account_timezone
+    Source::current().account_timezone()
 }
 
+/// A no-op for an env access token.
 pub fn save_account_timezone(tz: &str) -> Result<(), String> {
+    if Source::current().is_env() {
+        return Ok(());
+    }
     update(|c| c.account_timezone = Some(tz.to_string()))
 }
 
@@ -401,17 +446,17 @@ pub fn save_account_timezone(tz: &str) -> Result<(), String> {
 static ENV_INBOX_ID: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn get_inbox_project_id() -> Option<String> {
-    if env_access_token().is_some() {
-        return ENV_INBOX_ID
+    match Source::current() {
+        Source::Env { .. } => ENV_INBOX_ID
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone();
+            .clone(),
+        Source::Config(c) => c.inbox_project_id,
     }
-    load().inbox_project_id
 }
 
 pub fn save_inbox_project_id(id: &str) -> Result<(), String> {
-    if env_access_token().is_some() {
+    if Source::current().is_env() {
         *ENV_INBOX_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
         return Ok(());
     }
@@ -476,12 +521,11 @@ fn device_id_at(path: &Path) -> String {
     .unwrap_or_else(|_| UNSAVED.get_or_init(generate_device_id).clone())
 }
 
-/// Env wins so the long-running MCP server can be fed a fresh cookie.
 pub fn get_v2_session_token() -> Option<String> {
-    env_nonempty("TICKTICK_V2_SESSION_TOKEN").or_else(|| load().v2_session_token)
+    Source::current().v2_session_token()
 }
 
-fn env_nonempty(var: &str) -> Option<String> {
+pub(crate) fn env_nonempty(var: &str) -> Option<String> {
     std::env::var(var)
         .ok()
         .map(|v| v.trim().to_string())
