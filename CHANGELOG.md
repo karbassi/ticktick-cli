@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.4]
+
 ### Added
 
 - `ticktick-cli mcp` runs an MCP server over stdio (default) or streamable HTTP (`--http`, `--host`, `--port`; serves `/mcp`). It is a drop-in replacement for the Python `ticktick-mcp` server: all 57 tools plus the `ticktick://projects`, `tags`, `settings` and `profile` resources, with tool names, parameter names, required parameters and JSON types checked by `tests/mcp_contract.rs` against the Python server's tool list.
