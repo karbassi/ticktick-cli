@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.5]
+
 ### Fixed
 
 - The MCP server declares the same `outputSchema` as the Python FastMCP server for the 35 tools that had one, and their successful calls return `structuredContent`: the JSON object itself, or `{"result": …}` for lists and strings. Clients that cached the Python tool list no longer fail with "has an output schema but did not return structured content". Output that doesn't fit its schema is a tool error.
