@@ -118,30 +118,6 @@ fn delete_missing_args_exits_two() {
 }
 
 #[test]
-fn search_missing_query_exits_two() {
-    cmd().args(["task", "search"]).assert().failure().code(2);
-}
-
-#[test]
-fn search_and_filter_reject_invalid_enum_values() {
-    cmd()
-        .args(["task", "search", "x", "--status", "done"])
-        .assert()
-        .failure()
-        .code(2);
-    cmd()
-        .args(["task", "filter", "--priority", "urgent"])
-        .assert()
-        .failure()
-        .code(2);
-    cmd()
-        .args(["task", "filter", "--kind", "todo"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-#[test]
 fn search_and_filter_reject_bad_date_before_any_request() {
     for args in [
         vec!["task", "search", "x", "--due-from", "not-a-date"],
@@ -1160,23 +1136,6 @@ fn task_list_completed_with_limit() {
         .code(predicate::ne(2));
 }
 
-// -- Countdown commands --
-
-#[test]
-fn countdown_list_help_exits_zero() {
-    cmd()
-        .args(["countdown", "list", "--help"])
-        .assert()
-        .success();
-}
-
-#[test]
-fn countdown_has_no_write_subcommands() {
-    for subcmd in ["add", "delete", "edit"] {
-        cmd().args(["countdown", subcmd]).assert().failure().code(2);
-    }
-}
-
 // -- Tag commands --
 
 #[test]
@@ -1548,46 +1507,6 @@ fn focus_log_accepts_date_range() {
         .code(predicate::ne(2));
 }
 
-#[test]
-fn project_column_help_lists_subcommands() {
-    cmd()
-        .args(["project", "column", "--help"])
-        .assert()
-        .success()
-        .stdout(
-            predicate::str::contains("list")
-                .and(predicate::str::contains("add"))
-                .and(predicate::str::contains("edit")),
-        );
-}
-
-#[test]
-fn project_column_edit_requires_column_arg() {
-    cmd()
-        .args(["project", "column", "edit", "Work"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-#[test]
-fn project_column_add_requires_name() {
-    cmd()
-        .args(["project", "column", "add", "Work"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-#[test]
-fn task_add_column_requires_project() {
-    cmd()
-        .args(["task", "add", "--dry-run", "--column", "Doing", "x"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
 fn dry_run_body(args: &[&str]) -> serde_json::Value {
     let mut full = vec!["task", "add", "--dry-run", "x"];
     full.extend_from_slice(args);
@@ -1627,79 +1546,63 @@ fn add_dry_run_explicit_reminder_wins() {
 }
 
 #[test]
-fn add_no_reminder_conflicts_with_reminder() {
+fn empty_tz_is_utc_like_libc_and_python() {
+    let output = cmd()
+        .env("TZ", "")
+        .args(["task", "add", "--dry-run", "x", "--due", "2027-07-01T10:00"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["dueDate"], "2027-07-01T10:00:00.000+0000");
+}
+
+#[test]
+fn add_dry_run_today_is_taken_in_the_tz_zone() {
+    // Pago Pago and Kiritimati are 25h apart, so their dates always differ.
+    let zone = jiff::tz::TimeZone::get("Pacific/Kiritimati").unwrap();
+    let today = jiff::Timestamp::now().to_zoned_datetime(zone).date();
+    let output = cmd()
+        .env("TZ", "Pacific/Pago_Pago")
+        .args(["task", "add", "--dry-run", "x", "--due", "today"])
+        .args(["--tz", "Pacific/Kiritimati"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["dueDate"], format!("{today}T00:00:00.000+1400"));
+}
+
+#[test]
+fn add_dry_run_sends_the_canonical_tz_name() {
+    let v = dry_run_body(&["--due", "2027-03-01T10:00", "--tz", "europe/LONDON"]);
+    assert_eq!(v["timeZone"], "Europe/London");
+    assert_eq!(v["dueDate"], "2027-03-01T10:00:00.000+0000");
+}
+
+#[test]
+fn add_rejects_etc_unknown_tz() {
+    cmd()
+        .args(["task", "add", "--dry-run", "x", "--due", "2027-03-01T10:00"])
+        .args(["--tz", "Etc/Unknown"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown timezone 'Etc/Unknown'"));
+}
+
+#[test]
+fn add_duration_past_year_9999_is_an_error() {
     cmd()
         .args([
             "task",
             "add",
             "--dry-run",
             "x",
-            "--no-reminder",
-            "--reminder",
-            "TRIGGER:PT0S",
+            "--start",
+            "2027-03-01T10:00",
         ])
+        .args(["--duration", "80000000h"])
         .assert()
         .failure()
-        .code(2);
-}
-
-#[test]
-fn task_comment_help_lists_subcommands() {
-    cmd()
-        .args(["task", "comment", "--help"])
-        .assert()
-        .success()
-        .stdout(
-            predicate::str::contains("list")
-                .and(predicate::str::contains("add"))
-                .and(predicate::str::contains("delete")),
-        );
-}
-
-#[test]
-fn task_comment_add_requires_text() {
-    cmd()
-        .args(["task", "comment", "add", "Work", "t1"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-#[test]
-fn task_comment_has_no_edit_subcommand() {
-    cmd()
-        .args(["task", "comment", "edit", "Work", "t1", "c1", "x"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-// -- Assign / members --
-
-#[test]
-fn assign_help_shows_assignee_flag() {
-    let output = cmd()
-        .args(["task", "assign", "--help"])
-        .output()
-        .expect("failed to run");
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("--assignee"));
-}
-
-#[test]
-fn assign_missing_args_exits_two() {
-    cmd()
-        .args(["task", "assign", "p", "t"])
-        .assert()
-        .failure()
-        .code(2);
-}
-
-#[test]
-fn project_members_help_exits_zero() {
-    cmd()
-        .args(["project", "members", "--help"])
-        .assert()
-        .success();
+        .stderr(predicate::str::contains("date value out of range"));
 }

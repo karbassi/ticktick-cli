@@ -1,7 +1,11 @@
 use crate::config;
 use serde::{Deserialize, Serialize};
 
-const V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
+const DEFAULT_V2_BASE_URL: &str = "https://api.ticktick.com/api/v2";
+
+pub fn v2_base_url() -> String {
+    super::env_url("TICKTICK_V2_BASE", DEFAULT_V2_BASE_URL)
+}
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
@@ -12,17 +16,14 @@ pub fn x_device_header(device_id: &str) -> String {
     )
 }
 
-/// Get the cached v2 session token.
-///
-/// The session token is obtained by copying the `t` cookie from
-/// a logged-in TickTick web session and setting `v2_session_token`
-/// in config.json.
+/// The `t` cookie from a logged-in TickTick web session.
 pub fn get_session_token() -> Result<String, String> {
     config::get_v2_session_token().ok_or_else(|| {
         "v2 session token not set\n\n  \
          hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
          (Network tab → any request to api.ticktick.com → Cookie header), \
-         then add \"v2_session_token\": \"<token>\" to ~/.config/ticktick-cli/config.json"
+         then set TICKTICK_V2_SESSION_TOKEN=<token>, or add \
+         \"v2_session_token\": \"<token>\" to ~/.config/ticktick-cli/config.json"
             .to_string()
     })
 }
@@ -31,78 +32,83 @@ pub fn get_session_token() -> Result<String, String> {
 // v2 HTTP helpers
 // ---------------------------------------------------------------------------
 
-/// Format a v2 API error, with a helpful hint on 401.
+/// The CLI's wording; the MCP server words a 401 like Python.
 fn v2_error(e: &ureq::Error) -> String {
-    if matches!(e, ureq::Error::Status(401, _)) {
-        "v2 session expired\n\n  \
-         hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
-         (Network tab → any request to api.ticktick.com → Cookie header), \
-         then update \"v2_session_token\" in ~/.config/ticktick-cli/config.json"
-            .to_string()
-    } else {
-        format!("v2 API request failed: {e}")
+    match e {
+        ureq::Error::Status(401, _) => "v2 session expired\n\n  \
+             hint: Log in at ticktick.com, copy the 't' cookie from DevTools \
+             (Network tab → any request to api.ticktick.com → Cookie header), \
+             then update TICKTICK_V2_SESSION_TOKEN if set (it wins), \
+             else \"v2_session_token\" in ~/.config/ticktick-cli/config.json"
+            .to_string(),
+        e => v2_request_failed(e),
     }
 }
 
-/// Make a POST request to the v2 API with session auth.
+pub(crate) fn v2_request_failed(e: &ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(403, _) => {
+            "This feature requires a TickTick Premium subscription.".to_string()
+        }
+        _ => format!("v2 API request failed: {e}"),
+    }
+}
+
+/// A v2 request with session auth. Without a body it has no Content-Type.
+pub(crate) fn v2_request(
+    method: &str,
+    endpoint: &str,
+    token: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<ureq::Response, Box<ureq::Error>> {
+    let device_id = config::get_or_create_device_id();
+    let url = format!("{}{endpoint}", v2_base_url());
+
+    if crate::output::verbose() >= 1 {
+        eprintln!("> {method} {url}");
+    }
+
+    let req = super::agent()
+        .request(method, &url)
+        .set("User-Agent", USER_AGENT)
+        .set("x-device", &x_device_header(&device_id))
+        .set("Cookie", &format!("t={token}"));
+    match body {
+        Some(b) => req
+            .set("Content-Type", "application/json")
+            .send_json(b.clone()),
+        None => req.call(),
+    }
+    .map_err(Box::new)
+}
+
+fn v2_send(
+    method: &str,
+    endpoint: &str,
+    token: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<ureq::Response, String> {
+    v2_request(method, endpoint, token, body).map_err(|e| v2_error(&e))
+}
+
 pub fn v2_post(
     endpoint: &str,
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> POST {url}");
-    }
-
-    ureq::post(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Cookie", &format!("t={token}"))
-        .set("Content-Type", "application/json")
-        .send_json(body.clone())
-        .map_err(|e| v2_error(&e))
+    v2_send("POST", endpoint, token, Some(body))
 }
 
-/// Make a GET request to the v2 API with session auth.
 pub fn v2_get(endpoint: &str, token: &str) -> Result<ureq::Response, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> GET {url}");
-    }
-
-    ureq::get(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Cookie", &format!("t={token}"))
-        .call()
-        .map_err(|e| v2_error(&e))
+    v2_send("GET", endpoint, token, None)
 }
 
-/// Make a PUT request to the v2 API with session auth.
 pub fn v2_put(
     endpoint: &str,
     token: &str,
     body: &serde_json::Value,
 ) -> Result<ureq::Response, String> {
-    let device_id = config::get_or_create_device_id();
-    let url = format!("{V2_BASE_URL}{endpoint}");
-
-    if crate::output::verbose() >= 1 {
-        eprintln!("> PUT {url}");
-    }
-
-    ureq::put(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("x-device", &x_device_header(&device_id))
-        .set("Cookie", &format!("t={token}"))
-        .set("Content-Type", "application/json")
-        .send_json(body.clone())
-        .map_err(|e| v2_error(&e))
+    v2_send("PUT", endpoint, token, Some(body))
 }
 
 /// Minimal percent-encoding for URL query parameters.

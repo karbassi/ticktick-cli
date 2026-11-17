@@ -1,15 +1,7 @@
+use jiff::civil::{Date, DateTime};
+use jiff::tz::{AmbiguousOffset, TimeZone};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-unsafe extern "C" {
-    fn tzset();
-}
-
-/// Serializes access to the TZ environment variable.
-/// `utc_offset_for_tz` temporarily mutates TZ, so concurrent callers
-/// (e.g. parallel tests) must be serialized.
-static TZ_LOCK: Mutex<()> = Mutex::new(());
+use std::collections::HashSet;
 
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,7 +74,7 @@ pub fn list_by_project(token: &str, project_id: Option<&str>) -> Result<Vec<Task
                 all_tasks.extend(data.tasks);
             }
         }
-        // Also include inbox tasks if we know the inbox ID
+        // `/project` omits the inbox. Probing for it would write.
         if let Some(inbox_id) = crate::config::get_inbox_project_id()
             && let Ok(resp) = super::get(&format!("/project/{inbox_id}/data"), token)
             && let Ok(data) = resp.into_json::<ProjectData>()
@@ -101,116 +93,83 @@ struct ProjectData {
 }
 
 // ---------------------------------------------------------------------------
-// Date/time helpers
+// Time zones
 // ---------------------------------------------------------------------------
 
-pub fn is_leap_year(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-}
-
-pub fn days_in_month(year: i32, month: u32) -> u32 {
-    match month {
-        1 => 31,
-        2 => {
-            if is_leap_year(year) {
-                29
-            } else {
-                28
-            }
-        }
-        3 => 31,
-        4 => 30,
-        5 => 31,
-        6 => 30,
-        7 => 31,
-        8 => 31,
-        9 => 30,
-        10 => 31,
-        11 => 30,
-        12 => 31,
-        _ => 0,
+/// The named IANA zone, else [`system_zone`]. jiff matches names
+/// case-insensitively and accepts `Etc/Unknown`, which has no IANA name.
+pub fn time_zone(name: Option<&str>) -> Result<TimeZone, String> {
+    match name {
+        Some(name) => TimeZone::get(name)
+            .ok()
+            .filter(|zone| zone.iana_name().is_some())
+            .ok_or_else(|| format!("Unknown timezone '{name}'")),
+        None => Ok(system_zone()),
     }
 }
 
-/// Adds one day to the given date, handling month and year overflow.
-pub fn add_days(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
-    let dim = days_in_month(year, month);
-    if day < dim {
-        (year, month, day + 1)
-    } else if month < 12 {
-        (year, month + 1, 1)
-    } else {
-        (year + 1, 1, 1)
-    }
+/// The IANA spelling of `name`, e.g. "america/chicago" -> "America/Chicago".
+pub fn canonical_timezone(name: &str) -> Result<String, String> {
+    let zone = time_zone(Some(name))?;
+    Ok(zone.iana_name().unwrap_or(name).to_string())
 }
 
-// ---------------------------------------------------------------------------
-// Local timezone helpers (via libc)
-// ---------------------------------------------------------------------------
-
-/// Raw mktime + tm_gmtoff computation. Caller must hold TZ_LOCK if the
-/// TZ env var might be in a modified state.
-fn compute_utc_offset(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-    use std::mem::MaybeUninit;
-
-    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
-    tm.tm_year = year - 1900;
-    tm.tm_mon = month as i32 - 1;
-    tm.tm_mday = day as i32;
-    tm.tm_hour = hour as i32;
-    tm.tm_min = minute as i32;
-    tm.tm_sec = 0;
-    tm.tm_isdst = -1; // let mktime figure out DST
-
-    unsafe { libc::mktime(&mut tm) };
-    tm.tm_gmtoff
+/// An empty `TZ` is UTC, as in libc and Python.
+pub fn system_zone() -> TimeZone {
+    TimeZone::system()
 }
 
-/// Returns the UTC offset in seconds for the given date/time in the
-/// system's local timezone. Acquires TZ_LOCK to guard against concurrent
-/// modifications from `utc_offset_for_tz`.
-fn local_utc_offset_secs(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-    let _guard = TZ_LOCK.lock().unwrap();
-    compute_utc_offset(year, month, day, hour, minute)
+/// UTC offset in seconds of a wall-clock time in `tz`. Inside a DST gap or
+/// fold the pre-transition offset applies, like Python's `fold=0`.
+pub fn wall_offset_secs(tz: &TimeZone, dt: DateTime) -> i64 {
+    let offset = match tz.to_ambiguous_timestamp(dt).offset() {
+        AmbiguousOffset::Unambiguous { offset }
+        | AmbiguousOffset::Gap { before: offset, .. }
+        | AmbiguousOffset::Fold { before: offset, .. } => offset,
+    };
+    i64::from(offset.seconds())
 }
 
-/// Returns the UTC offset in seconds for a given IANA timezone name
-/// (e.g. "America/Chicago") at the specified date/time.
-/// Temporarily sets the TZ environment variable, computes the offset,
-/// then restores the previous TZ value.
-pub fn utc_offset_for_tz(tz: &str, year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-    use std::ffi::CString;
+pub fn civil_datetime(
+    year: i64,
+    month: i64,
+    day: i64,
+    hour: i64,
+    minute: i64,
+    second: i64,
+) -> Result<DateTime, String> {
+    let invalid =
+        || format!("invalid date/time {year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}");
+    let narrow = |v: i64| i8::try_from(v).map_err(|_| invalid());
+    DateTime::new(
+        i16::try_from(year).map_err(|_| invalid())?,
+        narrow(month)?,
+        narrow(day)?,
+        narrow(hour)?,
+        narrow(minute)?,
+        narrow(second)?,
+        0,
+    )
+    .map_err(|_| invalid())
+}
 
-    let _guard = TZ_LOCK.lock().unwrap();
-
-    let tz_cstr = CString::new(tz).unwrap();
-    let tz_key = c"TZ".as_ptr();
-
-    // Save current TZ
-    let old_tz = std::env::var("TZ").ok();
-
-    unsafe {
-        libc::setenv(tz_key, tz_cstr.as_ptr(), 1);
-        tzset();
-    }
-
-    let offset = compute_utc_offset(year, month, day, hour, minute);
-
-    // Restore previous TZ
-    unsafe {
-        match &old_tz {
-            Some(prev) => {
-                let prev_cstr = CString::new(prev.as_str()).unwrap();
-                libc::setenv(tz_key, prev_cstr.as_ptr(), 1);
-            }
-            None => {
-                libc::unsetenv(tz_key);
-            }
-        }
-        tzset();
-    }
-
-    offset
+pub fn utc_offset_in(
+    zone: &TimeZone,
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+) -> Result<i64, String> {
+    let dt = civil_datetime(
+        year.into(),
+        month.into(),
+        day.into(),
+        hour.into(),
+        minute.into(),
+        0,
+    )?;
+    Ok(wall_offset_secs(zone, dt))
 }
 
 /// Formats a UTC offset in seconds as `+HHMM` / `-HHMM`.
@@ -222,41 +181,14 @@ fn format_offset(offset_secs: i64) -> String {
     format!("{sign}{hours:02}{minutes:02}")
 }
 
-/// Returns the local IANA timezone name (e.g. "America/Chicago").
-/// Reads from TZ env var first, then falls back to /etc/localtime symlink.
 pub fn local_iana_timezone() -> Option<String> {
-    // Check TZ env var
-    if let Ok(tz) = std::env::var("TZ") {
-        let tz = tz.strip_prefix(':').unwrap_or(&tz);
-        if !tz.is_empty() {
-            return Some(tz.to_string());
-        }
-    }
-
-    // macOS/Linux: /etc/localtime is a symlink into zoneinfo
-    if let Ok(target) = std::fs::read_link("/etc/localtime") {
-        let target = target.to_string_lossy().to_string();
-        if let Some(idx) = target.find("zoneinfo/") {
-            return Some(target[idx + 9..].to_string());
-        }
-    }
-
-    None
+    system_zone().iana_name().map(str::to_string)
 }
 
-/// Returns today's local date as (year, month, day).
-fn local_today() -> (i32, u32, u32) {
-    use std::mem::MaybeUninit;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as libc::time_t;
-
-    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
-    unsafe { libc::localtime_r(&now, &mut tm) };
-
-    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
+pub fn today_in(zone: &TimeZone) -> Date {
+    jiff::Timestamp::now()
+        .to_zoned_datetime(zone.clone())
+        .date()
 }
 
 // ---------------------------------------------------------------------------
@@ -278,17 +210,15 @@ impl ParsedDateTime {
 
     /// Format as a TickTick API datetime string with UTC offset.
     ///
-    /// If `tz` is Some, computes the offset for that IANA timezone.
-    /// If `tz` is None, uses the local system timezone.
-    pub fn to_api_string(&self, tz: Option<&str>) -> String {
+    /// `tz` is an IANA name; None means the system zone.
+    pub fn to_api_string(&self, tz: Option<&str>) -> Result<String, String> {
+        self.to_api_string_in(&time_zone(tz)?)
+    }
+
+    pub fn to_api_string_in(&self, zone: &TimeZone) -> Result<String, String> {
         let (hour, minute) = self.time.unwrap_or((0, 0));
-        let offset = match tz {
-            Some(tz_name) => {
-                utc_offset_for_tz(tz_name, self.year, self.month, self.day, hour, minute)
-            }
-            None => local_utc_offset_secs(self.year, self.month, self.day, hour, minute),
-        };
-        format!(
+        let offset = utc_offset_in(zone, self.year, self.month, self.day, hour, minute)?;
+        Ok(format!(
             "{:04}-{:02}-{:02}T{:02}:{:02}:00.000{}",
             self.year,
             self.month,
@@ -296,7 +226,7 @@ impl ParsedDateTime {
             hour,
             minute,
             format_offset(offset)
-        )
+        ))
     }
 
     pub fn add_duration(&self, duration: &Duration) -> Result<ParsedDateTime, String> {
@@ -304,24 +234,34 @@ impl ParsedDateTime {
             "cannot add duration to an all-day date (no time component)".to_string()
         })?;
 
-        let total_minutes = (hour * 60 + minute) + (duration.hours * 60 + duration.minutes);
-        let extra_days = total_minutes / (24 * 60);
+        let total_minutes = i64::from(hour) * 60
+            + i64::from(minute)
+            + i64::from(duration.hours) * 60
+            + i64::from(duration.minutes);
         let remaining = total_minutes % (24 * 60);
-        let new_hour = remaining / 60;
-        let new_minute = remaining % 60;
-
-        let mut y = self.year;
-        let mut m = self.month;
-        let mut d = self.day;
-        for _ in 0..extra_days {
-            (y, m, d) = add_days(y, m, d);
-        }
+        // Python's OverflowError text.
+        let out_of_range = |_| "date value out of range".to_string();
+        let date = civil_datetime(
+            self.year.into(),
+            self.month.into(),
+            self.day.into(),
+            0,
+            0,
+            0,
+        )?
+        .date()
+        .checked_add(
+            jiff::Span::new()
+                .try_days(total_minutes / (24 * 60))
+                .map_err(out_of_range)?,
+        )
+        .map_err(out_of_range)?;
 
         Ok(ParsedDateTime {
-            year: y,
-            month: m,
-            day: d,
-            time: Some((new_hour, new_minute)),
+            year: date.year().into(),
+            month: date.month().unsigned_abs().into(),
+            day: date.day().unsigned_abs().into(),
+            time: Some(((remaining / 60) as u32, (remaining % 60) as u32)),
         })
     }
 }
@@ -436,28 +376,25 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
 ///   - `"YYYY-MM-DD"`      -> that date, no time
 ///   - `"YYYY-MM-DDTHH:MM"` -> that date + time
 pub fn parse_datetime(input: &str) -> Result<ParsedDateTime, String> {
+    parse_datetime_in(input, &system_zone())
+}
+
+/// Like [`parse_datetime`], with "today" and "tomorrow" taken in `zone`.
+pub fn parse_datetime_in(input: &str, zone: &TimeZone) -> Result<ParsedDateTime, String> {
     let trimmed = input.trim().to_lowercase();
 
+    let date_only = |date: Date| ParsedDateTime {
+        year: date.year().into(),
+        month: date.month().unsigned_abs().into(),
+        day: date.day().unsigned_abs().into(),
+        time: None,
+    };
     match trimmed.as_str() {
-        "today" => {
-            let (year, month, day) = local_today();
-            Ok(ParsedDateTime {
-                year,
-                month,
-                day,
-                time: None,
-            })
-        }
-        "tomorrow" => {
-            let (year, month, day) = local_today();
-            let (year, month, day) = add_days(year, month, day);
-            Ok(ParsedDateTime {
-                year,
-                month,
-                day,
-                time: None,
-            })
-        }
+        "today" => Ok(date_only(today_in(zone))),
+        "tomorrow" => today_in(zone)
+            .tomorrow()
+            .map(date_only)
+            .map_err(|e| e.to_string()),
         _ => {
             // Check for YYYY-MM-DDTHH:MM
             if let Some((date_part, time_part)) = trimmed.split_once('t') {
@@ -743,45 +680,58 @@ fn complete_tasks_body(project_id: &str, task_ids: &[String]) -> serde_json::Val
     serde_json::json!({ "projectId": project_id, "taskIds": task_ids })
 }
 
-/// Complete tasks with the batch endpoint, 50 per request.
-///
-/// Returns one result per input ID (duplicates removed, order kept): `Ok(())` when the
-/// endpoint reported the ID as completed, otherwise an error. The endpoint returns only
-/// the IDs it completed, so unknown IDs come back as errors.
-pub fn complete_many(
-    token: &str,
-    project_id: &str,
-    task_ids: &[String],
-) -> Vec<(String, Result<(), String>)> {
-    let mut seen = std::collections::HashSet::new();
+/// One `completeTasks` request: its IDs, and the IDs the endpoint reported
+/// completed or the request's error.
+pub struct CompleteChunk {
+    pub ids: Vec<String>,
+    pub completed: Result<HashSet<String>, String>,
+}
+
+/// Complete tasks with the batch endpoint, 50 per request, duplicates removed
+/// and order kept. A failed request doesn't stop the later ones.
+pub fn complete_chunks(token: &str, project_id: &str, task_ids: &[String]) -> Vec<CompleteChunk> {
+    let mut seen = HashSet::new();
     let ids: Vec<String> = task_ids
         .iter()
         .filter(|id| seen.insert(id.as_str()))
         .cloned()
         .collect();
-    let mut out = Vec::with_capacity(ids.len());
-    for chunk in ids.chunks(COMPLETE_BATCH_SIZE) {
-        let body = complete_tasks_body(project_id, chunk);
-        let completed = super::post("/task/completeTasks", token, &body).and_then(|resp| {
-            resp.into_json::<Vec<String>>()
-                .map_err(|e| format!("failed to parse completeTasks response: {e}"))
-        });
-        match completed {
-            Ok(done) => {
-                let done: std::collections::HashSet<String> = done.into_iter().collect();
-                for id in chunk {
-                    let r = if done.contains(id) {
-                        Ok(())
-                    } else {
-                        Err("not completed (task not found in project?)".to_string())
-                    };
-                    out.push((id.clone(), r));
-                }
+    ids.chunks(COMPLETE_BATCH_SIZE)
+        .map(|chunk| {
+            let body = complete_tasks_body(project_id, chunk);
+            let completed = super::post("/task/completeTasks", token, &body).and_then(|resp| {
+                resp.into_json::<Vec<String>>()
+                    .map(|done| done.into_iter().collect())
+                    .map_err(|e| format!("failed to parse completeTasks response: {e}"))
+            });
+            CompleteChunk {
+                ids: chunk.to_vec(),
+                completed,
             }
-            Err(e) => out.extend(chunk.iter().map(|id| (id.clone(), Err(e.clone())))),
-        }
-    }
-    out
+        })
+        .collect()
+}
+
+/// [`complete_chunks`] as one result per ID. The endpoint returns only the IDs
+/// it completed, so unknown IDs come back as errors.
+pub fn complete_many(
+    token: &str,
+    project_id: &str,
+    task_ids: &[String],
+) -> Vec<(String, Result<(), String>)> {
+    complete_chunks(token, project_id, task_ids)
+        .into_iter()
+        .flat_map(|CompleteChunk { ids, completed }| {
+            ids.into_iter().map(move |id| {
+                let r = match &completed {
+                    Ok(done) if done.contains(&id) => Ok(()),
+                    Ok(_) => Err("not completed (task not found in project?)".to_string()),
+                    Err(e) => Err(e.clone()),
+                };
+                (id, r)
+            })
+        })
+        .collect()
 }
 
 pub fn delete(token: &str, project_id: &str, task_id: &str) -> Result<(), String> {
@@ -890,11 +840,28 @@ pub fn assign(
         token,
         &assign_body(project_id, task_id, assignee),
     )
-    .map_err(|e| {
-        format!("{e} (the assignee must be a member of a shared project; see 'project members')")
+    .map_err(|e| match assign_membership_status(&e) {
+        Some(_) => {
+            format!(
+                "{e} (the assignee must be a member of a shared project; see 'project members')"
+            )
+        }
+        None => e,
     })?;
     resp.into_json()
         .map_err(|e| format!("failed to parse assign response: {e}"))
+}
+
+/// The status of an assign error that means "not a project member": a bare
+/// 500 for a non-member username (seen live by the Python server), or a 403.
+pub fn assign_membership_status(err: &str) -> Option<u16> {
+    let rest = &err[err.find("status code ")? + "status code ".len()..];
+    let code = rest
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()?;
+    matches!(code, 403 | 500).then_some(code)
 }
 
 /// Remove the assignee from a task. Returns the updated task.
@@ -913,23 +880,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_tasks_body_uses_v1_shape() {
-        let ids = vec!["t1".to_string(), "t2".to_string()];
-        assert_eq!(
-            complete_tasks_body("p1", &ids),
-            serde_json::json!({ "projectId": "p1", "taskIds": ["t1", "t2"] })
-        );
-    }
-
-    #[test]
-    fn complete_batch_size_matches_api_limit() {
-        assert_eq!(COMPLETE_BATCH_SIZE, 50);
-        let ids: Vec<usize> = (0..120).collect();
-        let sizes: Vec<usize> = ids
-            .chunks(COMPLETE_BATCH_SIZE)
-            .map(<[usize]>::len)
-            .collect();
-        assert_eq!(sizes, [50, 50, 20]);
+    fn assign_membership_status_only_for_403_and_500() {
+        for code in [403, 500] {
+            let e = format!("API request failed: http://x/task/assign: status code {code}");
+            assert_eq!(assign_membership_status(&e), Some(code));
+        }
+        for e in [
+            "API request failed: x: status code 404",
+            "API request failed: x: status code 5000",
+            "API request failed: timed out",
+            "token expired",
+        ] {
+            assert_eq!(assign_membership_status(e), None, "{e}");
+        }
     }
 
     #[test]
@@ -1043,18 +1006,6 @@ mod tests {
             Some(Vec::new())
         );
         assert_eq!(add_reminders(vec![], true, None, false), Some(Vec::new()));
-    }
-
-    #[test]
-    fn assign_bodies_use_v1_shape() {
-        assert_eq!(
-            assign_body("p1", "t1", "bob@example.com"),
-            serde_json::json!({ "projectId": "p1", "taskId": "t1", "assigneeUsername": "bob@example.com" })
-        );
-        assert_eq!(
-            unassign_body("p1", "t1"),
-            serde_json::json!({ "projectId": "p1", "taskId": "t1" })
-        );
     }
 
     // -- parse_datetime -------------------------------------------------------
@@ -1348,7 +1299,7 @@ mod tests {
             day: 16,
             time: None,
         };
-        let s = dt.to_api_string(None);
+        let s = dt.to_api_string(None).unwrap();
         assert!(s.starts_with("2026-02-16T00:00:00.000"));
         // Offset depends on local timezone; verify format
         let offset = &s["2026-02-16T00:00:00.000".len()..];
@@ -1366,7 +1317,7 @@ mod tests {
             day: 16,
             time: Some((14, 30)),
         };
-        let s = dt.to_api_string(None);
+        let s = dt.to_api_string(None).unwrap();
         assert!(s.starts_with("2026-02-16T14:30:00.000"));
         let offset = &s["2026-02-16T14:30:00.000".len()..];
         assert!(
@@ -1385,7 +1336,7 @@ mod tests {
         };
         // UTC should always be +0000
         assert_eq!(
-            dt.to_api_string(Some("UTC")),
+            dt.to_api_string(Some("UTC")).unwrap(),
             "2026-07-15T14:00:00.000+0000"
         );
     }
@@ -1431,13 +1382,6 @@ mod tests {
     }
 
     #[test]
-    fn task_deserialize_column_id() {
-        let json = r#"{"id":"t1","title":"x","columnId":"c9","columnName":"Doing"}"#;
-        let task: Task = serde_json::from_str(json).unwrap();
-        assert_eq!(task.column_id.as_deref(), Some("c9"));
-    }
-
-    #[test]
     fn task_fields_apply_parent_id_set() {
         let fields = TaskFields {
             parent_id: Some(Some("parent123".to_string())),
@@ -1471,9 +1415,51 @@ mod tests {
     }
 
     #[test]
-    fn utc_offset_for_known_timezone() {
-        // UTC should always be 0
-        assert_eq!(utc_offset_for_tz("UTC", 2026, 6, 15, 12, 0), 0);
+    fn utc_offset_across_dst_transitions() {
+        let zone = time_zone(Some("America/Chicago")).unwrap();
+        let chicago = |m, d, h, mi| utc_offset_in(&zone, 2026, m, d, h, mi);
+        // Spring forward 2026-03-08 02:00 CST -> 03:00 CDT.
+        assert_eq!(chicago(3, 8, 1, 59), Ok(-6 * 3600));
+        assert_eq!(chicago(3, 8, 2, 30), Ok(-6 * 3600));
+        assert_eq!(chicago(3, 8, 3, 0), Ok(-5 * 3600));
+        // Fall back 2026-11-01 02:00 CDT -> 01:00 CST; 01:30 happens twice.
+        assert_eq!(chicago(11, 1, 1, 30), Ok(-5 * 3600));
+        assert_eq!(chicago(11, 1, 2, 0), Ok(-6 * 3600));
+    }
+
+    #[test]
+    fn to_api_string_half_hour_zone() {
+        let dt = ParsedDateTime {
+            year: 2026,
+            month: 7,
+            day: 15,
+            time: Some((9, 0)),
+        };
+        assert_eq!(
+            dt.to_api_string(Some("Asia/Kolkata")).unwrap(),
+            "2026-07-15T09:00:00.000+0530"
+        );
+    }
+
+    #[test]
+    fn unknown_zone_is_an_error() {
+        let dt = ParsedDateTime {
+            year: 2026,
+            month: 6,
+            day: 15,
+            time: Some((12, 0)),
+        };
+        for tz in ["Mars/Olympus", "/etc/hosts", "../etc/passwd", ""] {
+            assert_eq!(
+                dt.to_api_string(Some(tz)),
+                Err(format!("Unknown timezone '{tz}'"))
+            );
+        }
+    }
+
+    #[test]
+    fn impossible_date_is_an_error() {
+        assert!(utc_offset_in(&TimeZone::UTC, 2026, 2, 30, 12, 0).is_err());
     }
 
     // -- ParsedDateTime::is_all_day -------------------------------------------
@@ -1498,27 +1484,5 @@ mod tests {
             time: Some((0, 0)),
         };
         assert!(!dt.is_all_day());
-    }
-
-    // -- is_leap_year ---------------------------------------------------------
-
-    #[test]
-    fn test_is_leap_year() {
-        assert!(is_leap_year(2024));
-        assert!(is_leap_year(2000));
-        assert!(!is_leap_year(2023));
-        assert!(!is_leap_year(1900));
-        assert!(is_leap_year(2400));
-    }
-
-    // -- days_in_month --------------------------------------------------------
-
-    #[test]
-    fn test_days_in_month() {
-        assert_eq!(days_in_month(2026, 1), 31);
-        assert_eq!(days_in_month(2026, 2), 28);
-        assert_eq!(days_in_month(2024, 2), 29);
-        assert_eq!(days_in_month(2026, 4), 30);
-        assert_eq!(days_in_month(2026, 12), 31);
     }
 }

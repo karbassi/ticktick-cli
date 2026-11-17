@@ -57,18 +57,6 @@ pub struct Project {
     pub kind: Option<String>,
 }
 
-pub fn list() -> Result<(), String> {
-    let token = config::get_access_token()?;
-    let resp = super::get("/project", &token)?;
-
-    let projects: Vec<Project> = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse projects: {e}"))?;
-
-    crate::output::success(&projects);
-    Ok(())
-}
-
 pub fn get_all() -> Result<Vec<Project>, String> {
     let token = config::get_access_token()?;
     let resp = super::get("/project", &token)?;
@@ -77,20 +65,29 @@ pub fn get_all() -> Result<Vec<Project>, String> {
         .map_err(|e| format!("failed to parse projects: {e}"))
 }
 
-/// Discover the inbox project ID.
-///
-/// 1. Returns the cached value from config if available.
-/// 2. Otherwise, probes by creating a temporary task (with no projectId),
-///    extracts the inbox ID from the response, deletes the task, and caches the ID.
+/// The cached inbox project ID, else one found by creating a task with no
+/// project and deleting it again. Writes, so read-only paths use the cache only.
 pub fn get_inbox_id() -> Result<String, String> {
+    get_inbox_id_with(super::cli_error)
+}
+
+/// [`get_inbox_id`], with the caller's wording of request errors.
+pub(crate) fn get_inbox_id_with(
+    describe: impl Fn(Box<ureq::Error>) -> String,
+) -> Result<String, String> {
+    // Concurrent callers in one process share a probe.
+    static PROBING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    if let Some(id) = config::get_inbox_project_id() {
+        return Ok(id);
+    }
+    let _probing = config::lock(&PROBING);
     if let Some(id) = config::get_inbox_project_id() {
         return Ok(id);
     }
 
-    // Probe: create a temporary task with no project
     let token = config::get_access_token()?;
     let body = serde_json::json!({ "title": "__inbox_probe__" });
-    let resp = super::post("/task", &token, &body)?;
+    let resp = super::request("POST", "/task", &token, Some(&body)).map_err(&describe)?;
     let task: crate::api::task::Task = resp
         .into_json()
         .map_err(|e| format!("failed to parse probe task: {e}"))?;
@@ -99,13 +96,28 @@ pub fn get_inbox_id() -> Result<String, String> {
         .project_id
         .ok_or_else(|| "probe task has no projectId".to_string())?;
 
-    // Clean up the probe task
-    let _ = super::delete(&format!("/project/{inbox_id}/task/{}", task.id), &token);
-
-    // Cache for future use
+    // Before the delete, so a retry after a failed delete doesn't probe again.
     let _ = config::save_inbox_project_id(&inbox_id);
 
+    let cleanup = format!("/project/{inbox_id}/task/{}", task.id);
+    super::request("DELETE", &cleanup, &token, None).map_err(|e| {
+        format!(
+            "inbox probe task '{}' could not be deleted from {inbox_id}: {}\n\n  \
+             hint: Delete the '__inbox_probe__' task in TickTick",
+            task.id,
+            describe(e)
+        )
+    })?;
     Ok(inbox_id)
+}
+
+/// Like [`resolve_id`], but "inbox" without a cached ID stays "inbox", so
+/// nothing is written.
+pub fn resolve_id_without_probe(name_or_id: &str) -> Result<String, String> {
+    if name_or_id.eq_ignore_ascii_case("inbox") {
+        return Ok(config::get_inbox_project_id().unwrap_or_else(|| "inbox".to_string()));
+    }
+    resolve_id(name_or_id)
 }
 
 /// Resolve a project name or ID to an actual project ID.
@@ -179,27 +191,20 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
     }
 }
 
-pub fn get_by_id(project_id: &str) -> Result<(), String> {
+pub fn get_by_id(project_id: &str) -> Result<Project, String> {
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}"), &token)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
 /// List a project's members (`GET /project/{id}/members`).
-pub fn members(project_id: &str) -> Result<(), String> {
+pub fn members(project_id: &str) -> Result<Vec<ProjectMember>, String> {
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}/members"), &token)?;
-    let members: Vec<ProjectMember> = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project members: {e}"))?;
-    crate::output::success(&members);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project members: {e}"))
 }
 
 /// A member of a project, as returned by `GET /project/{id}/members`.
@@ -213,7 +218,7 @@ pub struct ProjectMember {
     pub is_self: Option<bool>,
 }
 
-pub fn create(fields: &ProjectFields) -> Result<(), String> {
+pub fn create(fields: &ProjectFields) -> Result<Project, String> {
     let name = fields
         .name
         .as_ref()
@@ -225,15 +230,11 @@ pub fn create(fields: &ProjectFields) -> Result<(), String> {
 
     let resp = super::post("/project", &token, &body)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
-pub fn update(project_id: &str, fields: &ProjectFields) -> Result<(), String> {
+pub fn update(project_id: &str, fields: &ProjectFields) -> Result<Project, String> {
     let token = config::get_access_token()?;
 
     let mut body = serde_json::json!({ "id": project_id });
@@ -241,15 +242,12 @@ pub fn update(project_id: &str, fields: &ProjectFields) -> Result<(), String> {
 
     let resp = super::post(&format!("/project/{project_id}"), &token, &body)?;
 
-    let project: Project = resp
-        .into_json()
-        .map_err(|e| format!("failed to parse project: {e}"))?;
-
-    crate::output::success(&project);
-    Ok(())
+    resp.into_json()
+        .map_err(|e| format!("failed to parse project: {e}"))
 }
 
-pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
+/// Returns `false` when the user declines the confirmation prompt.
+pub fn delete(project_id: &str, force: bool) -> Result<bool, String> {
     use std::io::IsTerminal;
 
     let token = config::get_access_token()?;
@@ -271,33 +269,10 @@ pub fn delete(project_id: &str, force: bool) -> Result<(), String> {
             .map_err(|e| format!("failed to read input: {e}"))?;
         if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
             eprintln!("Cancelled.");
-            return Ok(());
+            return Ok(false);
         }
     }
 
     super::delete(&format!("/project/{project_id}"), &token)?;
-
-    crate::output::success(&serde_json::json!({"status": "ok"}));
-    Ok(())
-}
-
-#[cfg(test)]
-mod member_tests {
-    use super::ProjectMember;
-
-    #[test]
-    fn project_member_round_trips_self_flag() {
-        let m: ProjectMember = serde_json::from_value(serde_json::json!(
-            { "username": "a@b.c", "displayName": "A", "self": true }
-        ))
-        .unwrap();
-        assert_eq!(m.is_self, Some(true));
-        assert_eq!(
-            serde_json::to_value(&m).unwrap(),
-            serde_json::json!({ "username": "a@b.c", "displayName": "A", "self": true })
-        );
-        let other: ProjectMember =
-            serde_json::from_value(serde_json::json!({ "username": "x" })).unwrap();
-        assert!(other.is_self.is_none());
-    }
+    Ok(true)
 }

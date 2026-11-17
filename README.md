@@ -51,7 +51,7 @@ export TICKTICK_CLIENT_SECRET=your_client_secret
 export TICKTICK_OAUTH_PORT=8080  # optional, defaults to 8080
 ```
 
-Or create a `.env` file (environment variables take precedence). The CLI checks these locations in order:
+Or create a `.env` file (each environment variable takes precedence over the same key in `.env`). The CLI checks these locations in order:
 
 1. `./.env` (current directory)
 2. `$XDG_CONFIG_HOME/ticktick-cli/.env` (or `~/.config/ticktick-cli/.env`)
@@ -144,6 +144,7 @@ ticktick-cli <COMMAND> [OPTIONS]
 | `profile` | | Show user profile |
 | `settings` | | Show user settings |
 | `sync` | | Dump full account state |
+| `mcp` | | Run an MCP server (see [MCP server](#mcp-server)) |
 | `init [--local]` | | Generate `.env` template |
 | `usage` | | Print concise help for all commands |
 | `completions <shell>` | | Generate shell completions |
@@ -338,11 +339,70 @@ Some commands (tag merge, habits, filters, focus timer/stats, calendar, complete
 
 When the token expires, you'll see a "v2 session expired" error with instructions to refresh it.
 
+`TICKTICK_V2_SESSION_TOKEN` in the environment takes precedence over `v2_session_token` in config.json. When the access token itself comes from the environment or `.env`, config.json's cookie is never used.
+
+## MCP server
+
+`ticktick-cli mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server. It is a drop-in replacement for the Python `ticktick-mcp` server: tool names, parameter names and types are the same, so clients that call `mcp__ticktick__<tool>` keep working. It also serves the resources `ticktick://projects`, `ticktick://tags`, `ticktick://settings` and `ticktick://profile`.
+
+Auth comes from the environment, so no config file is needed: `TICKTICK_ACCESS_TOKEN` (or a stored `login`) for the Open API, and `TICKTICK_V2_SESSION_TOKEN` for tools that use the v2 API. To refresh an expired env access token, also set `TICKTICK_REFRESH_TOKEN`, `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET`; the refreshed token is kept in memory for the life of the server. An env access token never uses config.json's tokens, v2 cookie or account timezone; its inbox ID is cached in config.json under a fingerprint of the token.
+
+Dates without a `timezone` use `TICKTICK_TIMEZONE` (IANA name) if set, else the system zone.
+
+### stdio (default)
+
+For an MCP client config such as Claude Code's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ticktick": {
+      "command": "ticktick-cli",
+      "args": ["mcp"],
+      "env": {
+        "TICKTICK_ACCESS_TOKEN": "...",
+        "TICKTICK_V2_SESSION_TOKEN": "..."
+      }
+    }
+  }
+}
+```
+
+Only protocol messages are written to stdout; logs go to stderr.
+
+### Streamable HTTP
+
+```bash
+ticktick-cli mcp --http                      # http://127.0.0.1:8502/mcp
+ticktick-cli mcp --http --host localhost --port 9000
+```
+
+```json
+{
+  "mcpServers": {
+    "ticktick": { "type": "http", "url": "http://127.0.0.1:8502/mcp" }
+  }
+}
+```
+
+The HTTP endpoint has no auth: anyone who can reach it acts with your TickTick tokens. It therefore only binds loopback (`127.0.0.1`, `localhost`, `::1`) and refuses any other `--host`. For remote use, put an authenticating reverse proxy in front.
+
+Against DNS rebinding, requests must carry a loopback `Host`, and an `Origin`, if sent, must be loopback too (ports ignored). Allow more with JSON arrays in the same variables FastMCP uses, with the same rules (ports ignored, `*` globs), for example when a proxy forwards `Host: mcp.example.com`:
+
+```bash
+FASTMCP_HTTP_ALLOWED_HOSTS='["mcp.example.com"]'
+FASTMCP_HTTP_ALLOWED_ORIGINS='["https://mcp.example.com"]'
+```
+
+Environment fallbacks (flags win): `TICKTICK_MCP_TRANSPORT=stdio|http`, `TICKTICK_MCP_HOST` (default `127.0.0.1`), `TICKTICK_MCP_PORT` (default `8502`). Idle sessions expire after `TICKTICK_MCP_SESSION_TIMEOUT` seconds (default 1800). On SIGTERM or SIGINT, in-flight calls get up to 5s to finish; a second signal exits at once.
+
 ## Configuration
 
 Credentials are stored in `$XDG_CONFIG_HOME/ticktick-cli/config.json` (defaults to `~/.config/ticktick-cli/config.json`) after authentication.
 
-You can also set `TICKTICK_ACCESS_TOKEN` as an environment variable or in your `.env` file to skip the OAuth flow.
+You can also set `TICKTICK_ACCESS_TOKEN` as an environment variable or in your `.env` file to skip the OAuth flow. It wins over config.json and needs no client ID or secret. To let it refresh, also set `TICKTICK_REFRESH_TOKEN` (plus the client ID and secret) the same way.
+
+For testing against a mock server, the API endpoints can be overridden with `TICKTICK_API_BASE` (default `https://api.ticktick.com/open/v1`), `TICKTICK_V2_BASE` (default `https://api.ticktick.com/api/v2`), `TICKTICK_MS_BASE` (default `https://ms.ticktick.com`) and `TICKTICK_OAUTH_TOKEN_URL` (default `https://ticktick.com/oauth/token`).
 
 ## Development
 

@@ -215,6 +215,39 @@ Examples:
 ")]
     Sync,
 
+    /// Run an MCP server exposing TickTick tools and resources
+    ///
+    /// Serves the Model Context Protocol over stdio (default) or streamable
+    /// HTTP at /mcp. Tool names and parameters match the Python ticktick-mcp
+    /// server, so it is a drop-in replacement.
+    ///
+    /// Auth comes from TICKTICK_ACCESS_TOKEN (or the stored login) and, for
+    /// v2 tools, TICKTICK_V2_SESSION_TOKEN; no config file is needed.
+    ///
+    /// The HTTP endpoint has no auth, so --host must be loopback. Env
+    /// fallbacks: TICKTICK_MCP_TRANSPORT=stdio|http, TICKTICK_MCP_HOST,
+    /// TICKTICK_MCP_PORT. Extra trusted Host headers and Origins come from
+    /// FASTMCP_HTTP_ALLOWED_HOSTS / FASTMCP_HTTP_ALLOWED_ORIGINS (JSON arrays).
+    #[command(after_long_help = "\
+Examples:
+  ticktick-cli mcp                          # stdio, for an MCP client config
+  ticktick-cli mcp --http                   # http://127.0.0.1:8502/mcp
+  ticktick-cli mcp --http --port 9000       # another port
+")]
+    Mcp {
+        /// Serve streamable HTTP instead of stdio
+        #[arg(long)]
+        http: bool,
+
+        /// HTTP bind address; must be loopback [default: 127.0.0.1]
+        #[arg(long)]
+        host: Option<String>,
+
+        /// HTTP port [default: 8502]
+        #[arg(long)]
+        port: Option<u16>,
+    },
+
     /// Initialize a .env configuration file with required variables
     ///
     /// Creates a .env template with the TickTick API credentials fields.
@@ -1815,7 +1848,8 @@ fn output_results(results: &[BulkResult]) -> Result<(), String> {
 }
 
 /// Prompt for destructive action confirmation.
-fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
+/// `Ok(false)` when the user declines.
+fn confirm_destructive(count: usize, noun: &str) -> Result<bool, String> {
     use std::io::IsTerminal;
 
     let is_ci = std::env::var("CI").ok().as_deref() == Some("true");
@@ -1834,10 +1868,10 @@ fn confirm_destructive(count: usize, noun: &str) -> Result<(), String> {
         .map_err(|e| format!("failed to read input: {e}"))?;
     if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
         eprintln!("Cancelled.");
-        return Ok(());
+        return Ok(false);
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Convert days since Unix epoch to (year, month, day).
@@ -1914,7 +1948,7 @@ fn resolve_timezone(
     }
 
     let local = crate::api::task::local_iana_timezone();
-    let account = crate::config::get_account_timezone();
+    let account = account_timezone();
 
     // If we don't know the account timezone yet, or they match, use local
     let (Some(local_tz), Some(account_tz)) = (&local, &account) else {
@@ -1956,7 +1990,7 @@ fn resolve_project_ids(projects: &[String]) -> Result<Vec<String>, String> {
 /// Parse a user date (today, YYYY-MM-DD, YYYY-MM-DDTHH:MM) into an API datetime string.
 fn api_date(input: Option<&str>) -> Result<Option<String>, String> {
     input
-        .map(|s| crate::api::task::parse_datetime(s).map(|d| d.to_api_string(None)))
+        .map(|s| crate::api::task::parse_datetime(s)?.to_api_string(None))
         .transpose()
 }
 
@@ -1970,15 +2004,17 @@ fn resolve_timeblock(
     timezone: Option<String>,
     tz_for_offset: Option<&str>,
 ) -> Result<TimeblockResult, String> {
-    use crate::api::task::{DateField, parse_datetime, parse_duration};
+    use crate::api::task::{DateField, parse_datetime_in, parse_duration};
 
     // --duration requires --start
     if duration.is_some() && start.is_none() {
         return Err("--duration requires --start".to_string());
     }
 
-    let parsed_start = start.map(parse_datetime).transpose()?;
-    let parsed_due = due.map(parse_datetime).transpose()?;
+    let zone = crate::api::task::time_zone(tz_for_offset)?;
+    let parse = |s: &str| parse_datetime_in(s, &zone);
+    let parsed_start = start.map(parse).transpose()?;
+    let parsed_due = due.map(parse).transpose()?;
 
     // --duration with date-only --start is an error
     if duration.is_some()
@@ -1994,17 +2030,15 @@ fn resolve_timeblock(
         let ps = parsed_start.as_ref().unwrap(); // guaranteed by check above
         let end = ps.add_duration(&dur)?;
         (
-            Some(DateField::Set(end.to_api_string(tz_for_offset))),
-            Some(DateField::Set(ps.to_api_string(tz_for_offset))),
+            Some(DateField::Set(end.to_api_string_in(&zone)?)),
+            Some(DateField::Set(ps.to_api_string_in(&zone)?)),
         )
     } else {
+        let api =
+            |d: &crate::api::task::ParsedDateTime| d.to_api_string_in(&zone).map(DateField::Set);
         (
-            parsed_due
-                .as_ref()
-                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
-            parsed_start
-                .as_ref()
-                .map(|d| DateField::Set(d.to_api_string(tz_for_offset))),
+            parsed_due.as_ref().map(api).transpose()?,
+            parsed_start.as_ref().map(api).transpose()?,
         )
     };
 
@@ -2050,14 +2084,26 @@ fn detect_inbox_id(task: &crate::api::task::Task) {
 }
 
 /// After a task create/update, detect the TickTick account timezone from the
-/// response and store it in config if not already known.
-fn detect_account_timezone(task: &crate::api::task::Task) {
-    if crate::config::get_account_timezone().is_some() {
+/// response and store it in config if not already known. A `timeZone` we sent
+/// is echoed back, so it says nothing about the account.
+fn detect_account_timezone(task: &crate::api::task::Task, sent_tz: bool) {
+    if sent_tz || account_timezone().is_some() {
         return;
     }
-    if let Some(ref tz) = task.time_zone {
-        let _ = crate::config::save_account_timezone(tz);
+    // TickTick may echo `timeZone: ""`.
+    if let Some(tz) = task
+        .time_zone
+        .as_deref()
+        .and_then(|tz| crate::api::task::canonical_timezone(tz).ok())
+    {
+        let _ = crate::config::save_account_timezone(&tz);
     }
+}
+
+/// An invalid or empty stored zone reads as unknown, so it gets re-detected.
+fn account_timezone() -> Option<String> {
+    crate::config::get_account_timezone()
+        .and_then(|tz| crate::api::task::canonical_timezone(&tz).ok())
 }
 
 // ---------------------------------------------------------------------------
@@ -2081,7 +2127,11 @@ pub fn run() -> Result<(), String> {
 
     match command {
         Commands::Login => crate::api::auth::login(),
-        Commands::Logout => crate::config::logout(),
+        Commands::Logout => {
+            crate::config::logout()?;
+            crate::output::success(&serde_json::json!({"status": "ok"}));
+            Ok(())
+        }
         Commands::Task(subcmd) => match *subcmd {
             TaskCommands::List {
                 project,
@@ -2138,15 +2188,26 @@ pub fn run() -> Result<(), String> {
             } => {
                 let inputs = collect_inputs(titles, stdin)?;
                 let project_id = project
-                    .map(|n| crate::api::project::resolve_id(&n))
+                    .map(|n| {
+                        if dry_run {
+                            crate::api::project::resolve_id_without_probe(&n)
+                        } else {
+                            crate::api::project::resolve_id(&n)
+                        }
+                    })
                     .transpose()?;
                 let column_id = match (&project_id, column) {
+                    // An unresolved inbox in a dry run.
+                    (Some(pid), Some(c)) if pid == "inbox" => Some(c),
                     (Some(pid), Some(c)) => Some(crate::api::column::resolve_id(pid, &c)?),
                     _ => None,
                 };
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
+                let timezone = timezone
+                    .map(|tz| crate::api::task::canonical_timezone(&tz))
+                    .transpose()?;
                 let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (due_date, start_date, is_all_day, time_zone) = resolve_timeblock(
                     due.as_deref(),
@@ -2240,7 +2301,7 @@ pub fn run() -> Result<(), String> {
                         };
                         match crate::api::task::create(&token, &fields) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, time_zone.is_some());
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: title.clone(),
@@ -2301,6 +2362,9 @@ pub fn run() -> Result<(), String> {
                 let priority = priority.map(|p| p.to_api_value());
 
                 let has_datetime = due.is_some() || start.is_some();
+                let timezone = timezone
+                    .map(|tz| crate::api::task::canonical_timezone(&tz))
+                    .transpose()?;
                 let (tz_for_offset, tz_field) = resolve_timezone(timezone, has_datetime);
                 let (mut resolved_due, mut resolved_start, is_all_day, time_zone) =
                     resolve_timeblock(
@@ -2385,7 +2449,7 @@ pub fn run() -> Result<(), String> {
                         };
                         match crate::api::task::update(&token, &project_id, task_id, &fields) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, time_zone.is_some());
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: task_id.clone(),
@@ -2462,8 +2526,8 @@ pub fn run() -> Result<(), String> {
                         comment_id,
                         force,
                     } => {
-                        if !force {
-                            confirm_destructive(1, "comment")?;
+                        if !force && !confirm_destructive(1, "comment")? {
+                            return Ok(());
                         }
                         let project_id = crate::api::project::resolve_id(&project)?;
                         crate::api::comment::delete(&token, &project_id, &task_id, &comment_id)?;
@@ -2482,8 +2546,8 @@ pub fn run() -> Result<(), String> {
             } => {
                 let inputs = collect_inputs(task_ids, stdin)?;
 
-                if !force {
-                    confirm_destructive(inputs.len(), "task")?;
+                if !force && !confirm_destructive(inputs.len(), "task")? {
+                    return Ok(());
                 }
 
                 let token = crate::config::get_access_token()?;
@@ -2541,7 +2605,7 @@ pub fn run() -> Result<(), String> {
                     .map(|task_id| {
                         match crate::api::task::get_by_id(&token, &dest_project_id, task_id) {
                             Ok(task) => {
-                                detect_account_timezone(&task);
+                                detect_account_timezone(&task, false);
                                 detect_inbox_id(&task);
                                 BulkResult {
                                     id: task_id.clone(),
@@ -2726,8 +2790,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             TagCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "tag")?;
+                if !force && !confirm_destructive(names.len(), "tag")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -2804,8 +2868,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             FolderCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "folder")?;
+                if !force && !confirm_destructive(names.len(), "folder")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -2873,8 +2937,8 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             HabitCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "habit")?;
+                if !force && !confirm_destructive(names.len(), "habit")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -2914,7 +2978,8 @@ pub fn run() -> Result<(), String> {
                 section,
                 repeat,
             } => {
-                let (id, etag) = crate::api::habit::resolve_id(&habit)?;
+                let record =
+                    crate::api::habit::resolve_records(std::slice::from_ref(&habit))?.remove(0)?;
                 let fields = crate::api::habit::HabitFields {
                     name,
                     habit_type: None,
@@ -2925,7 +2990,7 @@ pub fn run() -> Result<(), String> {
                     color,
                     status: None,
                 };
-                let result = crate::api::habit::update(&id, &etag, &fields)?;
+                let result = crate::api::habit::update(record, &fields)?;
                 crate::output::success(&result);
                 Ok(())
             }
@@ -2965,29 +3030,28 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             }
             HabitCommands::Archive { habits } => {
+                let fields = crate::api::habit::HabitFields {
+                    status: Some(1),
+                    ..Default::default()
+                };
                 let results: Vec<BulkResult> = habits
                     .iter()
-                    .map(|h| match crate::api::habit::resolve_id(h) {
-                        Ok((id, etag)) => {
-                            let fields = crate::api::habit::HabitFields {
-                                status: Some(1),
-                                ..Default::default()
-                            };
-                            match crate::api::habit::update(&id, &etag, &fields) {
-                                Ok(result) => BulkResult {
-                                    id: h.clone(),
-                                    status: "ok".into(),
-                                    data: Some(result),
-                                    error: None,
-                                },
-                                Err(e) => BulkResult {
-                                    id: h.clone(),
-                                    status: "error".into(),
-                                    data: None,
-                                    error: Some(e),
-                                },
-                            }
-                        }
+                    .zip(crate::api::habit::resolve_records(&habits)?)
+                    .map(|(h, record)| match record {
+                        Ok(record) => match crate::api::habit::update(record, &fields) {
+                            Ok(result) => BulkResult {
+                                id: h.clone(),
+                                status: "ok".into(),
+                                data: Some(result),
+                                error: None,
+                            },
+                            Err(e) => BulkResult {
+                                id: h.clone(),
+                                status: "error".into(),
+                                data: None,
+                                error: Some(e),
+                            },
+                        },
                         Err(e) => BulkResult {
                             id: h.clone(),
                             status: "error".into(),
@@ -3011,8 +3075,8 @@ pub fn run() -> Result<(), String> {
                     Ok(())
                 }
                 HabitSectionCommands::Delete { names, force } => {
-                    if !force {
-                        confirm_destructive(names.len(), "habit section")?;
+                    if !force && !confirm_destructive(names.len(), "habit section")? {
+                        return Ok(());
                     }
 
                     let results: Vec<BulkResult> = names
@@ -3080,19 +3144,19 @@ pub fn run() -> Result<(), String> {
                 rule,
                 sort_type,
             } => {
-                let (id, etag) = crate::api::filter::resolve_id(&filter)?;
+                let record = crate::api::filter::resolve_record(&filter)?;
                 let fields = crate::api::filter::FilterFields {
                     name,
                     rule,
                     sort_type,
                 };
-                let result = crate::api::filter::update(&id, &etag, &fields)?;
+                let result = crate::api::filter::update(record, &fields)?;
                 crate::output::success(&result);
                 Ok(())
             }
             FilterCommands::Delete { names, force } => {
-                if !force {
-                    confirm_destructive(names.len(), "filter")?;
+                if !force && !confirm_destructive(names.len(), "filter")? {
+                    return Ok(());
                 }
 
                 let results: Vec<BulkResult> = names
@@ -3127,14 +3191,19 @@ pub fn run() -> Result<(), String> {
             }
         },
         Commands::Project(subcmd) => match subcmd {
-            ProjectCommands::List => crate::api::project::list(),
+            ProjectCommands::List => {
+                crate::output::success(&crate::api::project::get_all()?);
+                Ok(())
+            }
             ProjectCommands::Members { name } => {
                 let id = crate::api::project::resolve_id(&name)?;
-                crate::api::project::members(&id)
+                crate::output::success(&crate::api::project::members(&id)?);
+                Ok(())
             }
             ProjectCommands::Get { name } => {
                 let id = crate::api::project::resolve_id(&name)?;
-                crate::api::project::get_by_id(&id)
+                crate::output::success(&crate::api::project::get_by_id(&id)?);
+                Ok(())
             }
             ProjectCommands::Add {
                 name,
@@ -3151,7 +3220,8 @@ pub fn run() -> Result<(), String> {
                     kind,
                     group_id,
                 };
-                crate::api::project::create(&fields)
+                crate::output::success(&crate::api::project::create(&fields)?);
+                Ok(())
             }
             ProjectCommands::Edit {
                 project,
@@ -3170,11 +3240,15 @@ pub fn run() -> Result<(), String> {
                     kind,
                     group_id,
                 };
-                crate::api::project::update(&project_id, &fields)
+                crate::output::success(&crate::api::project::update(&project_id, &fields)?);
+                Ok(())
             }
             ProjectCommands::Delete { project, force } => {
                 let project_id = crate::api::project::resolve_id(&project)?;
-                crate::api::project::delete(&project_id, force)
+                if crate::api::project::delete(&project_id, force)? {
+                    crate::output::success(&serde_json::json!({"status": "ok"}));
+                }
+                Ok(())
             }
             ProjectCommands::Column(cmd) => match cmd {
                 ColumnCommands::List { project } => {
@@ -3415,7 +3489,14 @@ pub fn run() -> Result<(), String> {
             crate::output::success(&data);
             Ok(())
         }
-        Commands::Init { local, force } => crate::config::init(local, force),
+        Commands::Mcp { http, host, port } => {
+            crate::mcp::run(crate::mcp::McpOptions { http, host, port })
+        }
+        Commands::Init { local, force } => {
+            let path = crate::config::init(local, force)?;
+            crate::output::success(&serde_json::json!({"path": path.display().to_string()}));
+            Ok(())
+        }
         Commands::Completions { shell } => {
             clap_complete::generate(
                 shell,

@@ -1,6 +1,10 @@
 use super::v2;
 
-const MS_BASE_URL: &str = "https://ms.ticktick.com";
+const DEFAULT_MS_BASE_URL: &str = "https://ms.ticktick.com";
+
+fn ms_base_url() -> String {
+    super::env_url("TICKTICK_MS_BASE", DEFAULT_MS_BASE_URL)
+}
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 // ---------------------------------------------------------------------------
@@ -116,11 +120,13 @@ pub fn focus_op(ops: &[serde_json::Value]) -> Result<serde_json::Value, String> 
         "opList": ops,
     });
 
+    let ms_base = ms_base_url();
     if crate::output::verbose() >= 1 {
-        eprintln!("> POST {MS_BASE_URL}/focus/batch/focusOp");
+        eprintln!("> POST {ms_base}/focus/batch/focusOp");
     }
 
-    let resp = ureq::post(&format!("{MS_BASE_URL}/focus/batch/focusOp"))
+    let resp = super::agent()
+        .post(&format!("{ms_base}/focus/batch/focusOp"))
         .set("User-Agent", USER_AGENT)
         .set("x-device", &x_device)
         .set("Cookie", &format!("t={token}"))

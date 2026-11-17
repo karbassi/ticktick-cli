@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+use super::task::{system_zone, today_in};
 use super::v2;
+use jiff::tz::TimeZone;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Habit {
     pub id: String,
+    #[serde(default, deserialize_with = "super::null_as_empty")]
     pub name: String,
     #[serde(default)]
     pub icon_res: Option<String>,
@@ -124,12 +127,40 @@ impl HabitFields {
     }
 }
 
-/// List all habits.
-pub fn list() -> Result<Vec<Habit>, String> {
+fn raw_list() -> Result<Vec<serde_json::Value>, String> {
     let token = v2::get_session_token()?;
     let resp = v2::v2_get("/habits", &token)?;
     resp.into_json()
         .map_err(|e| format!("failed to parse habits: {e}"))
+}
+
+fn parse(raw: &[serde_json::Value]) -> Result<Vec<Habit>, String> {
+    serde_json::from_value(serde_json::Value::Array(raw.to_vec()))
+        .map_err(|e| format!("failed to parse habits: {e}"))
+}
+
+/// List all habits.
+pub fn list() -> Result<Vec<Habit>, String> {
+    parse(&raw_list()?)
+}
+
+/// The full record each query names, from one fetch. v2 updates replace the
+/// whole habit, so edits go onto these.
+pub fn resolve_records(
+    queries: &[String],
+) -> Result<Vec<Result<serde_json::Value, String>>, String> {
+    let raw = raw_list()?;
+    let habits = parse(&raw)?;
+    Ok(queries
+        .iter()
+        .map(|q| {
+            let (id, _) = match_habit(q, &habits)?;
+            raw.iter()
+                .find(|h| h["id"] == id.as_str())
+                .cloned()
+                .ok_or_else(|| format!("no habit found matching '{q}'"))
+        })
+        .collect())
 }
 
 /// List all habit sections.
@@ -250,13 +281,12 @@ pub fn delete(ids: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Update a habit.
-pub fn update(id: &str, etag: &str, fields: &HabitFields) -> Result<serde_json::Value, String> {
+/// Update a habit, given its full record from [`resolve_records`].
+pub fn update(
+    mut habit: serde_json::Value,
+    fields: &HabitFields,
+) -> Result<serde_json::Value, String> {
     let token = v2::get_session_token()?;
-    let mut habit = serde_json::json!({
-        "id": id,
-        "etag": etag,
-    });
     fields.apply_to(&mut habit);
     let body = serde_json::json!({ "update": [habit] });
     let resp = v2::v2_post("/habits/batch", &token, &body)?;
@@ -294,8 +324,10 @@ pub fn query_checkins(habit_ids: &[String], after_stamp: i64) -> Result<serde_js
 
 /// Resolve a habit name or ID to (id, etag).
 pub fn resolve_id(name_or_id: &str) -> Result<(String, String), String> {
-    let habits = list()?;
+    match_habit(name_or_id, &list()?)
+}
 
+fn match_habit(name_or_id: &str, habits: &[Habit]) -> Result<(String, String), String> {
     // If it looks like an ID (long hex string), find by ID
     if name_or_id.len() >= 20
         && name_or_id.chars().all(|c| c.is_ascii_hexdigit())
@@ -359,73 +391,48 @@ pub fn resolve_id(name_or_id: &str) -> Result<(String, String), String> {
 /// Convert a date string to a stamp integer (YYYYMMDD).
 /// Accepts: "YYYY-MM-DD", "today", "yesterday".
 pub fn date_to_stamp(input: &str) -> Result<i64, String> {
+    date_to_stamp_in(input, || Ok(system_zone()))
+}
+
+/// Like [`date_to_stamp`], with "today" and "yesterday" taken in `zone()`.
+pub fn date_to_stamp_in(
+    input: &str,
+    zone: impl FnOnce() -> Result<TimeZone, String>,
+) -> Result<i64, String> {
     let trimmed = input.trim().to_lowercase();
 
-    let (year, month, day) = match trimmed.as_str() {
-        "today" => {
-            let (y, m, d) = local_today();
-            (y, m, d)
-        }
-        "yesterday" => {
-            let (y, m, d) = local_today();
-            sub_day(y, m, d)
-        }
+    let date = match trimmed.as_str() {
+        "today" => today_in(&zone()?),
+        "yesterday" => today_in(&zone()?).yesterday().map_err(|e| e.to_string())?,
         _ => {
             let parts: Vec<&str> = trimmed.split('-').collect();
             if parts.len() != 3 {
                 return Err(format!(
-                    "invalid date '{input}': expected YYYY-MM-DD, 'today', or 'yesterday'"
+                    "Invalid date '{input}': expected YYYY-MM-DD, 'today', or 'yesterday'"
                 ));
             }
-            let year: i32 = parts[0]
-                .parse()
-                .map_err(|_| format!("invalid year in '{input}'"))?;
-            let month: u32 = parts[1]
-                .parse()
-                .map_err(|_| format!("invalid month in '{input}'"))?;
-            let day: u32 = parts[2]
-                .parse()
-                .map_err(|_| format!("invalid day in '{input}'"))?;
+            let nums: Result<Vec<i64>, _> = parts.iter().map(|p| p.trim().parse::<i64>()).collect();
+            let Ok(nums) = nums else {
+                return Err(format!("Invalid date '{input}': non-numeric components"));
+            };
+            let (year, month, day) = (nums[0], nums[1], nums[2]);
             if !(1..=12).contains(&month) {
-                return Err(format!("month out of range in '{input}'"));
+                return Err(format!("Month out of range in '{input}'"));
             }
             if !(1..=31).contains(&day) {
-                return Err(format!("day out of range in '{input}'"));
+                return Err(format!("Day out of range in '{input}'"));
             }
-            (year, month, day)
+            let real = i16::try_from(year)
+                .ok()
+                .and_then(|y| jiff::civil::Date::new(y, month as i8, day as i8).ok());
+            let Some(date) = real else {
+                return Err(format!("Invalid date '{input}': no such calendar day"));
+            };
+            date
         }
     };
 
-    Ok(year as i64 * 10000 + month as i64 * 100 + day as i64)
-}
-
-/// Returns today's local date as (year, month, day).
-fn local_today() -> (i32, u32, u32) {
-    use std::mem::MaybeUninit;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as libc::time_t;
-
-    let mut tm = unsafe { MaybeUninit::<libc::tm>::zeroed().assume_init() };
-    unsafe { libc::localtime_r(&now, &mut tm) };
-
-    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
-}
-
-/// Subtract one day from the given date.
-fn sub_day(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
-    if day > 1 {
-        (year, month, day - 1)
-    } else if month > 1 {
-        let prev_month = month - 1;
-        let d = super::task::days_in_month(year, prev_month);
-        (year, prev_month, d)
-    } else {
-        (year - 1, 12, 31)
-    }
+    Ok(i64::from(date.year()) * 10000 + i64::from(date.month()) * 100 + i64::from(date.day()))
 }
 
 // ---------------------------------------------------------------------------
@@ -537,21 +544,8 @@ mod tests {
         assert!(date_to_stamp("").is_err());
         assert!(date_to_stamp("2026-13-01").is_err());
         assert!(date_to_stamp("2026-00-01").is_err());
-    }
-
-    #[test]
-    fn sub_day_normal() {
-        assert_eq!(sub_day(2026, 2, 18), (2026, 2, 17));
-    }
-
-    #[test]
-    fn sub_day_first_of_month() {
-        assert_eq!(sub_day(2026, 3, 1), (2026, 2, 28));
-        assert_eq!(sub_day(2024, 3, 1), (2024, 2, 29)); // leap year
-    }
-
-    #[test]
-    fn sub_day_first_of_year() {
-        assert_eq!(sub_day(2026, 1, 1), (2025, 12, 31));
+        assert!(date_to_stamp("2026-02-30").is_err());
+        assert!(date_to_stamp("2025-02-29").is_err());
+        assert_eq!(date_to_stamp("2024-02-29").unwrap(), 20240229);
     }
 }

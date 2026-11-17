@@ -3,7 +3,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 const AUTH_URL: &str = "https://ticktick.com/oauth/authorize";
-const TOKEN_URL: &str = "https://ticktick.com/oauth/token";
+const DEFAULT_TOKEN_URL: &str = "https://ticktick.com/oauth/token";
+
+fn token_url() -> String {
+    super::env_url("TICKTICK_OAUTH_TOKEN_URL", DEFAULT_TOKEN_URL)
+}
 const SCOPE: &str = "tasks:read tasks:write";
 
 fn redirect_uri() -> String {
@@ -32,10 +36,13 @@ pub fn login() -> Result<(), String> {
 
     let token = exchange_code(&code, &env.client_id, &env.client_secret)?;
 
-    let mut cfg = config::load();
-    cfg.access_token = Some(token.access_token);
-    cfg.refresh_token = token.refresh_token;
-    config::save(&cfg)?;
+    config::update(|cfg| {
+        cfg.access_token = Some(token.access_token);
+        cfg.refresh_token = token.refresh_token;
+        // They may belong to the account logged in before.
+        cfg.inbox_project_id = None;
+        cfg.account_timezone = None;
+    })?;
 
     eprintln!("Successfully authenticated!");
     Ok(())
@@ -113,7 +120,8 @@ fn exchange_code(
 
     let auth = base64_encode(&format!("{client_id}:{client_secret}"));
 
-    let resp = ureq::post(TOKEN_URL)
+    let resp = super::agent()
+        .post(&token_url())
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)
@@ -133,7 +141,11 @@ pub fn refresh_token(refresh_token: &str) -> Result<(String, Option<String>), St
 
     let auth = base64_encode(&format!("{}:{}", env.client_id, env.client_secret));
 
-    let resp = ureq::post(TOKEN_URL)
+    // An overall deadline, so a trickling response can't hold the refresh
+    // lock that every other request's 401 waits on.
+    let resp = super::agent()
+        .post(&token_url())
+        .timeout(std::time::Duration::from_secs(super::timeout_secs()))
         .set("Authorization", &format!("Basic {auth}"))
         .set("Content-Type", "application/x-www-form-urlencoded")
         .send_string(&body)

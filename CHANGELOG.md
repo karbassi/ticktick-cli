@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktick-cli mcp` runs an MCP server over stdio (default) or streamable HTTP (`--http`, `--host`, `--port`; serves `/mcp`). It is a drop-in replacement for the Python `ticktick-mcp` server: all 57 tools plus the `ticktick://projects`, `tags`, `settings` and `profile` resources, with tool names, parameter names, required parameters and JSON types checked by `tests/mcp_contract.rs` against the Python server's tool list.
+- Like FastMCP's lax validation, tool parameters accept numeric strings, integral floats, `1`/`0`, `"yes"`/`"no"`, `"on"`/`"off"`, `"t"`/`"f"`, `"y"`/`"n"` and booleans where the schema wants a number or boolean. An unknown tool name is an `isError` result ("Unknown tool: 'x'"), not a protocol error.
+- The HTTP transport binds loopback only, because it has no auth. It checks `Host` and `Origin` the way FastMCP does: loopback hosts on any port, loopback Origins when the Host is loopback, same-origin requests (honoring `X-Forwarded-Proto` from a loopback proxy), plus `FASTMCP_HTTP_ALLOWED_HOSTS` and `FASTMCP_HTTP_ALLOWED_ORIGINS` (JSON arrays; ports ignored, `*` globs allowed). A disallowed Host gets 421; an empty `Origin` is ignored. Env fallbacks: `TICKTICK_MCP_TRANSPORT`, `TICKTICK_MCP_HOST`, `TICKTICK_MCP_PORT`. `--host`/`--port` with the stdio transport are an error.
+- HTTP sessions expire after 30 minutes idle; `TICKTICK_MCP_SESSION_TIMEOUT` sets it in seconds. On SIGTERM or SIGINT the server stops accepting connections, lets in-flight calls finish for up to 5s, then closes open streams and exits; a second signal exits at once. `notifications/cancelled` stops a multi-request tool before its next API request. SIGPIPE is ignored.
+- `TICKTICK_TIMEZONE` (IANA name) sets the MCP server's zone for dates given without a `timezone`, including "today"/"tomorrow". Default is the system zone, like the Python server; config.json's `account_timezone` is not used.
+- `TICKTICK_API_BASE`, `TICKTICK_V2_BASE`, `TICKTICK_MS_BASE` and `TICKTICK_OAUTH_TOKEN_URL` override the API endpoints, for tests against a mock server. Defaults are unchanged.
+- Where the MCP server intentionally differs from the Python server:
+  - `list_events` returns a tool error (`isError`) with the real message, such as the missing v2 session token hint. The Python server returns `[]` on any error.
+  - `complete_task` with several IDs keeps going past a failed batch request and reports it, e.g. `Completed 70 of 120 tasks; not completed: …; chunk 2 failed: …`. It is a tool error only when no task was completed.
+  - `assign_task` adds the "assignee must be a member" hint only for 403 and 500 (what a non-member username returns). The Python server adds it to every HTTP error.
+  - `add_task` with `start` and `all_day=true` but no `due` sends `isAllDay` and the all-day reminder. The Python server ignores `all_day` there.
+  - Tools that take several habit, filter, folder or habit-section names fetch the list once per call, not once per name. Habit, filter and folder IDs skip the fetch unless an etag is needed (`archive_habits`). `focus_log` fetches its two focus types concurrently.
+
+### Changed
+
+- Where credentials come from now decides all account state. An access token from the environment or `./.env` takes its refresh token (`TICKTICK_REFRESH_TOKEN`) and v2 cookie (`TICKTICK_V2_SESSION_TOKEN`) from the environment or `.env` only, never from config.json; its refreshed token is kept in memory, its inbox ID is cached in config.json under a fingerprint of that token, and config.json's `account_timezone` is neither read nor written. With config.json's login, `TICKTICK_V2_SESSION_TOKEN` still wins over config.json's cookie. `TICKTICK_ACCESS_TOKEN` no longer needs `TICKTICK_CLIENT_ID` and `TICKTICK_CLIENT_SECRET` to be used.
+- `.env` and the process environment are merged per key (the environment wins), and `.env` may also hold `TICKTICK_REFRESH_TOKEN` and `TICKTICK_V2_SESSION_TOKEN`.
+- `login` clears the cached inbox ID and account timezone.
+- config.json writes take an advisory lock on `config.json.lock`, so the CLI and a running `mcp` server don't overwrite each other's changes. A token refreshed from config.json is written back only if config.json still holds the refresh token that was used, so a `login` from another process wins.
+- v2 error hints name `TICKTICK_V2_SESSION_TOKEN`, and a v2 403 says the feature requires TickTick Premium. MCP 401 messages match the Python server's and don't mention CLI commands. An expired env access token's hint names the env vars instead of `login`.
+- UTC offsets now come from the `jiff` tz database instead of temporarily setting `TZ` (not thread-safe). An unknown `--tz`/`timezone` or an impossible date such as `2026-02-30` is now an error; before, it was silently sent with a UTC or normalized offset. `timeZone` is sent in canonical form (`america/chicago` becomes `America/Chicago`), and file paths and `Etc/Unknown` are rejected.
+- `--tz` also decides the date for "today"/"tomorrow", and is no longer cached as the account timezone.
+- HTTP requests time out after 10s to connect and 30s per read or write (`TICKTICK_HTTP_TIMEOUT_SECS`), and the token refresh also has a 30s overall deadline. DNS lookup is not bounded.
+- Habit date errors are capitalized, and the per-field "invalid year/month/day" messages are merged into one "non-numeric components" message.
+- CLI `task assign` adds the "assignee must be a member" hint only for 403 and 500.
+
+### Fixed
+
+- Editing or archiving a habit, and editing a filter, no longer wipes the fields you didn't change (a habit's name and color, a filter's name and rule). TickTick's v2 batch update replaces the whole record, so the CLI and the MCP tools now send the full record with the changes applied. The Python server has the same bug.
+- `habit list` and `filter list` no longer fail on a record whose name is `null`.
+- Answering "n" at a delete confirmation now cancels the delete. Before, task, comment, tag, folder, habit, habit section and filter deletes went ahead anyway.
+- A blank `TICKTICK_ACCESS_TOKEN` or empty `.env` value no longer overrides config.json.
+- A config.json that fails to parse is no longer overwritten with defaults; saves report the parse error.
+- The config temp file is created 0600 with a unique name, and stale temp files are removed.
+- One v2 device ID per process when config.json can't be written.
+- A huge `--duration`/`duration` is an error instead of a panic or wrapped date.
+- `task list` and `--dry-run` no longer create and delete an inbox probe task; `task list` includes the inbox when its ID is cached. A probe task that can't be deleted is reported.
+- An empty or invalid account timezone echoed by TickTick is no longer cached.
+
 ## [1.0.0-rc.3]
 
 ### Added
