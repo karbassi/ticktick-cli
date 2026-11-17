@@ -255,10 +255,9 @@ impl McpClient {
                     .join("")
             })
             .unwrap_or_default();
-        ToolCall {
-            is_error: result["isError"].as_bool().unwrap_or(false),
-            text,
-        }
+        let is_error = result["isError"].as_bool().unwrap_or(false);
+        check_structured(name, is_error, &text, &result["structuredContent"]);
+        ToolCall { is_error, text }
     }
 
     pub fn list_resources(&mut self) -> Vec<Value> {
@@ -527,4 +526,41 @@ fn dechunk(mut body: &str) -> String {
         body = rest[n..].strip_prefix("\r\n").unwrap_or(&rest[n..]);
     }
     out
+}
+
+/// FastMCP's output schemas, as the server declares them.
+pub fn output_schemas() -> serde_json::Map<String, Value> {
+    let raw = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/mcp/output_schemas.json"
+    ))
+    .unwrap();
+    serde_json::from_str(&raw).unwrap()
+}
+
+/// Every successful call of a tool with an output schema carries the
+/// `structuredContent` FastMCP would send; other calls carry none.
+fn check_structured(name: &str, is_error: bool, text: &str, structured: &Value) {
+    let schemas = output_schemas();
+    let Some(schema) = schemas.get(name).filter(|_| !is_error) else {
+        assert!(
+            structured.is_null(),
+            "{name}: unexpected structuredContent {structured}"
+        );
+        return;
+    };
+    let expected = if schema["x-fastmcp-wrap-result"] == true {
+        if schema["properties"]["result"]["type"] == "string" {
+            json!({"result": text})
+        } else {
+            let v: Value = serde_json::from_str(text).unwrap();
+            assert!(v.is_array(), "{name}: expected a list, got {text}");
+            json!({"result": v})
+        }
+    } else {
+        let v: Value = serde_json::from_str(text).unwrap();
+        assert!(v.is_object(), "{name}: expected an object, got {text}");
+        v
+    };
+    assert_eq!(structured, &expected, "{name}: structuredContent");
 }

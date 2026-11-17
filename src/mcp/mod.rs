@@ -21,7 +21,7 @@ use http_body::{Frame, SizeHint};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, Implementation, ListResourcesResult,
+    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, ListResourcesResult,
     PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult,
     Resource, ResourceContents, ServerCapabilities, ServerConfig,
 };
@@ -121,6 +121,28 @@ fn py_repr(s: &str) -> String {
     out
 }
 
+/// Successful calls of a tool with an output schema carry `structuredContent`,
+/// as MCP requires. A result that doesn't fit the schema becomes a tool error
+/// rather than a response the client would reject.
+fn add_structured(schema: &rmcp::model::JsonObject, result: &mut CallToolResult) {
+    if result.is_error == Some(true) || result.structured_content.is_some() {
+        return;
+    }
+    let text: String = result
+        .content
+        .iter()
+        .filter_map(|c| c.as_text().map(|t| t.text.as_str()))
+        .collect();
+    match tools::structured(schema, &text) {
+        Some(value) => result.structured_content = Some(value),
+        None => {
+            *result = util::tool_error(format!(
+                "internal error: tool output does not match its output schema: {text}"
+            ));
+        }
+    }
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for TickTickServer {
     fn get_info(&self) -> ServerConfig {
@@ -150,13 +172,18 @@ impl ServerHandler for TickTickServer {
         if let Some(args) = request.arguments.as_mut() {
             coerce::coerce_arguments(&tool.input_schema, args);
         }
+        let output_schema = tool.output_schema.clone();
         let ct = context.ct.clone();
-        util::cancellable(
+        let mut response = util::cancellable(
             move || ct.is_cancelled(),
             self.tool_router
                 .call(ToolCallContext::new(self, request, context)),
         )
-        .await
+        .await?;
+        if let (Some(schema), CallToolResponse::Complete(result)) = (output_schema, &mut response) {
+            add_structured(&schema, result);
+        }
+        Ok(response)
     }
 
     async fn list_resources(
