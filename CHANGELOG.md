@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.6]
+
 ### Fixed
 
 - `project get inbox` and the MCP `get_project` with `"inbox"` return `{"id": <inbox id>, "name": "Inbox", "kind": "TASK", "viewMode": "list"}` instead of failing with a 404: the v1 API has no project record for the inbox. The Python server still returns the 404.
