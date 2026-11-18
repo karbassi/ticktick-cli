@@ -192,6 +192,19 @@ pub fn resolve_id(name_or_id: &str) -> Result<String, String> {
 }
 
 pub fn get_by_id(project_id: &str) -> Result<Project, String> {
+    // The v1 API has no project record for the inbox (404).
+    if project_id.starts_with("inbox") {
+        return Ok(Project {
+            id: project_id.to_string(),
+            name: "Inbox".to_string(),
+            color: None,
+            sort_order: 0,
+            closed: false,
+            group_id: None,
+            view_mode: Some("list".to_string()),
+            kind: Some("TASK".to_string()),
+        });
+    }
     let token = config::get_access_token()?;
     let resp = super::get(&format!("/project/{project_id}"), &token)?;
 

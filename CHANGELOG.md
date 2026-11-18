@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `project get inbox` and the MCP `get_project` with `"inbox"` return `{"id": <inbox id>, "name": "Inbox", "kind": "TASK", "viewMode": "list"}` instead of failing with a 404: the v1 API has no project record for the inbox. The Python server still returns the 404.
+- `habit list` (and `habit edit`/`archive` by name) no longer fail with "invalid type: integer, expected a string" on habits whose `targetStartDate` is a number, which is how the v2 API sends it.
+
 ## [1.0.0-rc.5]
 
 ### Fixed

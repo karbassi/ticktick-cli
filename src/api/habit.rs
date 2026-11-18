@@ -48,7 +48,7 @@ pub struct Habit {
     #[serde(default)]
     pub target_days: Option<i32>,
     #[serde(default)]
-    pub target_start_date: Option<String>,
+    pub target_start_date: Option<serde_json::Value>,
     #[serde(default)]
     pub completed_cycles: Option<i32>,
     #[serde(default)]
