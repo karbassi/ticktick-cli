@@ -1277,3 +1277,21 @@ fn a_broken_stdout_does_not_kill_the_server_but_still_ends_cli_output() {
     let cli = run_with_broken_stdout(&["completions", "bash"], "");
     assert_eq!(cli.signal(), Some(libc::SIGPIPE), "{cli:?}");
 }
+
+#[test]
+fn get_project_inbox_needs_no_project_record() {
+    let server = MockServer::start();
+    let any = server.mock(|when, then| {
+        when.any_request();
+        then.status(404);
+    });
+    let mut c = common::start(&server);
+    let res = c
+        .call_tool("get_project", json!({"project": "inbox123"}))
+        .ok();
+    assert_eq!(
+        res.json(),
+        json!({"id": "inbox123", "name": "Inbox", "kind": "TASK", "viewMode": "list"})
+    );
+    any.assert_calls(0);
+}

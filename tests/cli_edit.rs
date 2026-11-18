@@ -157,3 +157,40 @@ fn lists_survive_a_record_with_a_null_name() {
         );
     }
 }
+
+#[test]
+fn habit_list_accepts_a_numeric_target_start_date() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v2/habits");
+        then.status(200)
+            .json_body(json!([{"id": "h1", "name": "Read", "targetStartDate": 20190525}]));
+    });
+    let out = run(&server, &["habit", "list"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let habits: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(habits[0]["targetStartDate"], 20190525);
+}
+
+#[test]
+fn project_get_inbox_needs_no_project_record() {
+    let server = MockServer::start();
+    let any = server.mock(|when, then| {
+        when.any_request();
+        then.status(404);
+    });
+    let out = run(&server, &["project", "get", "inbox123"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let project: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(project["id"], "inbox123");
+    assert_eq!(project["name"], "Inbox");
+    any.assert_calls(0);
+}

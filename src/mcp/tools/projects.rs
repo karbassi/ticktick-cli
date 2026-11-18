@@ -85,6 +85,10 @@ impl TickTickServer {
     async fn get_project(&self, Parameters(p): Parameters<ProjectParams>) -> ToolResult {
         run(move || {
             let pid = resolve_project_id(&p.project)?;
+            // The v1 API has no project record for the inbox (404).
+            if pid.starts_with("inbox") {
+                return Ok(json!({"id": pid, "name": "Inbox", "kind": "TASK", "viewMode": "list"}));
+            }
             util::v1_get(&format!("/project/{pid}"))
         })
         .await
