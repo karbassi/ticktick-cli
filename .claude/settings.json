@@ -12,6 +12,6 @@
   },
   "enabledPlugins": {
     "ralph-loop@claude-plugins-official": true,
-    "github@karbassi-claude-plugins": true
+    "github@karbassi": true
   }
 }
